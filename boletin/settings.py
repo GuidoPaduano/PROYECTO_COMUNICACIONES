@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import dj_database_url  # 👉 Asegurate de tenerlo en requirements.txt
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -53,11 +54,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'boletin.wsgi.application'
 
+# Base de datos PostgreSQL desde Railway
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=os.environ.get('DATABASE_URL'),
+        conn_max_age=600,
+        ssl_require=True
+    )
 }
 
 AUTH_PASSWORD_VALIDATORS = []
@@ -69,8 +72,7 @@ USE_TZ = True
 
 # Archivos estáticos
 STATIC_URL = '/static/'
-STATIC_ROOT = STATIC_ROOT = str(BASE_DIR / "staticfiles")
-
+STATIC_ROOT = str(BASE_DIR / "staticfiles")
 
 # Usar Whitenoise para producción (sirve archivos estáticos desde STATIC_ROOT)
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
