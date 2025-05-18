@@ -232,3 +232,6 @@ def crear_evento(request):
             return JsonResponse({'success': False, 'errors': form.errors}, status=400)
 
     return JsonResponse({'error': 'Método no permitido'}, status=405)
+
+#FORZAR REDEPLOY#
+
