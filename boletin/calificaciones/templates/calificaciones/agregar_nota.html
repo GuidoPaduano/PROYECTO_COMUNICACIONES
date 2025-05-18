@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>Agregar Nota</h1>
+
+    <form method="get">
+        <label>Curso:</label>
+        <select name="curso" onchange="this.form.submit()">
+            <option value="">-- Seleccionar Curso --</option>
+            {% for codigo, nombre in cursos %}
+                <option value="{{ codigo }}" {% if codigo == curso_seleccionado %}selected{% endif %}>
+                    {{ nombre }}
+                </option>
+            {% endfor %}
+        </select>
+    </form>
+
+    {% if curso_seleccionado %}
+    <form method="post">
+        {% csrf_token %}
+
+        <label>Alumno:</label>
+        <select name="alumno" required>
+            {% for alumno in alumnos %}
+                <option value="{{ alumno.id_alumno }}">{{ alumno.nombre }}</option>
+            {% endfor %}
+        </select><br>
+
+        <label>Materia:</label>
+        <select name="materia" required>
+            {% for materia in materias %}
+                <option value="{{ materia }}">{{ materia }}</option>
+            {% endfor %}
+        </select><br>
+
+        <label>Tipo de Nota:</label>
+        <input type="text" name="tipo" required><br>
+
+        <label>Calificación:</label>
+        <select name="calificacion" required>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="TEA">TEA</option>
+            <option value="TEP">TEP</option>
+            <option value="TED">TED</option>
+        </select><br>
+
+        <input type="submit" value="Guardar Nota">
+    </form>
+    {% endif %}
+
+    <a href="/">Volver</a>
+</body>
+</html>
+
+
+
+
+

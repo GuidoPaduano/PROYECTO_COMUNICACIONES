@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>Boletín de Calificaciones</h1>
+    <p>Bienvenido, {{ user.username }} | 
+        <form method="post" action="{% url 'logout' %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit">Cerrar Sesión</button>
+        </form>
+    </p>
+
+    {% if user.groups.all.0.name == 'Padres' %}
+        <p>Estás viendo las notas de tu(s) hijo(s).</p>
+        <a href="{% url 'ver_notas' %}">📘 Ver Notas</a><br>
+        <a href="{% url 'historial_notas_padre' %}">📚 Historial de Notas</a><br>
+        <a href="{% url 'ver_mensajes' %}">✉️ Ver Mensajes</a><br>
+        <a href="{% url 'calendario' %}">📅 Ver Calendario Escolar</a><br>
+
+    {% elif user.groups.all.0.name == 'Profesores' or user.is_superuser %}
+        <p>Estás gestionando todos los alumnos.</p>
+        <a href="{% url 'agregar_nota' %}">➕ Nueva Nota</a><br>
+        <a href="{% url 'enviar_mensaje' %}">✉️ Enviar Mensaje Individual</a><br>
+        <a href="{% url 'enviar_comunicado' %}">📢 Enviar Comunicado Grupal</a><br>
+        <a href="{% url 'calendario' %}">📅 Ver Calendario Escolar</a><br>
+    {% endif %}
+</body>
+</html>
+
+
+
+
+
+
+
+
+

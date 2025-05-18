@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>Mensajes Recibidos</h1>
+    <ul>
+        {% for mensaje in mensajes %}
+            <li>
+                <strong>{{ mensaje.asunto }}</strong> - de {{ mensaje.emisor.get_full_name|default:mensaje.emisor.username }} <br>
+                {{ mensaje.contenido }} <br>
+                <em>
+                    {{ mensaje.fecha_envio|date:"d/m/Y" }}
+                    {% if mensaje.curso_asociado %}
+                        - Curso: {{ mensaje.curso_asociado }}
+                    {% endif %}
+                </em>
+            </li>
+        {% empty %}
+            <li>No tenés mensajes.</li>
+        {% endfor %}
+    </ul>
+    <a href="/">Volver</a>
+</body>
+</html>
+
+
+

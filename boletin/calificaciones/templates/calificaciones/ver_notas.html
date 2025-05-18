@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>Notas del Alumno</h1>
+
+    {% for alumno, notas in datos %}
+        <h2>{{ alumno.nombre }} - Curso: {{ alumno.curso }}</h2>
+        {% if notas %}
+            <table border="1" cellpadding="5">
+                <tr>
+                    <th>Materia</th>
+                    <th>Tipo</th>
+                    <th>Calificación</th>
+                    <th>Fecha</th>
+                </tr>
+                {% for nota in notas %}
+                <tr>
+                    <td>{{ nota.materia }}</td>
+                    <td>{{ nota.tipo }}</td>
+                    <td>{{ nota.calificacion }}</td>
+                    <td>{{ nota.fecha|date:"d/m/Y" }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        {% else %}
+            <p>No hay notas registradas para este alumno.</p>
+        {% endif %}
+    {% endfor %}
+
+    <a href="/">Volver</a>
+</body>
+</html>
+

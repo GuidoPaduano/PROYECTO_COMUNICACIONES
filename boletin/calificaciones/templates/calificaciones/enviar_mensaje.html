@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>Enviar Mensaje</h1>
+
+    <form method="get">
+        <label>Curso:</label>
+        <select name="curso" onchange="this.form.submit()">
+            <option value="">-- Seleccionar curso --</option>
+            {% for cod, nombre in cursos %}
+                <option value="{{ cod }}" {% if curso_seleccionado == cod %}selected{% endif %}>
+                    {{ nombre }}
+                </option>
+            {% endfor %}
+        </select>
+    </form>
+
+    {% if curso_seleccionado %}
+        <form method="post">
+            {% csrf_token %}
+            <label>Alumno:</label>
+            <select name="alumno" required>
+                {% for alumno in alumnos %}
+                    <option value="{{ alumno.id_alumno }}">{{ alumno.nombre }}</option>
+                {% endfor %}
+            </select><br>
+            <label>Asunto:</label><br>
+            <input type="text" name="asunto" required><br>
+            <label>Contenido:</label><br>
+            <textarea name="contenido" rows="5" cols="40" required></textarea><br>
+            <input type="submit" value="Enviar">
+        </form>
+    {% endif %}
+
+    <a href="/">Volver</a>
+</body>
+</html>
+
+
+
+

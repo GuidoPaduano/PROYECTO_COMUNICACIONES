@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Historial de Notas</title>
+</head>
+<body>
+    <h1>Historial de Notas de {{ alumno.nombre }}</h1>
+
+    <form method="get">
+        <label for="materia">Seleccioná una materia:</label>
+        <select name="materia" id="materia" onchange="this.form.submit()">
+            <option value="">-- Elegí una materia --</option>
+            {% for materia in materias %}
+                <option value="{{ materia }}" {% if materia == materia_seleccionada %}selected{% endif %}>
+                    {{ materia }}
+                </option>
+            {% endfor %}
+        </select>
+    </form>
+
+    {% if notas %}
+        <h2>Notas de {{ materia_seleccionada }}</h2>
+        <ul>
+        {% for nota in notas %}
+            <li>Trimestre {{ nota.trimestre }} - {{ nota.tipo }}: {{ nota.calificacion }}</li>
+        {% endfor %}
+        </ul>
+    {% elif materia_seleccionada %}
+        <p>No hay notas registradas para esta materia.</p>
+    {% endif %}
+
+    <a href="/">Volver al inicio</a>
+</body>
+</html>

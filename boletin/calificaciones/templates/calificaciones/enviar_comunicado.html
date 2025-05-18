@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>Enviar Comunicado a un Curso</h1>
+
+    <form method="post">
+        {% csrf_token %}
+        <label>Curso:</label>
+        <select name="curso" required>
+            <option value="">-- Seleccionar curso --</option>
+            {% for cod, nombre in cursos %}
+                <option value="{{ cod }}">{{ nombre }}</option>
+            {% endfor %}
+        </select><br>
+
+        <label>Asunto:</label><br>
+        <input type="text" name="asunto" required><br>
+
+        <label>Contenido:</label><br>
+        <textarea name="contenido" rows="5" cols="40" required></textarea><br>
+
+        <input type="submit" value="Enviar Comunicado">
+    </form>
+
+    <a href="/">Volver</a>
+</body>
+</html>
+
+
