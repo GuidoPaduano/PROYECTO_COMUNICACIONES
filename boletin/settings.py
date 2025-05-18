@@ -10,8 +10,11 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-+*^tqw7091lf!2
 # DEBUG desde variable de entorno (por defecto True para desarrollo)
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-# ALLOWED_HOSTS desde entorno o abierto (esto puede limitarse si querés)
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+# ALLOWED_HOSTS desde entorno o valores seguros por defecto
+ALLOWED_HOSTS = os.environ.get(
+    'ALLOWED_HOSTS',
+    'proyectocomunicaciones-production.up.railway.app,localhost,127.0.0.1'
+).split(',')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
