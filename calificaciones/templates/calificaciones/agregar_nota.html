@@ -34,7 +34,13 @@
         </select><br>
 
         <label>Tipo de Nota:</label>
-        <input type="text" name="tipo" required><br>
+<select name="tipo" required>
+    <option value="evaluacion">Evaluación</option>
+    <option value="tp">Trabajo Práctico</option>
+    <option value="oral">Oral</option>
+    <option value="recuperatorio">Recuperatorio</option>
+</select><br>
+
 
         <label>Calificación:</label>
         <select name="calificacion" required>
@@ -53,6 +59,12 @@
             <option value="TED">TED</option>
         </select><br>
 
+        <label>Cuatrimestre:</label>
+        <select name="cuatrimestre" required>
+            <option value="1">1er cuatrimestre</option>
+            <option value="2">2do cuatrimestre</option>
+        </select><br>
+
         <input type="submit" value="Guardar Nota">
     </form>
     {% endif %}
@@ -60,8 +72,3 @@
     <a href="/">Volver</a>
 </body>
 </html>
-
-
-
-
-
