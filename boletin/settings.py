@@ -1,6 +1,10 @@
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 import dj_database_url  # 👉 Asegurate de tenerlo en requirements.txt
+
+# ⚠️ Cargar el archivo .env antes de usar cualquier os.environ
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -66,6 +70,15 @@ DATABASES = {
     )
 }
 
+# Verificación de configuración para entorno local
+if 'ENGINE' not in DATABASES['default']:
+    raise Exception(
+        "La variable de entorno DATABASE_URL no está definida o es inválida.\n"
+        "Exportala en tu entorno local o cargala desde un archivo .env antes de correr el servidor.\n\n"
+        "Windows (cmd):   set DATABASE_URL=postgres://usuario:contraseña@host:puerto/dbname\n"
+        "Git Bash / Linux: export DATABASE_URL=postgres://usuario:contraseña@host:puerto/dbname"
+    )
+
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'en-us'
@@ -88,4 +101,3 @@ LOGIN_URL = '/accounts/login/'
 
 # Para evitar errores CSRF en producción
 CSRF_TRUSTED_ORIGINS = ['https://proyectocomunicaciones-production.up.railway.app']
-

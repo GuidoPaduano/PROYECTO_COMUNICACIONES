@@ -24,10 +24,23 @@ class Nota(models.Model):
         ("TEA", "TEA"), ("TEP", "TEP"), ("TED", "TED")
     ]
 
+    CUATRIMESTRE_CHOICES = [
+        (1, "1er cuatrimestre"),
+        (2, "2do cuatrimestre")
+    ]
+
+    TIPO_NOTA_CHOICES = [
+        ("evaluacion", "Evaluación"),
+        ("tp", "Trabajo Práctico"),
+        ("oral", "Oral"),
+        ("recuperatorio", "Recuperatorio"),
+    ]
+
     alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE)
     materia = models.CharField(max_length=50)
-    tipo = models.CharField(max_length=50)
+    tipo = models.CharField(max_length=20, choices=TIPO_NOTA_CHOICES)
     calificacion = models.CharField(max_length=3, choices=CALIFICACION_CHOICES)
+    cuatrimestre = models.IntegerField(choices=CUATRIMESTRE_CHOICES, default=1)
     fecha = models.DateField(auto_now_add=True)
 
     def __str__(self):

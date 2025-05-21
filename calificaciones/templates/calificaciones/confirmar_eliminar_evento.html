@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+    <h2>¿Eliminar Evento?</h2>
+    <p>¿Estás seguro de que querés eliminar el evento: <strong>{{ evento.titulo }}</strong>?</p>
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+        <a href="{% url 'calendario' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %}

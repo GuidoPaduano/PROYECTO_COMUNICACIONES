@@ -1,0 +1,15 @@
+<form method="post" id="formEditarEvento">
+    {% csrf_token %}
+    <div class="modal-header">
+        <h5 class="modal-title">Editar Evento</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+    </div>
+    <div class="modal-body">
+        {{ form.as_p }}
+    </div>
+    <div class="modal-footer">
+        <button type="submit" class="btn btn-success">Guardar Cambios</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    </div>
+</form>
+
