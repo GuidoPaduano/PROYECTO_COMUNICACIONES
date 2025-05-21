@@ -18,12 +18,26 @@
             z-index: 10001;
             background: rgba(0, 0, 0, 0.85);
             color: white;
-            padding: 6px 10px;
+            padding: 8px 12px;
             border-radius: 4px;
             font-size: 0.85em;
-            pointer-events: none;
-            white-space: nowrap;
-            display: none;
+            pointer-events: auto;
+            max-width: 300px;
+            white-space: normal;
+            word-wrap: break-word;
+            line-height: 1.5em;
+        }
+
+        .fc-tooltip a {
+            display: inline-block;
+            margin-right: 10px;
+            color: #0dcaf0;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .fc-tooltip a:last-child {
+            color: #dc3545;
         }
     </style>
 
@@ -39,8 +53,33 @@
                 if (info.event.extendedProps.description) {
                     const tooltip = document.createElement('div');
                     tooltip.className = 'fc-tooltip';
-                    tooltip.innerText = info.event.extendedProps.description;
+
+                    const descripcion = document.createElement('div');
+                    descripcion.innerText = info.event.extendedProps.description;
+
+                    const editarBtn = document.createElement('a');
+                    editarBtn.innerText = '✏️ Editar';
+                    editarBtn.setAttribute('data-id', info.event.id);
+                    editarBtn.setAttribute('data-title', info.event.title);
+                    editarBtn.setAttribute('data-start', info.event.startStr);
+                    editarBtn.setAttribute('data-description', info.event.extendedProps.description);
+                    editarBtn.setAttribute('data-curso', info.event.extendedProps.curso);
+                    editarBtn.setAttribute('data-tipo_evento', info.event.extendedProps.tipo_evento);
+                    editarBtn.setAttribute('data-bs-toggle', 'modal');
+                    editarBtn.setAttribute('data-bs-target', '#modalEditar');
+
+                    const eliminarBtn = document.createElement('a');
+                    eliminarBtn.href = `/eventos/eliminar/${info.event.id}/`;
+                    eliminarBtn.innerText = '🗑️ Eliminar';
+
+                    tooltip.appendChild(descripcion);
+                    tooltip.appendChild(document.createElement('br'));
+                    tooltip.appendChild(editarBtn);
+                    tooltip.appendChild(eliminarBtn);
+
                     document.body.appendChild(tooltip);
+
+                    let hideTimeout;
 
                     info.el.addEventListener('mouseenter', e => {
                         tooltip.style.left = (e.pageX + 10) + 'px';
@@ -54,6 +93,16 @@
                     });
 
                     info.el.addEventListener('mouseleave', () => {
+                        hideTimeout = setTimeout(() => {
+                            tooltip.style.display = 'none';
+                        }, 200);
+                    });
+
+                    tooltip.addEventListener('mouseenter', () => {
+                        clearTimeout(hideTimeout);
+                    });
+
+                    tooltip.addEventListener('mouseleave', () => {
                         tooltip.style.display = 'none';
                     });
                 }
@@ -62,30 +111,62 @@
 
         calendar.render();
 
-        const form = document.querySelector('#modalEvento form');
-        form.addEventListener('submit', function (e) {
+        const formCrear = document.querySelector('#modalEvento form');
+        formCrear.addEventListener('submit', function (e) {
             e.preventDefault();
-
             fetch("{% url 'crear_evento' %}", {
                 method: "POST",
                 headers: {
-                    "X-CSRFToken": form.querySelector('[name=csrfmiddlewaretoken]').value,
+                    "X-CSRFToken": formCrear.querySelector('[name=csrfmiddlewaretoken]').value,
                 },
-                body: new FormData(form),
+                body: new FormData(formCrear),
             })
             .then(response => {
                 if (!response.ok) throw response;
                 return response.json();
             })
             .then(data => {
-                const modal = bootstrap.Modal.getInstance(document.getElementById('modalEvento'));
-                modal.hide();
-                form.reset();
+                bootstrap.Modal.getInstance(document.getElementById('modalEvento')).hide();
+                formCrear.reset();
+                new bootstrap.Toast(document.getElementById('eventoToast'), { delay: 3000 }).show();
+                calendar.refetchEvents();
+            })
+            .catch(async error => {
+                const data = await error.json();
+                alert("Error: " + JSON.stringify(data.errors));
+            });
+        });
 
-                const toastElement = document.getElementById('eventoToast');
-                const toast = new bootstrap.Toast(toastElement, { delay: 3000 });
-                toast.show();
+        const modalEditar = document.getElementById('modalEditar');
+        modalEditar.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            modalEditar.querySelector('#editar-id').value = button.getAttribute('data-id');
+            modalEditar.querySelector('#editar-title').value = button.getAttribute('data-title');
+            modalEditar.querySelector('#editar-start').value = button.getAttribute('data-start');
+            modalEditar.querySelector('#editar-description').value = button.getAttribute('data-description');
+            modalEditar.querySelector('#editar-curso').value = button.getAttribute('data-curso');
+            modalEditar.querySelector('#editar-tipo_evento').value = button.getAttribute('data-tipo_evento');
+        });
 
+        document.getElementById('formEditarEvento').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const id = document.getElementById('editar-id').value;
+            const url = `/eventos/editar/${id}/`;
+            const data = new FormData(e.target);
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': data.get('csrfmiddlewaretoken'),
+                },
+                body: data,
+            })
+            .then(response => {
+                if (!response.ok) throw response;
+                return response.json();
+            })
+            .then(data => {
+                bootstrap.Modal.getInstance(modalEditar).hide();
                 calendar.refetchEvents();
             })
             .catch(async error => {
@@ -97,7 +178,6 @@
     </script>
 </head>
 <body class="p-4">
-
     <h1>🗕️ Calendario Escolar</h1>
 
     {% if user.groups.all.0.name == 'Profesores' or user.is_superuser %}
@@ -108,7 +188,7 @@
 
     <div id='calendar'></div>
 
-    {% if user.groups.all.0.name == 'Profesores' or user.is_superuser %}
+    <!-- Modal Crear -->
     <div class="modal fade" id="modalEvento" tabindex="-1" aria-labelledby="modalEventoLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -129,18 +209,65 @@
             </div>
         </div>
     </div>
-    {% endif %}
 
-    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
-      <div id="eventoToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="d-flex">
-          <div class="toast-body">
-            ✅ Evento guardado con éxito.
-          </div>
-          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Cerrar"></button>
+    <!-- Modal Editar -->
+    <div class="modal fade" id="modalEditar" tabindex="-1" aria-labelledby="modalEditarLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form id="formEditarEvento" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="id" id="editar-id">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="modalEditarLabel">Editar Evento</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="editar-title" class="form-label">Título</label>
+                            <input type="text" class="form-control" name="titulo" id="editar-title" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editar-start" class="form-label">Fecha</label>
+                            <input type="date" class="form-control" name="fecha" id="editar-start" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editar-description" class="form-label">Descripción</label>
+                            <textarea class="form-control" name="descripcion" id="editar-description" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editar-curso" class="form-label">Curso</label>
+                            <select class="form-select" name="curso" id="editar-curso" required>
+                                {% for c in form.fields.curso.choices %}
+                                    <option value="{{ c.0 }}">{{ c.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editar-tipo_evento" class="form-label">Tipo de Evento</label>
+                            <select class="form-select" name="tipo_evento" id="editar-tipo_evento" required>
+                                {% for t in form.fields.tipo_evento.choices %}
+                                    <option value="{{ t.0 }}">{{ t.1 }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-success">Guardar Cambios</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    </div>
+                </form>
+            </div>
         </div>
-      </div>
     </div>
 
+    <!-- Toast -->
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
+        <div id="eventoToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body">✅ Evento guardado con éxito.</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Cerrar"></button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

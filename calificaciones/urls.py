@@ -16,13 +16,8 @@ urlpatterns = [
     path('historial/alumno/<str:alumno_id>/', views.historial_notas_profesor, name='historial_notas_profesor'),
     path('historial/', views.historial_notas_padre, name='historial_notas_padre'),
     path('calendario/', views.calendario_view, name='calendario'),
-    path('api/', include(router.urls)),
     path('crear_evento/', views.crear_evento, name='crear_evento'),
-
+    path('eventos/editar/<int:evento_id>/', views.editar_evento, name='editar_evento'),
+    path('eventos/eliminar/<int:evento_id>/', views.eliminar_evento, name='eliminar_evento'),
+    path('api/', include(router.urls)),
 ]
-
-
-
-
-
-

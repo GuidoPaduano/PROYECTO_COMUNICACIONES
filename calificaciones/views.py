@@ -9,14 +9,12 @@ from rest_framework.permissions import IsAuthenticated
 from .serializers import EventoSerializer
 from django import forms
 
-# Lista de materias predeterminadas
 MATERIAS = [
     'Matemática', 'Lengua', 'Historia', 'Geografía',
     'Ciencias Naturales', 'Educación Física',
     'Tecnología', 'Inglés'
 ]
 
-# FORMULARIO DE EVENTO (sin campo hora)
 class EventoForm(forms.ModelForm):
     class Meta:
         model = Evento
@@ -48,12 +46,14 @@ def agregar_nota(request):
         materia = request.POST['materia']
         tipo = request.POST['tipo']
         calificacion = request.POST['calificacion']
+        cuatrimestre = request.POST['cuatrimestre']
         alumno = Alumno.objects.get(id=alumno_id)
         Nota.objects.create(
             alumno=alumno,
             materia=materia,
             tipo=tipo,
-            calificacion=calificacion
+            calificacion=calificacion,
+            cuatrimestre=cuatrimestre
         )
         return redirect('index')
 
@@ -69,7 +69,7 @@ def agregar_nota(request):
 def ver_notas(request):
     if request.user.groups.filter(name='Padres').exists():
         alumnos = Alumno.objects.filter(padre=request.user)
-        notas = Nota.objects.filter(alumno__in=alumnos).order_by('alumno', 'trimestre')
+        notas = Nota.objects.filter(alumno__in=alumnos).order_by('alumno', 'cuatrimestre')
         return render(request, 'calificaciones/ver_notas.html', {'notas': notas})
     else:
         return HttpResponse("No tienes permiso para ver notas.", status=403)
@@ -142,9 +142,9 @@ def generar_boletin_pdf(request, alumno_id):
     p = canvas.Canvas(response)
     p.drawString(100, 800, f"Boletín de {alumno.nombre}")
     y = 750
-    notas = Nota.objects.filter(alumno=alumno).order_by('trimestre')
+    notas = Nota.objects.filter(alumno=alumno).order_by('cuatrimestre')
     for nota in notas:
-        p.drawString(100, y, f"{nota.materia} - Trimestre {nota.trimestre}: {nota.calificacion}")
+        p.drawString(100, y, f"{nota.materia} - Cuatrimestre {nota.cuatrimestre}: {nota.calificacion}")
         y -= 20
     p.showPage()
     p.save()
@@ -161,7 +161,7 @@ def historial_notas_profesor(request, alumno_id):
     notas = []
 
     if materia_seleccionada:
-        notas = Nota.objects.filter(alumno=alumno, materia=materia_seleccionada).order_by('trimestre')
+        notas = Nota.objects.filter(alumno=alumno, materia=materia_seleccionada).order_by('cuatrimestre')
 
     return render(request, 'calificaciones/historial_notas.html', {
         'alumno': alumno,
@@ -183,7 +183,7 @@ def historial_notas_padre(request):
     notas = []
 
     if materia_seleccionada:
-        notas = Nota.objects.filter(alumno=alumno, materia=materia_seleccionada).order_by('trimestre')
+        notas = Nota.objects.filter(alumno=alumno, materia=materia_seleccionada).order_by('cuatrimestre')
 
     return render(request, 'calificaciones/historial_notas.html', {
         'alumno': alumno,
@@ -191,8 +191,6 @@ def historial_notas_padre(request):
         'materia_seleccionada': materia_seleccionada,
         'notas': notas
     })
-
-# -------------------- CALENDARIO --------------------
 
 class EventoViewSet(viewsets.ModelViewSet):
     queryset = Evento.objects.all()
@@ -233,5 +231,35 @@ def crear_evento(request):
 
     return JsonResponse({'error': 'Método no permitido'}, status=405)
 
-#FORZAR REDEPLOY#
+@login_required
+def editar_evento(request, evento_id):
+    evento = get_object_or_404(Evento, id=evento_id)
 
+    if not (request.user == evento.creado_por or request.user.is_superuser):
+        return HttpResponse("No tenés permiso para editar este evento.", status=403)
+
+    if request.method == 'POST':
+        form = EventoForm(request.POST, instance=evento)
+        if form.is_valid():
+            form.save()
+            return JsonResponse({'success': True})
+        else:
+            return JsonResponse({'success': False, 'errors': form.errors}, status=400)
+    else:
+        form = EventoForm(instance=evento)
+        return render(request, 'calificaciones/parcial_editar_evento.html', {'form': form, 'evento': evento})
+
+@login_required
+def eliminar_evento(request, evento_id):
+    evento = get_object_or_404(Evento, id=evento_id)
+
+    if not (request.user == evento.creado_por or request.user.is_superuser):
+        return HttpResponse("No tenés permiso para eliminar este evento.", status=403)
+
+    if request.method == 'POST':
+        evento.delete()
+        return redirect('calendario')
+
+    return render(request, 'calificaciones/confirmar_eliminar_evento.html', {
+        'evento': evento
+    })
