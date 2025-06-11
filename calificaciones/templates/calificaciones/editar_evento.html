@@ -1,17 +1,14 @@
-@login_required
-def editar_evento(request, evento_id):
-    evento = get_object_or_404(Evento, id=evento_id)
-
-    if not (request.user == evento.creado_por or request.user.is_superuser):
-        return HttpResponse("No tenés permiso para editar este evento.", status=403)
-
-    if request.method == 'POST':
-        form = EventoForm(request.POST, instance=evento)
-        if form.is_valid():
-            form.save()
-            return JsonResponse({'success': True})
-        else:
-            return JsonResponse({'success': False, 'errors': form.errors}, status=400)
-
-    # En caso de que alguien acceda por GET (no usado en modal)
-    return JsonResponse({'error': 'Método no permitido'}, status=405)
+{% extends 'base.html' %}
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <h2>Editar Evento</h2>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button type="submit" class="btn btn-success">Guardar Cambios</button>
+            <a href="{% url 'calendario' %}" class="btn btn-secondary">Cancelar</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

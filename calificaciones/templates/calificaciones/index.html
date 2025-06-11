@@ -1,8 +1,45 @@
 <!DOCTYPE html>
 <html>
+<head>
+    <style>
+        .modal-mensaje {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+            animation: aparecer 0.4s ease-out;
+        }
+
+        @keyframes aparecer {
+            from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+    </style>
+</head>
 <body>
+    {% if messages %}
+        <div id="mensaje-exito" class="modal-mensaje">
+            {% for message in messages %}
+                {{ message }}
+            {% endfor %}
+        </div>
+        <script>
+            setTimeout(() => {
+                const modal = document.getElementById('mensaje-exito');
+                if (modal) modal.remove();
+            }, 3000);
+        </script>
+    {% endif %}
+
     <h1>Boletín de Calificaciones</h1>
     <p>Bienvenido, {{ user.username }} | 
+        <a href="{% url 'mi_perfil' %}">👤 Mi Perfil</a> |
         <form method="post" action="{% url 'logout' %}" style="display:inline;">
             {% csrf_token %}
             <button type="submit">Cerrar Sesión</button>
@@ -23,14 +60,13 @@
         <a href="{% url 'enviar_comunicado' %}">📢 Enviar Comunicado Grupal</a><br>
         <a href="{% url 'calendario' %}">📅 Ver Calendario Escolar</a><br>
     {% endif %}
+
+    {% if user.username in "preceptor1 preceptor2 preceptor3" or user.is_superuser %}
+    <div class="mt-3">
+        <a href="{% url 'pasar_asistencia' %}" class="btn btn-success">
+        Pasar asistencia
+        </a>
+    </div>
+    {% endif %}
 </body>
 </html>
-
-
-
-
-
-
-
-
-

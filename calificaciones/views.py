@@ -1,13 +1,15 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
-from .models import Alumno, Nota, Mensaje, Evento
+from .models import Alumno, Nota, Mensaje, Evento, Asistencia
 from reportlab.pdfgen import canvas
 from django.contrib.auth.models import User
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from .serializers import EventoSerializer
 from django import forms
+from django.contrib import messages
+from datetime import date
 
 MATERIAS = [
     'Matemática', 'Lengua', 'Historia', 'Geografía',
@@ -26,12 +28,11 @@ class EventoForm(forms.ModelForm):
 @login_required
 def index(request):
     if request.user.groups.filter(name='Padres').exists():
-        alumnos = Alumno.objects.filter(padre=request.user)
+        return render(request, 'calificaciones/index.html')
     elif request.user.groups.filter(name='Profesores').exists() or request.user.is_superuser:
-        alumnos = Alumno.objects.all()
+        return render(request, 'calificaciones/index.html')
     else:
         return HttpResponse("No tienes permiso.", status=403)
-    return render(request, 'calificaciones/index.html', {'alumnos': alumnos})
 
 @login_required
 def agregar_nota(request):
@@ -47,7 +48,7 @@ def agregar_nota(request):
         tipo = request.POST['tipo']
         calificacion = request.POST['calificacion']
         cuatrimestre = request.POST['cuatrimestre']
-        alumno = Alumno.objects.get(id=alumno_id)
+        alumno = Alumno.objects.get(id_alumno=alumno_id)
         Nota.objects.create(
             alumno=alumno,
             materia=materia,
@@ -55,6 +56,7 @@ def agregar_nota(request):
             calificacion=calificacion,
             cuatrimestre=cuatrimestre
         )
+        messages.success(request, "✅ Nota guardada correctamente.")
         return redirect('index')
 
     cursos = Alumno.CURSOS
@@ -263,3 +265,97 @@ def eliminar_evento(request, evento_id):
     return render(request, 'calificaciones/confirmar_eliminar_evento.html', {
         'evento': evento
     })
+
+@login_required
+def pasar_asistencia(request):
+    usuario = request.user
+    alumnos = []
+    curso_id = None
+    curso_nombre = None
+
+    if usuario.is_superuser:
+        cursos = [{'id': c[0], 'nombre': c[1]} for c in Alumno.CURSOS]
+        curso_id = request.GET.get('curso')
+        if curso_id:
+            curso_nombre = dict(Alumno.CURSOS).get(curso_id)
+    else:
+        curso_id = obtener_curso_del_preceptor(usuario)
+        if not curso_id:
+            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenés un curso asignado como preceptor.'})
+        curso_nombre = dict(Alumno.CURSOS).get(curso_id)
+        cursos = [{'id': curso_id, 'nombre': curso_nombre}]
+
+    if curso_id:
+        alumnos = Alumno.objects.filter(curso=curso_id).order_by('apellido', 'nombre')
+
+    if request.method == 'POST':
+        fecha_actual = date.today()
+        asistencia_objs = []
+        for alumno in alumnos:
+            presente = request.POST.get(f'asistencia_{alumno.id}') == 'on'
+            asistencia_objs.append(Asistencia(
+                alumno=alumno,
+                fecha=fecha_actual,
+                presente=presente
+            ))
+
+        Asistencia.objects.filter(alumno__in=alumnos, fecha=fecha_actual).delete()
+        Asistencia.objects.bulk_create(asistencia_objs)
+
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return redirect('index')
+
+    return render(request, 'calificaciones/pasar_asistencia.html', {
+        'alumnos': alumnos,
+        'curso_id': curso_id,
+        'curso_nombre': curso_nombre,
+        'cursos': cursos
+    })
+
+@login_required
+def perfil_alumno(request, alumno_id):
+    alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
+
+    if request.user != alumno.padre and not request.user.is_superuser and not request.user.groups.filter(name='Profesores').exists():
+        return HttpResponse("No tenés permiso para ver este perfil.", status=403)
+
+    inasistencias = Asistencia.objects.filter(alumno=alumno, presente=False).order_by('-fecha')
+
+    return render(request, 'calificaciones/perfil_alumno.html', {
+        'alumno': alumno,
+        'inasistencias': inasistencias,
+    })
+
+def obtener_curso_del_preceptor(usuario):
+    cursos_por_usuario = {
+        'preceptor1': '1A',
+        'preceptor2': '3B',
+        'preceptor3': '5NAT',
+    }
+    return cursos_por_usuario.get(usuario.username, None)
+
+@login_required
+def mi_perfil(request):
+    user = request.user
+    return render(request, 'calificaciones/mi_perfil.html', {'user': user})
+
+@login_required
+def vista_alumno(request):
+    if not request.user.groups.filter(name='Alumnos').exists():
+        return HttpResponse("No tenés permiso para ver esta página.", status=403)
+
+    try:
+        alumno = Alumno.objects.get(usuario=request.user)
+    except Alumno.DoesNotExist:
+        return HttpResponse("No se encontró un alumno vinculado a este usuario.", status=404)
+
+    notas = Nota.objects.filter(alumno=alumno).order_by('cuatrimestre', 'materia')
+    asistencias = Asistencia.objects.filter(alumno=alumno).order_by('-fecha')
+
+    return render(request, 'calificaciones/vista_alumno.html', {
+        'alumno': alumno,
+        'notas': notas,
+        'asistencias': asistencias
+    })
+
