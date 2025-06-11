@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Vista del Alumno</title>
+    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css' rel='stylesheet' />
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        table, th, td {
+            border: 1px solid #ccc;
+        }
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+        }
+        #calendar {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bienvenido, {{ alumno.nombre }}</h1>
+
+    <h2>📘 Mis Notas</h2>
+    {% if notas %}
+    <table>
+        <thead>
+            <tr>
+                <th>Materia</th>
+                <th>Tipo</th>
+                <th>Calificación</th>
+                <th>Cuatrimestre</th>
+                <th>Fecha</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for nota in notas %}
+            <tr>
+                <td>{{ nota.materia }}</td>
+                <td>{{ nota.get_tipo_display }}</td>
+                <td>{{ nota.calificacion }}</td>
+                <td>{{ nota.get_cuatrimestre_display }}</td>
+                <td>{{ nota.fecha }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p>No hay notas registradas.</p>
+    {% endif %}
+
+    <h2>📋 Mis Asistencias</h2>
+    {% if asistencias %}
+    <table>
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asistencia in asistencias %}
+            <tr>
+                <td>{{ asistencia.fecha }}</td>
+                <td>{% if asistencia.presente %}Presente{% else %}Ausente{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p>No hay registros de asistencia.</p>
+    {% endif %}
+
+    <h2>📅 Calendario Escolar</h2>
+    <div id="calendar"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const calendarEl = document.getElementById('calendar');
+            const calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'es',
+                events: '/api/eventos/'
+            });
+            calendar.render();
+        });
+    </script>
+</body>
+</html>

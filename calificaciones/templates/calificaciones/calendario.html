@@ -40,142 +40,6 @@
             color: #dc3545;
         }
     </style>
-
-    <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        const calendarEl = document.getElementById('calendar');
-
-        const calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: 'dayGridMonth',
-            locale: 'es',
-            events: '/api/eventos/',
-            eventDidMount: function(info) {
-                if (info.event.extendedProps.description) {
-                    const tooltip = document.createElement('div');
-                    tooltip.className = 'fc-tooltip';
-
-                    const descripcion = document.createElement('div');
-                    descripcion.innerText = info.event.extendedProps.description;
-
-                    const editarBtn = document.createElement('a');
-                    editarBtn.innerText = '✏️ Editar';
-                    editarBtn.setAttribute('data-id', info.event.id);
-                    editarBtn.setAttribute('data-title', info.event.title);
-                    editarBtn.setAttribute('data-start', info.event.startStr);
-                    editarBtn.setAttribute('data-description', info.event.extendedProps.description);
-                    editarBtn.setAttribute('data-curso', info.event.extendedProps.curso);
-                    editarBtn.setAttribute('data-tipo_evento', info.event.extendedProps.tipo_evento);
-                    editarBtn.setAttribute('data-bs-toggle', 'modal');
-                    editarBtn.setAttribute('data-bs-target', '#modalEditar');
-
-                    const eliminarBtn = document.createElement('a');
-                    eliminarBtn.href = `/eventos/eliminar/${info.event.id}/`;
-                    eliminarBtn.innerText = '🗑️ Eliminar';
-
-                    tooltip.appendChild(descripcion);
-                    tooltip.appendChild(document.createElement('br'));
-                    tooltip.appendChild(editarBtn);
-                    tooltip.appendChild(eliminarBtn);
-
-                    document.body.appendChild(tooltip);
-
-                    let hideTimeout;
-
-                    info.el.addEventListener('mouseenter', e => {
-                        tooltip.style.left = (e.pageX + 10) + 'px';
-                        tooltip.style.top = (e.pageY + 10) + 'px';
-                        tooltip.style.display = 'block';
-                    });
-
-                    info.el.addEventListener('mousemove', e => {
-                        tooltip.style.left = (e.pageX + 10) + 'px';
-                        tooltip.style.top = (e.pageY + 10) + 'px';
-                    });
-
-                    info.el.addEventListener('mouseleave', () => {
-                        hideTimeout = setTimeout(() => {
-                            tooltip.style.display = 'none';
-                        }, 200);
-                    });
-
-                    tooltip.addEventListener('mouseenter', () => {
-                        clearTimeout(hideTimeout);
-                    });
-
-                    tooltip.addEventListener('mouseleave', () => {
-                        tooltip.style.display = 'none';
-                    });
-                }
-            }
-        });
-
-        calendar.render();
-
-        const formCrear = document.querySelector('#modalEvento form');
-        formCrear.addEventListener('submit', function (e) {
-            e.preventDefault();
-            fetch("{% url 'crear_evento' %}", {
-                method: "POST",
-                headers: {
-                    "X-CSRFToken": formCrear.querySelector('[name=csrfmiddlewaretoken]').value,
-                },
-                body: new FormData(formCrear),
-            })
-            .then(response => {
-                if (!response.ok) throw response;
-                return response.json();
-            })
-            .then(data => {
-                bootstrap.Modal.getInstance(document.getElementById('modalEvento')).hide();
-                formCrear.reset();
-                new bootstrap.Toast(document.getElementById('eventoToast'), { delay: 3000 }).show();
-                calendar.refetchEvents();
-            })
-            .catch(async error => {
-                const data = await error.json();
-                alert("Error: " + JSON.stringify(data.errors));
-            });
-        });
-
-        const modalEditar = document.getElementById('modalEditar');
-        modalEditar.addEventListener('show.bs.modal', function (event) {
-            const button = event.relatedTarget;
-            modalEditar.querySelector('#editar-id').value = button.getAttribute('data-id');
-            modalEditar.querySelector('#editar-title').value = button.getAttribute('data-title');
-            modalEditar.querySelector('#editar-start').value = button.getAttribute('data-start');
-            modalEditar.querySelector('#editar-description').value = button.getAttribute('data-description');
-            modalEditar.querySelector('#editar-curso').value = button.getAttribute('data-curso');
-            modalEditar.querySelector('#editar-tipo_evento').value = button.getAttribute('data-tipo_evento');
-        });
-
-        document.getElementById('formEditarEvento').addEventListener('submit', function (e) {
-            e.preventDefault();
-            const id = document.getElementById('editar-id').value;
-            const url = `/eventos/editar/${id}/`;
-            const data = new FormData(e.target);
-
-            fetch(url, {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': data.get('csrfmiddlewaretoken'),
-                },
-                body: data,
-            })
-            .then(response => {
-                if (!response.ok) throw response;
-                return response.json();
-            })
-            .then(data => {
-                bootstrap.Modal.getInstance(modalEditar).hide();
-                calendar.refetchEvents();
-            })
-            .catch(async error => {
-                const data = await error.json();
-                alert("Error: " + JSON.stringify(data.errors));
-            });
-        });
-    });
-    </script>
 </head>
 <body class="p-4">
     <h1>🗕️ Calendario Escolar</h1>
@@ -260,6 +124,28 @@
         </div>
     </div>
 
+    <!-- Modal Eliminar -->
+    <div class="modal fade" id="modalEliminar" tabindex="-1" aria-labelledby="modalEliminarLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" id="formEliminar">
+                    {% csrf_token %}
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="modalEliminarLabel">Eliminar Evento</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        ¿Estás seguro de que querés eliminar el evento <strong id="tituloEliminar"></strong>?
+                    </div>
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-danger">Eliminar</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
         <div id="eventoToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
@@ -269,5 +155,148 @@
             </div>
         </div>
     </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const calendarEl = document.getElementById('calendar');
+        const calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: 'dayGridMonth',
+            locale: 'es',
+            events: '/api/eventos/',
+            eventDidMount: function(info) {
+                if (info.event.extendedProps.description) {
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'fc-tooltip';
+
+                    const descripcion = document.createElement('div');
+                    descripcion.innerText = info.event.extendedProps.description;
+
+                    const editarBtn = document.createElement('a');
+                    editarBtn.innerText = '✏️ Editar';
+                    editarBtn.setAttribute('data-id', info.event.id);
+                    editarBtn.setAttribute('data-title', info.event.title);
+                    editarBtn.setAttribute('data-start', info.event.startStr);
+                    editarBtn.setAttribute('data-description', info.event.extendedProps.description);
+                    editarBtn.setAttribute('data-curso', info.event.extendedProps.curso);
+                    editarBtn.setAttribute('data-tipo_evento', info.event.extendedProps.tipo_evento);
+                    editarBtn.setAttribute('data-bs-toggle', 'modal');
+                    editarBtn.setAttribute('data-bs-target', '#modalEditar');
+
+                    const eliminarBtn = document.createElement('a');
+                    eliminarBtn.innerText = '🗑️ Eliminar';
+                    eliminarBtn.setAttribute('href', '#');
+                    eliminarBtn.setAttribute('data-id', info.event.id);
+                    eliminarBtn.setAttribute('data-title', info.event.title);
+                    eliminarBtn.setAttribute('data-bs-toggle', 'modal');
+                    eliminarBtn.setAttribute('data-bs-target', '#modalEliminar');
+
+                    tooltip.appendChild(descripcion);
+                    tooltip.appendChild(document.createElement('br'));
+                    tooltip.appendChild(editarBtn);
+                    tooltip.appendChild(eliminarBtn);
+
+                    document.body.appendChild(tooltip);
+
+                    let hideTimeout;
+                    info.el.addEventListener('mouseenter', e => {
+                        tooltip.style.left = (e.pageX + 10) + 'px';
+                        tooltip.style.top = (e.pageY + 10) + 'px';
+                        tooltip.style.display = 'block';
+                    });
+                    info.el.addEventListener('mousemove', e => {
+                        tooltip.style.left = (e.pageX + 10) + 'px';
+                        tooltip.style.top = (e.pageY + 10) + 'px';
+                    });
+                    info.el.addEventListener('mouseleave', () => {
+                        hideTimeout = setTimeout(() => {
+                            tooltip.style.display = 'none';
+                        }, 200);
+                    });
+                    tooltip.addEventListener('mouseenter', () => {
+                        clearTimeout(hideTimeout);
+                    });
+                    tooltip.addEventListener('mouseleave', () => {
+                        tooltip.style.display = 'none';
+                    });
+                }
+            }
+        });
+
+        calendar.render();
+
+        const formCrear = document.querySelector('#modalEvento form');
+        formCrear.addEventListener('submit', function (e) {
+            e.preventDefault();
+            fetch("{% url 'crear_evento' %}", {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": formCrear.querySelector('[name=csrfmiddlewaretoken]').value,
+                },
+                body: new FormData(formCrear),
+            })
+            .then(response => {
+                if (!response.ok) throw response;
+                return response.json();
+            })
+            .then(data => {
+                bootstrap.Modal.getInstance(document.getElementById('modalEvento')).hide();
+                formCrear.reset();
+                new bootstrap.Toast(document.getElementById('eventoToast'), { delay: 3000 }).show();
+                calendar.refetchEvents();
+            })
+            .catch(async error => {
+                const data = await error.json();
+                alert("Error: " + JSON.stringify(data.errors));
+            });
+        });
+
+        const modalEditar = document.getElementById('modalEditar');
+        modalEditar.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            modalEditar.querySelector('#editar-id').value = button.getAttribute('data-id');
+            modalEditar.querySelector('#editar-title').value = button.getAttribute('data-title');
+            modalEditar.querySelector('#editar-start').value = button.getAttribute('data-start');
+            modalEditar.querySelector('#editar-description').value = button.getAttribute('data-description');
+            modalEditar.querySelector('#editar-curso').value = button.getAttribute('data-curso');
+            modalEditar.querySelector('#editar-tipo_evento').value = button.getAttribute('data-tipo_evento');
+        });
+
+        document.getElementById('formEditarEvento').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const id = document.getElementById('editar-id').value;
+            const url = `/eventos/editar/${id}/`;
+            const data = new FormData(e.target);
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': data.get('csrfmiddlewaretoken'),
+                },
+                body: data,
+            })
+            .then(response => {
+                if (!response.ok) throw response;
+                return response.json();
+            })
+            .then(data => {
+                bootstrap.Modal.getInstance(modalEditar).hide();
+                calendar.refetchEvents();
+            })
+            .catch(async error => {
+                const data = await error.json();
+                alert("Error: " + JSON.stringify(data.errors));
+            });
+        });
+
+        const modalEliminar = document.getElementById('modalEliminar');
+        modalEliminar.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            const id = button.getAttribute('data-id');
+            const titulo = button.getAttribute('data-title');
+            modalEliminar.querySelector('#tituloEliminar').textContent = titulo;
+            modalEliminar.querySelector('#formEliminar').action = `/eventos/eliminar/${id}/`;
+        });
+    });
+    </script>
 </body>
 </html>

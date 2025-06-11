@@ -11,6 +11,7 @@ class CustomUserCreationForm(UserCreationForm):
         choices=[
             ('Padres', 'Padre'),
             ('Profesores', 'Profesor'),
+            ('Alumnos', 'Alumno'),
         ],
         label='Rol del usuario',
         required=True,

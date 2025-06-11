@@ -12,12 +12,14 @@ class Alumno(models.Model):
     ]
 
     nombre = models.CharField(max_length=100)
+    apellido = models.CharField(max_length=100, default="")  # Nuevo campo
     id_alumno = models.CharField(max_length=10, unique=True)
     curso = models.CharField(max_length=10, choices=CURSOS)
     padre = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='hijos')
+    usuario = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, related_name='perfil_alumno')  # Nuevo campo
 
     def __str__(self):
-        return self.nombre
+        return f"{self.apellido}, {self.nombre}"
 
 class Nota(models.Model):
     CALIFICACION_CHOICES = [(str(i), str(i)) for i in range(1, 11)] + [
@@ -73,3 +75,16 @@ class Evento(models.Model):
 
     def __str__(self):
         return f"{self.titulo} ({self.fecha})"
+
+class Asistencia(models.Model):
+    alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE)
+    fecha = models.DateField(auto_now_add=True)
+    presente = models.BooleanField(default=True)
+    observacion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        unique_together = ('alumno', 'fecha')
+
+    def __str__(self):
+        estado = "Presente" if self.presente else "Ausente"
+        return f"{self.alumno.nombre} - {estado} - {self.fecha}"

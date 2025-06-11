@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2>Perfil de {{ alumno.nombre }}</h2>
+
+  <h4 class="mt-4">Asistencias</h4>
+  {% if inasistencias %}
+    <ul class="list-group">
+      {% for asistencia in inasistencias %}
+        <li class="list-group-item">
+          ❌ Ausente el {{ asistencia.fecha }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No se registraron inasistencias.</p>
+  {% endif %}
+</div>
+{% endblock %}

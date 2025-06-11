@@ -20,4 +20,9 @@ urlpatterns = [
     path('eventos/editar/<int:evento_id>/', views.editar_evento, name='editar_evento'),
     path('eventos/eliminar/<int:evento_id>/', views.eliminar_evento, name='eliminar_evento'),
     path('api/', include(router.urls)),
+    path('asistencia/', views.pasar_asistencia, name='pasar_asistencia'),
+    path('alumno/<str:alumno_id>/perfil/', views.perfil_alumno, name='perfil_alumno'),
+    path('mi_perfil/', views.mi_perfil, name='mi_perfil'),
+    path('mi_panel/', views.vista_alumno, name='vista_alumno'),
+
 ]
