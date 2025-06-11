@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2>Pasar asistencia{% if curso_nombre %} - {{ curso_nombre }}{% endif %}</h2>
+
+  {% if request.user.is_superuser %}
+    <form method="get" class="mb-4">
+      <div class="mb-3">
+        <label for="curso" class="form-label">Seleccioná un curso</label>
+        <select name="curso" id="curso" class="form-select" onchange="this.form.submit()">
+          {% for curso_obj in cursos %}
+            <option value="{{ curso_obj.id }}" {% if curso_id == curso_obj.id %}selected{% endif %}>{{ curso_obj.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+  {% endif %}
+
+  {% if alumnos %}
+    <form id="asistencia-form" method="post">
+      {% csrf_token %}
+      <table class="table table-bordered">
+        <thead>
+          <tr>
+            <th>Alumno</th>
+            <th>Presente</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for alumno in alumnos %}
+          <tr>
+            <td>{{ alumno.apellido }}, {{ alumno.nombre }}</td>
+            <td>
+              <input type="checkbox" name="asistencia_{{ alumno.id }}" checked>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" class="btn btn-success">Guardar asistencia</button>
+    </form>
+  {% else %}
+    <p>No hay alumnos para mostrar.</p>
+  {% endif %}
+</div>
+
+<!-- Modal de confirmación -->
+<div class="modal fade" id="modalExito" tabindex="-1" aria-labelledby="modalExitoLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content text-center">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title w-100" id="modalExitoLabel">✅ Asistencia guardada</h5>
+      </div>
+      <div class="modal-body">
+        La asistencia fue registrada correctamente.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Aceptar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Script AJAX con modal -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('asistencia-form');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      fetch(window.location.href, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: new FormData(form)
+      })
+      .then(response => {
+        if (!response.ok) throw new Error('Error en la red');
+        return response.json();
+      })
+      .then(data => {
+        if (data.success) {
+          const modal = new bootstrap.Modal(document.getElementById('modalExito'));
+          modal.show();
+        } else {
+          alert('No se pudo guardar la asistencia.');
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        alert('Error al enviar la asistencia.');
+      });
+    });
+  }
+});
+</script>
+{% endblock %}

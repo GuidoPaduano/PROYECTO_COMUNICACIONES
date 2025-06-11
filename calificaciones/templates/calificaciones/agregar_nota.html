@@ -3,6 +3,16 @@
 <body>
     <h1>Agregar Nota</h1>
 
+    <!-- Mensajes de éxito o error -->
+    {% if messages %}
+        <ul>
+            {% for message in messages %}
+                <li style="color: green;">{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    <!-- Formulario para seleccionar el curso -->
     <form method="get">
         <label>Curso:</label>
         <select name="curso" onchange="this.form.submit()">
@@ -16,6 +26,7 @@
     </form>
 
     {% if curso_seleccionado %}
+    <!-- Formulario para agregar una nota -->
     <form method="post">
         {% csrf_token %}
 
@@ -34,13 +45,12 @@
         </select><br>
 
         <label>Tipo de Nota:</label>
-<select name="tipo" required>
-    <option value="evaluacion">Evaluación</option>
-    <option value="tp">Trabajo Práctico</option>
-    <option value="oral">Oral</option>
-    <option value="recuperatorio">Recuperatorio</option>
-</select><br>
-
+        <select name="tipo" required>
+            <option value="evaluacion">Evaluación</option>
+            <option value="tp">Trabajo Práctico</option>
+            <option value="oral">Oral</option>
+            <option value="recuperatorio">Recuperatorio</option>
+        </select><br>
 
         <label>Calificación:</label>
         <select name="calificacion" required>
