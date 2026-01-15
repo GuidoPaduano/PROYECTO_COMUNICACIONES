@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
 import { useAuthGuard, authFetch } from "../../_lib/auth"
 import { INBOX_EVENT } from "../../_lib/inbox" // ✅ NUEVO: evento unificado inbox
@@ -533,6 +533,20 @@ function notaCuatr(nota) {
    Página: PERFIL del alumno (Resumen + Notas + Sanciones + Asistencias)
 ------------------------------------------------------------ */
 export default function AlumnoPerfilPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white flex items-center justify-center">
+          <div className="text-gray-700">Cargando...</div>
+        </div>
+      }
+    >
+      <AlumnoPerfilPageInner />
+    </Suspense>
+  )
+}
+
+function AlumnoPerfilPageInner() {
   useAuthGuard()
 
   // ✅ FIX Next: params ahora es Promise -> en Client Component usamos useParams()
