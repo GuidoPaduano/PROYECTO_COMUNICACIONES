@@ -9,11 +9,18 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+def _split_env_list(var_name: str, default_list: list[str]) -> list[str]:
+    raw = os.environ.get(var_name, "").strip()
+    if not raw:
+        return default_list
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
 # SECRET_KEY para producción desde variable de entorno (o valor por defecto si no está)
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-+*^tqw7091lf!2qengz$$auv-l!=8-7ua1d7vuc3s%f5gga*!v')
 
 # DEBUG desde variable de entorno (por defecto True para desarrollo)
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+ALLOW_VERCEL_ORIGINS = os.environ.get("ALLOW_VERCEL_ORIGINS", "False") == "True"
 
 # ALLOWED_HOSTS desde entorno o valores seguros por defecto
 ALLOWED_HOSTS = os.environ.get(
@@ -123,6 +130,10 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # ✅ Configuración DRF + JWT: DRF entiende sesión y/o JWT
+CSRF_TRUSTED_ORIGINS = _split_env_list("CSRF_TRUSTED_ORIGINS", CSRF_TRUSTED_ORIGINS)
+if ALLOW_VERCEL_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append("https://*.vercel.app")
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework.authentication.SessionAuthentication',
@@ -152,16 +163,22 @@ CORS_ALLOWED_ORIGINS = [
     "http://192.168.1.38:3000",  # ← agregado: front por IP LAN
     # "http://192.168.1.38:3001",  # ← opcional si a veces Next usa 3001
 ]
+CORS_ALLOWED_ORIGINS = _split_env_list("CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
 CORS_ALLOW_CREDENTIALS = True
 
 # (Opcional, solo en dev) permite cualquier IP de la subred 192.168.*:3000
 # para no tener que tocar settings si cambia la IP por DHCP.
+CORS_ALLOWED_ORIGIN_REGEXES = []
 if DEBUG:
     CORS_ALLOWED_ORIGIN_REGEXES = [
         r"^http://192\.168\.\d{1,3}\.\d{1,3}:3000$",
     ]
 
 # ✅ Permitir el header custom de vista previa
+CORS_ALLOWED_ORIGIN_REGEXES = _split_env_list("CORS_ALLOWED_ORIGIN_REGEXES", CORS_ALLOWED_ORIGIN_REGEXES)
+if ALLOW_VERCEL_ORIGINS:
+    CORS_ALLOWED_ORIGIN_REGEXES.append(r"^https://.*\.vercel\.app$")
+
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "x-preview-role",   # ← necesario para enviar el rol simulado por header
 ]
