@@ -16,3 +16,9 @@ media/
 # Archivos de sistema
 .DS_Store
 Thumbs.db
+
+# Node / Next (repo root)
+node_modules/
+.next/
+out/
+build/

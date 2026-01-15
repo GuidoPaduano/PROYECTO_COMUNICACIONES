@@ -4,7 +4,9 @@
     <h1>Mensajes Recibidos</h1>
     <ul>
         {% for mensaje in mensajes %}
-            <li>
+            <li
+                style="border-radius:12px; padding:8px 12px; margin-bottom:6px; {% if not mensaje.leido or not mensaje.leido_en %}background:#eaf1ff;{% endif %}"
+            >
                 <strong>{{ mensaje.asunto }}</strong> - de {{ mensaje.emisor.get_full_name|default:mensaje.emisor.username }} <br>
                 {{ mensaje.contenido }} <br>
                 <em>
@@ -21,6 +23,3 @@
     <a href="/">Volver</a>
 </body>
 </html>
-
-
-

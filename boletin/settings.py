@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 import dj_database_url  # 👉 Asegurate de tenerlo en requirements.txt
+from corsheaders.defaults import default_headers  # ✅ para extender headers permitidos en CORS
 
 # ⚠️ Cargar el archivo .env antes de usar cualquier os.environ
 load_dotenv()
@@ -17,8 +18,12 @@ DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 # ALLOWED_HOSTS desde entorno o valores seguros por defecto
 ALLOWED_HOSTS = os.environ.get(
     'ALLOWED_HOSTS',
-    'proyectocomunicaciones-production.up.railway.app,localhost,127.0.0.1'
+    'proyectocomunicaciones-production.up.railway.app,localhost,127.0.0.1,0.0.0.0'
 ).split(',')
+
+# En desarrollo, permitir cualquier Host para evitar errores 400 al acceder por IP LAN
+if DEBUG:
+    ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -27,12 +32,22 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
     'calificaciones',
+
+    # APIs
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',  # ✅ para /api/token/blacklist/
+
+    # CORS
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',       # ✅ PONER PRIMERO
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # Para servir archivos estáticos
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Sirve estáticos en prod
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -89,15 +104,79 @@ USE_TZ = True
 # Archivos estáticos
 STATIC_URL = '/static/'
 STATIC_ROOT = str(BASE_DIR / "staticfiles")
-
-# Usar Whitenoise para producción (sirve archivos estáticos desde STATIC_ROOT)
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-LOGIN_REDIRECT_URL = '/mi_panel/'
+# 🔁 Redirección post-login por rol
+LOGIN_REDIRECT_URL = '/redir/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 LOGIN_URL = '/accounts/login/'
 
-# Para evitar errores CSRF en producción
-CSRF_TRUSTED_ORIGINS = ['https://proyectocomunicaciones-production.up.railway.app']
+# ✅ CSRF (confía también en el front local y en tu IP LAN)
+CSRF_TRUSTED_ORIGINS = [
+    'https://proyectocomunicaciones-production.up.railway.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://192.168.1.38:3000',  # ← agregado: acceso por IP LAN
+    # 'http://192.168.1.38:3001',  # ← opcional si a veces Next usa 3001
+]
+
+# ✅ Configuración DRF + JWT: DRF entiende sesión y/o JWT
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    # Si querés exigir auth por defecto, descomentá:
+    # 'DEFAULT_PERMISSION_CLASSES': (
+    #     'rest_framework.permissions.IsAuthenticated',
+    # ),
+}
+
+# ✅ SimpleJWT — rotación + blacklist (para logout robusto)
+from datetime import timedelta
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=int(os.environ.get("JWT_ACCESS_MINUTES", "60"))),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.environ.get("JWT_REFRESH_DAYS", "7"))),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+}
+
+# ✅ CORS
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://172.16.0.2:3000",
+    "http://192.168.1.38:3000",  # ← agregado: front por IP LAN
+    # "http://192.168.1.38:3001",  # ← opcional si a veces Next usa 3001
+]
+CORS_ALLOW_CREDENTIALS = True
+
+# (Opcional, solo en dev) permite cualquier IP de la subred 192.168.*:3000
+# para no tener que tocar settings si cambia la IP por DHCP.
+if DEBUG:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^http://192\.168\.\d{1,3}\.\d{1,3}:3000$",
+    ]
+
+# ✅ Permitir el header custom de vista previa
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-preview-role",   # ← necesario para enviar el rol simulado por header
+]
+
+# ✅ Cookies seguras según entorno
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+# Nota: mantener Lax para dev; si necesitás enviar cookies cross-site por fetch,
+# deberás usar SameSite=None y HTTPS:
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
+# ✅ Detrás de proxy (Railway/Heroku)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# (Opcional) Forzar HTTPS en prod
+SECURE_SSL_REDIRECT = not DEBUG
