@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { use, useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch } from "../../../_lib/auth"
-import { useSearchParams } from "next/navigation"
 import { ChevronLeft, Bell, Mail, Users, Gavel } from "lucide-react"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -74,8 +73,6 @@ async function getSancionesByPkOrCode(pk, code) {
 export default function AlumnoSancionesPage({ params }) {
   useAuthGuard()
   const { alumnoId } = use(params)
-
-  const searchParams = useSearchParams()
 
   const [me, setMe] = useState(null)
   const [unreadCount, setUnreadCount] = useState(0)
