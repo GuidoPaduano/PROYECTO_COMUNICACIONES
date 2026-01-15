@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
 import { useAuthGuard, authFetch } from "../_lib/auth"
@@ -50,6 +50,20 @@ function safeSetLS(key, value) {
 
 /* ======================== Page ======================== */
 export default function MisHijosPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white flex items-center justify-center">
+          <div className="text-gray-700">Cargando...</div>
+        </div>
+      }
+    >
+      <MisHijosPageInner />
+    </Suspense>
+  )
+}
+
+function MisHijosPageInner() {
   useAuthGuard()
 
   const router = useRouter()
