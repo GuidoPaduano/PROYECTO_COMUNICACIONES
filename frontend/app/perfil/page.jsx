@@ -1,0 +1,700 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ChevronDown,
+  Mail,
+  User,
+  Edit3,
+  Camera,
+  Save,
+  X,
+  BadgeCheck,
+  ArrowLeft,
+  Inbox,
+  Link2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { INBOX_EVENT } from "../_lib/inbox";
+import { NotificationBell } from "@/components/notification-bell";
+import { authFetch, useAuthGuard } from "../_lib/auth";
+
+export default function Profile() {
+  useAuthGuard();
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [api, setApi] = useState(null);
+
+  // Estado editable (sin teléfono)
+  const [profileData, setProfileData] = useState({
+    name: "",
+    email: "",
+    department: "",
+    position: "",
+  });
+
+  // ===== Mensajería: badge de no leídos =====
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // ===== FIX: Vincular Alumno ↔ Usuario por legajo (id_alumno) =====
+  const [legajo, setLegajo] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState("");
+  const [linkOk, setLinkOk] = useState("");
+
+  // Carga y refresco del contador de no leídos (igual que otras vistas)
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+
+    const loadUnread = async () => {
+      try {
+        // ✅ FIX: no usar "/api/..." con authFetch (evita /api/api/...)
+        const res = await authFetch("/mensajes/unread_count/");
+        if (!res.ok) return;
+
+        const j = await res.json().catch(() => ({}));
+        if (alive && typeof j?.count === "number") setUnreadCount(j.count);
+      } catch {
+        // silencio, se vuelve a intentar en el próximo tick
+      }
+    };
+
+    loadUnread();
+    timer = setInterval(loadUnread, 60000);
+
+    const onInboxEvent = () => loadUnread();
+    if (typeof window !== "undefined") {
+      window.addEventListener(INBOX_EVENT, onInboxEvent);
+    }
+
+    return () => {
+      alive = false;
+      if (timer) clearInterval(timer);
+      if (typeof window !== "undefined") {
+        window.removeEventListener(INBOX_EVENT, onInboxEvent);
+      }
+    };
+  }, []);
+
+  // Fetch al perfil API (Django) usando authFetch
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await authFetch("/perfil_api/", {
+          headers: { Accept: "application/json" },
+        });
+        if (!res.ok) {
+          let t = "";
+          try {
+            t = await res.text();
+          } catch {}
+          throw new Error(`Perfil API ${res.status} – ${t}`);
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        setApi(data);
+
+        const fullName =
+          [data?.user?.first_name, data?.user?.last_name]
+            .filter(Boolean)
+            .join(" ") ||
+          data?.user?.username ||
+          "Usuario";
+
+        setProfileData({
+          name: fullName,
+          email: data?.user?.email || "",
+          position: data?.user?.rol || "",
+          department: data?.curso_preceptor
+            ? `Preceptor de: ${data.curso_preceptor}`
+            : data?.alumno
+            ? `Alumno: ${data.alumno.curso}`
+            : data?.alumnos_del_padre && data.alumnos_del_padre.length
+            ? "Responsable de alumnos"
+            : "",
+        });
+
+        // ✅ Si el user ya tiene username con pinta de legajo, lo precargamos
+        const u = data?.user?.username || "";
+        if (!data?.alumno && u && u.length <= 32) {
+          setLegajo(u);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError((e && e.message) || "Error al cargar el perfil");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const displayName = useMemo(
+    () => profileData.name || "Usuario",
+    [profileData.name]
+  );
+
+  const gruposTexto = useMemo(() => {
+    const grupos =
+      (api && api.user && (api.user.grupos || api.user.groups)) || [];
+    const rol = api?.user?.is_superuser ? "superusuario" : api?.user?.rol;
+
+    const base = grupos.length ? grupos.join(" · ") : "—";
+    return rol && !grupos.includes(rol) ? `${base} · ${rol}` : base;
+  }, [api]);
+
+  const handleSave = async () => {
+    // Opcional: acá podrías hacer PATCH a /perfil_api/ para persistir nombre/email
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    if (api) {
+      const fullName =
+        [api?.user?.first_name, api?.user?.last_name]
+          .filter(Boolean)
+          .join(" ") ||
+        api?.user?.username ||
+        "Usuario";
+      setProfileData((prev) => ({
+        ...prev,
+        name: fullName,
+        email: api?.user?.email || "",
+        position: api?.user?.rol || "",
+        department: api?.curso_preceptor
+          ? `Preceptor de: ${api.curso_preceptor}`
+          : api?.alumno
+          ? `Alumno: ${api.alumno.curso}`
+          : api?.alumnos_del_padre && api.alumnos_del_padre.length
+          ? "Responsable de alumnos"
+          : "",
+      }));
+    }
+  };
+
+  async function refreshPerfilApi() {
+    try {
+      const res = await authFetch("/perfil_api/", {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (!data) return;
+
+      setApi(data);
+
+      const fullName =
+        [data?.user?.first_name, data?.user?.last_name]
+          .filter(Boolean)
+          .join(" ") ||
+        data?.user?.username ||
+        "Usuario";
+
+      setProfileData({
+        name: fullName,
+        email: data?.user?.email || "",
+        position: data?.user?.rol || "",
+        department: data?.curso_preceptor
+          ? `Preceptor de: ${data.curso_preceptor}`
+          : data?.alumno
+          ? `Alumno: ${data.alumno.curso}`
+          : data?.alumnos_del_padre && data.alumnos_del_padre.length
+          ? "Responsable de alumnos"
+          : "",
+      });
+    } catch {
+      // silencio
+    }
+  }
+
+  async function handleVincularLegajo(e) {
+    e?.preventDefault?.();
+    setLinkError("");
+    setLinkOk("");
+
+    const value = (legajo || "").trim();
+    if (!value) {
+      setLinkError("Ingresá tu legajo / id_alumno.");
+      return;
+    }
+
+    setLinking(true);
+    try {
+      // ✅ Endpoint agregado en backend: /api/alumnos/vincular/
+      // OJO: authFetch ya agrega /api, por eso acá va "/alumnos/vincular/"
+      const res = await authFetch("/alumnos/vincular/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ id_alumno: value }),
+      });
+
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLinkError(j?.detail || `No se pudo vincular (HTTP ${res.status}).`);
+        return;
+      }
+
+      setLinkOk(
+        j?.already_linked
+          ? "Ya estabas vinculado a este alumno."
+          : "Listo. Se vinculó tu usuario con el alumno."
+      );
+
+      await refreshPerfilApi();
+    } catch {
+      setLinkError("No se pudo vincular. Revisá tu conexión y volvé a intentar.");
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  const shouldShowVincular =
+    !loading &&
+    !error &&
+    api &&
+    !api?.curso_preceptor &&
+    !api?.alumnos_del_padre?.length &&
+    !api?.alumno;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
+      {/* Header */}
+      <div className="bg-blue-600 text-white px-6 py-4">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
+              <div className="w-6 h-6 bg-blue-600 rounded-sm flex items-center justify-center">
+                <span className="text-white text-xs font-bold">🎓</span>
+              </div>
+            </div>
+            <h1 className="text-xl font-semibold">Perfil</h1>
+          </div>
+
+          {/* User Bar + Volver al panel */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link href="/dashboard">
+              <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">Volver al panel</span>
+              </Button>
+            </Link>
+
+            {/* Campanita con menú de notificaciones */}
+            <NotificationBell unreadCount={unreadCount} />
+
+            {/* Mail con badge y link a mensajes */}
+            <div className="relative">
+              <Link href="/mensajes">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:bg-blue-700"
+                >
+                  <Mail className="h-5 w-5" />
+                </Button>
+              </Link>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-red-600 text-white border border-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+                  <User className="h-4 w-4" />
+                  {displayName}
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem asChild className="text-sm">
+                  <Link href="/perfil">
+                    <div className="flex items-center">
+                      <User className="h-4 w-4 mr-2" />
+                      Perfil
+                    </div>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-sm"
+                  onClick={() => {
+                    try {
+                      localStorage.clear();
+                    } catch {}
+                    window.location.href = "/login";
+                  }}
+                >
+                  <span className="h-4 w-4 mr-2">🚪</span>
+                  Cerrar sesión
+                </DropdownMenuItem>
+                <div className="px-3 py-2 text-xs text-muted-foreground border-t">
+                  Grupos: {gruposTexto}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Page Header */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Mi Perfil</h2>
+          <p className="text-gray-600">
+            Gestioná tu información personal y configuración de cuenta
+          </p>
+        </div>
+
+        {loading ? (
+          <div className="text-sm text-gray-600">Cargando perfil…</div>
+        ) : error ? (
+          <div className="text-sm text-red-600">Error: {String(error)}</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Columna izquierda — Avatar y datos rápidos */}
+            <div className="lg:col-span-1">
+              <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+                <CardContent className="p-6 text-center">
+                  <div className="relative inline-block mb-4">
+                    <div className="w-32 h-32 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
+                      <User className="h-16 w-16 text-blue-600" />
+                    </div>
+                    <Button
+                      size="icon"
+                      className="absolute bottom-0 right-0 rounded-full w-10 h-10 bg-blue-600 hover:bg-blue-700"
+                      disabled
+                      title="Próximamente"
+                    >
+                      <Camera className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <h3 className="font-semibold text-gray-900 text-lg mb-1">
+                    {displayName}
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-2">
+                    {profileData.position || "—"}
+                  </p>
+                  <p className="text-sm text-blue-600">
+                    {profileData.department || ""}
+                  </p>
+
+                  <div className="mt-4 text-left text-sm text-gray-700 space-y-1">
+                    <div>
+                      <span className="font-medium">Usuario:</span>{" "}
+                      {api?.user?.username}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium">Grupos:</span>
+                      <span>{gruposTexto}</span>
+                    </div>
+                    {api?.alumno && (
+                      <div>
+                        <span className="font-medium">Alumno:</span>{" "}
+                        {api.alumno.nombre} ({api.alumno.curso})
+                      </div>
+                    )}
+                    {api?.alumnos_del_padre &&
+                      api.alumnos_del_padre.length > 0 && (
+                        <div>
+                          <span className="font-medium">Hijos/as:</span>{" "}
+                          {api.alumnos_del_padre
+                            .map((a) => `${a.nombre} (${a.curso})`)
+                            .join(", ")}
+                        </div>
+                      )}
+                    {api?.curso_preceptor && (
+                      <div className="inline-flex items-center gap-1 mt-1">
+                        <BadgeCheck className="h-4 w-4" /> Preceptor de{" "}
+                        {api.curso_preceptor}
+                      </div>
+                    )}
+                    <div className="pt-2 text-xs text-muted-foreground">
+                      Notas: {api?.stats?.notas_count ?? 0} · Mensajes:{" "}
+                      {api?.stats?.mensajes_recibidos ?? 0}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* ✅ FIX: si no se detecta alumno automáticamente, damos un vínculo explícito */}
+              {shouldShowVincular && (
+                <Card className="mt-6 shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Link2 className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div className="w-full">
+                        <h3 className="font-semibold text-gray-900 text-lg">
+                          Vincular mi legajo
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Para que el sistema sepa quién sos (y puedas ver tus notas,
+                          asistencias, sanciones y calendario), vinculá tu usuario con tu
+                          registro de alumno usando tu <b>id_alumno / legajo</b>.
+                        </p>
+
+                        <form onSubmit={handleVincularLegajo} className="mt-4 space-y-3">
+                          <div>
+                            <Label htmlFor="legajo" className="text-sm font-medium text-gray-700">
+                              Legajo / ID de alumno
+                            </Label>
+                            <Input
+                              id="legajo"
+                              value={legajo}
+                              onChange={(e) => setLegajo(e.target.value)}
+                              placeholder="Ej: 1A-024"
+                              className="mt-1"
+                            />
+                          </div>
+
+                          {linkError && (
+                            <div className="text-sm text-red-600">{linkError}</div>
+                          )}
+                          {linkOk && (
+                            <div className="text-sm text-green-700">{linkOk}</div>
+                          )}
+
+                          <Button
+                            type="submit"
+                            disabled={linking}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            {linking ? "Vinculando…" : "Vincular"}
+                          </Button>
+                        </form>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Acceso directo a Mensajes */}
+              <Link href="/mensajes" className="relative block mt-6">
+                {unreadCount > 0 && (
+                  <span
+                    className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-red-600 text-white border border-white"
+                    title={`${unreadCount} sin leer`}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+                <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Inbox className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900 text-lg">
+                          Mensajes
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Bandeja de entrada
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            </div>
+
+            {/* Columna derecha — Información personal */}
+            <div className="lg:col-span-2">
+              <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h4 className="font-semibold text-gray-900 text-lg">
+                      Información personal
+                    </h4>
+                    <div className="flex gap-2">
+                      {isEditing ? (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={handleSave}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            <Save className="h-4 w-4 mr-2" />
+                            Guardar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleCancel}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            Cancelar
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setIsEditing(true)}
+                        >
+                          <Edit3 className="h-4 w-4 mr-2" />
+                          Editar
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label
+                        htmlFor="name"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Nombre completo
+                      </Label>
+                      {isEditing ? (
+                        <Input
+                          id="name"
+                          value={profileData.name}
+                          onChange={(e) =>
+                            setProfileData({
+                              ...profileData,
+                              name: e.target.value,
+                            })
+                          }
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="mt-1 text-gray-900">
+                          {profileData.name || "—"}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label
+                        htmlFor="email"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Correo
+                      </Label>
+                      {isEditing ? (
+                        <Input
+                          id="email"
+                          type="email"
+                          value={profileData.email}
+                          onChange={(e) =>
+                            setProfileData({
+                              ...profileData,
+                              email: e.target.value,
+                            })
+                          }
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="mt-1 text-gray-900 break-all">
+                          {profileData.email || "—"}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label
+                        htmlFor="position"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Rol
+                      </Label>
+                      {isEditing ? (
+                        <Input
+                          id="position"
+                          value={profileData.position}
+                          onChange={(e) =>
+                            setProfileData({
+                              ...profileData,
+                              position: e.target.value,
+                            })
+                          }
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="mt-1 text-gray-900">
+                          {profileData.position || "—"}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <Label
+                        htmlFor="department"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Área / Curso
+                      </Label>
+                      {isEditing ? (
+                        <Input
+                          id="department"
+                          value={profileData.department}
+                          onChange={(e) =>
+                            setProfileData({
+                              ...profileData,
+                              department: e.target.value,
+                            })
+                          }
+                          className="mt-1"
+                        />
+                      ) : (
+                        <p className="mt-1 text-gray-900">
+                          {profileData.department || "—"}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {api?.alumnos_del_padre &&
+                api.alumnos_del_padre.length > 0 && (
+                  <Card className="mt-8 shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+                    <CardContent className="p-6">
+                      <h4 className="font-semibold text-gray-900 text-lg mb-4">
+                        Alumnos a cargo
+                      </h4>
+                      <ul className="text-sm text-gray-800 list-disc pl-5 space-y-1">
+                        {api.alumnos_del_padre.map((a) => (
+                          <li key={a.id}>
+                            {a.nombre} — {a.curso} (ID: {a.id_alumno})
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

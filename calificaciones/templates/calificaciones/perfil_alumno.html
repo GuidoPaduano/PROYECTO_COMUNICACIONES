@@ -5,16 +5,22 @@
   <h2>Perfil de {{ alumno.nombre }}</h2>
 
   <h4 class="mt-4">Asistencias</h4>
-  {% if inasistencias %}
+  <p class="text-muted">Total de faltas (Ausente=1, Tarde=0,5): <strong>{{ faltas_equivalentes }}</strong></p>
+
+  {% if asistencias_irregulares %}
     <ul class="list-group">
-      {% for asistencia in inasistencias %}
+      {% for asistencia in asistencias_irregulares %}
         <li class="list-group-item">
-          ❌ Ausente el {{ asistencia.fecha }}
+          {% if asistencia.presente %}
+            🕒 Tarde el {{ asistencia.fecha }}
+          {% else %}
+            ❌ Ausente el {{ asistencia.fecha }}
+          {% endif %}
         </li>
       {% endfor %}
     </ul>
   {% else %}
-    <p>No se registraron inasistencias.</p>
+    <p>No se registraron inasistencias ni llegadas tarde.</p>
   {% endif %}
 </div>
 {% endblock %}
