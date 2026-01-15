@@ -1,84 +1,94 @@
+{% load static %}
 <!DOCTYPE html>
-<html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Nueva carga de notas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    .field { margin-bottom: 12px; }
+    .errorlist { color: #b00020; margin: 4px 0 0 0; padding: 0; list-style: none; }
+    label { display:block; font-weight:600; margin-bottom:4px; }
+    input, select { padding:8px; width: 320px; max-width: 100%; }
+    .help { color:#555; font-size: 0.9em; margin-top:4px; }
+    .actions { margin-top: 16px; }
+    button { padding:10px 16px; cursor:pointer; }
+  </style>
+</head>
 <body>
-    <h1>Agregar Nota</h1>
+  <h1>Nueva carga de notas</h1>
 
-    <!-- Mensajes de éxito o error -->
-    {% if messages %}
-        <ul>
-            {% for message in messages %}
-                <li style="color: green;">{{ message }}</li>
-            {% endfor %}
-        </ul>
-    {% endif %}
+  <form method="post" novalidate>
+    {% csrf_token %}
 
-    <!-- Formulario para seleccionar el curso -->
-    <form method="get">
-        <label>Curso:</label>
-        <select name="curso" onchange="this.form.submit()">
-            <option value="">-- Seleccionar Curso --</option>
-            {% for codigo, nombre in cursos %}
-                <option value="{{ codigo }}" {% if codigo == curso_seleccionado %}selected{% endif %}>
-                    {{ nombre }}
-                </option>
-            {% endfor %}
+    <div class="field">
+      <label for="{{ form.alumno.id_for_label }}">Alumno</label>
+      {{ form.alumno }}
+      {{ form.alumno.errors }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.materia.id_for_label }}">Materia</label>
+      {{ form.materia }}
+      {{ form.materia.errors }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.tipo.id_for_label }}">Tipo</label>
+      {{ form.tipo }}
+      {{ form.tipo.errors }}
+    </div>
+
+    {# ===== Calificación con SELECT que incluye “No entregado” ===== #}
+    <div class="field">
+      <label for="{{ form.calificacion.id_for_label }}">Calificación</label>
+      {% with v=form.calificacion.value|default_if_none:""|upper cal_id=form.calificacion.id_for_label %}
+        <select name="{{ form.calificacion.html_name }}" id="{{ cal_id }}">
+          <option value="">Seleccioná…</option>
+
+          <option value="1"  {% if v == "1"  %}selected{% endif %}>1</option>
+          <option value="2"  {% if v == "2"  %}selected{% endif %}>2</option>
+          <option value="3"  {% if v == "3"  %}selected{% endif %}>3</option>
+          <option value="4"  {% if v == "4"  %}selected{% endif %}>4</option>
+          <option value="5"  {% if v == "5"  %}selected{% endif %}>5</option>
+          <option value="6"  {% if v == "6"  %}selected{% endif %}>6</option>
+          <option value="7"  {% if v == "7"  %}selected{% endif %}>7</option>
+          <option value="8"  {% if v == "8"  %}selected{% endif %}>8</option>
+          <option value="9"  {% if v == "9"  %}selected{% endif %}>9</option>
+          <option value="10" {% if v == "10" %}selected{% endif %}>10</option>
+
+          <option value="TEA" {% if v == "TEA" %}selected{% endif %}>TEA</option>
+          <option value="TEP" {% if v == "TEP" %}selected{% endif %}>TEP</option>
+          <option value="TED" {% if v == "TED" %}selected{% endif %}>TED</option>
+
+          <option value="NO ENTREGADO" {% if v == "NO ENTREGADO" or v == "NOENTREGADO" %}selected{% endif %}>No entregado</option>
         </select>
-    </form>
+      {% endwith %}
 
-    {% if curso_seleccionado %}
-    <!-- Formulario para agregar una nota -->
-    <form method="post">
-        {% csrf_token %}
+      {% if form.calificacion.errors %}
+        <ul class="errorlist">
+          {% for e in form.calificacion.errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      <div class="help">
+        {% if form.fields.calificacion.help_text %}
+          {{ form.fields.calificacion.help_text }}
+        {% else %}
+          Valores permitidos: 1–10, TEA, TEP, TED o <em>No entregado</em>.
+        {% endif %}
+      </div>
+    </div>
 
-        <label>Alumno:</label>
-        <select name="alumno" required>
-            {% for alumno in alumnos %}
-                <option value="{{ alumno.id_alumno }}">{{ alumno.nombre }}</option>
-            {% endfor %}
-        </select><br>
+    <div class="field">
+      <label for="{{ form.cuatrimestre.id_for_label }}">Cuatrimestre</label>
+      {{ form.cuatrimestre }}
+      {{ form.cuatrimestre.errors }}
+    </div>
 
-        <label>Materia:</label>
-        <select name="materia" required>
-            {% for materia in materias %}
-                <option value="{{ materia }}">{{ materia }}</option>
-            {% endfor %}
-        </select><br>
-
-        <label>Tipo de Nota:</label>
-        <select name="tipo" required>
-            <option value="evaluacion">Evaluación</option>
-            <option value="tp">Trabajo Práctico</option>
-            <option value="oral">Oral</option>
-            <option value="recuperatorio">Recuperatorio</option>
-        </select><br>
-
-        <label>Calificación:</label>
-        <select name="calificacion" required>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10">10</option>
-            <option value="TEA">TEA</option>
-            <option value="TEP">TEP</option>
-            <option value="TED">TED</option>
-        </select><br>
-
-        <label>Cuatrimestre:</label>
-        <select name="cuatrimestre" required>
-            <option value="1">1er cuatrimestre</option>
-            <option value="2">2do cuatrimestre</option>
-        </select><br>
-
-        <input type="submit" value="Guardar Nota">
-    </form>
-    {% endif %}
-
-    <a href="/">Volver</a>
+    <div class="actions">
+      <button type="submit">Guardar</button>
+    </div>
+  </form>
 </body>
 </html>
