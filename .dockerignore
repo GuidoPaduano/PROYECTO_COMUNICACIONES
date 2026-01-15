@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtualenv
+venv/
+.venv/
+
+# Django
+db.sqlite3
+staticfiles/
+media/
+
+# Node / Next
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+frontend/build/
+
+# Vercel
+.vercel/
+frontend/.vercel/
+
+# Git
+.git/
+.gitignore
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
