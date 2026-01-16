@@ -74,7 +74,7 @@ export default function PasarAsistenciaPage() {
 
   const [me, setMe] = useState(null)
   const userLabel = useMemo(() => {
-    return me?.full_name?.trim?.() ? me.full_name : me?.username || "Usuario"
+    return me?.full_name?.trim?.() ? me.full_name : me?.username || ""
   }, [me])
 
   const [loadingCursos, setLoadingCursos] = useState(true)

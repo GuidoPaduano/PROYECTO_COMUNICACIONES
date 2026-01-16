@@ -447,7 +447,7 @@ function Topbar({ unreadCount, me }) {
     (me?.full_name && String(me.full_name).trim()) ||
     me?.username ||
     [me?.user?.first_name, me?.user?.last_name].filter(Boolean).join(" ") ||
-    "Usuario"
+    ""
 
   return (
     <div className="bg-blue-600 text-white px-6 py-4">
