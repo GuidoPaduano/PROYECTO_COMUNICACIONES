@@ -26,6 +26,11 @@ function cursoLabelOf(c) {
   return String(label ?? cursoIdOf(c))
 }
 
+function alumnoIdOf(a) {
+  const id = pick(a, "id", "alumno_id", "id_alumno", "pk")
+  return id == null ? "" : String(id)
+}
+
 function fullName(u) {
   if (!u) return ""
   const name = [u?.last_name, u?.first_name].filter(Boolean).join(", ")
@@ -106,6 +111,15 @@ export default function ComposeComunicadoFamilia({
       setAlumnos([])
     }
   }, [open, defaultCurso])
+
+  // Auto-cierre cuando hay mensaje de éxito
+  useEffect(() => {
+    if (!open || !okMsg) return
+    const t = setTimeout(() => {
+      onOpenChange?.(false)
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [open, okMsg, onOpenChange])
 
   // ----- Cargar cursos asignados al preceptor -----
   useEffect(() => {
@@ -202,7 +216,10 @@ export default function ComposeComunicadoFamilia({
         }).finally(() => alive && setLoadingPadres(false))
 
         // autoseleccionar si hay uno solo
-        if (al.length === 1) setAlumnoSel(String(al[0]?.id ?? ""))
+        if (al.length === 1) {
+          const onlyId = alumnoIdOf(al[0])
+          if (onlyId) setAlumnoSel(onlyId)
+        }
       })
       .catch(() => {
         if (alive) {
@@ -214,6 +231,24 @@ export default function ComposeComunicadoFamilia({
     return () => { alive = false }
   }, [open, cursoSel])
 
+  // En modo "alumno", aseguramos que haya una seleccion valida si hay alumnos cargados.
+  useEffect(() => {
+    if (modo !== "alumno") return
+    if (!alumnos.length) {
+      if (alumnoSel) setAlumnoSel("")
+      return
+    }
+    const ids = alumnos.map(alumnoIdOf).filter(Boolean)
+    if (!ids.length) {
+      if (alumnoSel) setAlumnoSel("")
+      return
+    }
+    const current = String(alumnoSel || "")
+    if (!current || !ids.includes(current)) {
+      setAlumnoSel(ids[0])
+    }
+  }, [modo, alumnos, alumnoSel])
+
   // ===== Opciones para selects =====
   const opcionesFamilia = useMemo(() => {
     // value: `${padreId}::${alumnoId}`
@@ -224,10 +259,18 @@ export default function ComposeComunicadoFamilia({
   }, [destinatarios])
 
   const opcionesAlumnos = useMemo(() => {
-    return alumnos.map((a) => ({
-      value: String(a?.id),
-      label: [a?.apellido, a?.nombre].filter(Boolean).join(", ") || a?.nombre || a?.nombre_completo || `Alumno ${a?.id}`,
-    }))
+    return alumnos
+      .map((a) => {
+        const id = alumnoIdOf(a)
+        return {
+          value: id,
+          label: [a?.apellido, a?.nombre].filter(Boolean).join(", ")
+            || a?.nombre
+            || a?.nombre_completo
+            || (id ? `Alumno ${id}` : "Alumno"),
+        }
+      })
+      .filter((opt) => opt.value)
   }, [alumnos])
 
   function onChangeDestFamilia(v) {
@@ -265,7 +308,7 @@ export default function ComposeComunicadoFamilia({
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.detail || "No se pudo enviar el comunicado.")
-        setOkMsg("Comunicado enviado a la familia.")
+        setOkMsg("Comunicado enviado a la familia correctamente.")
       } else if (modo === "alumno") {
         // Envío a un alumno: dejamos que la API resuelva receptor = alumno.usuario
         const res = await authFetch("/mensajes/enviar/", {
@@ -280,7 +323,7 @@ export default function ComposeComunicadoFamilia({
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.detail || "No se pudo enviar el mensaje al alumno.")
-        setOkMsg("Mensaje enviado al alumno.")
+        setOkMsg("Mensaje enviado al alumno correctamente.")
       } else {
         // Envío grupal a TODOS los alumnos del curso
         const res = await authFetch("/mensajes/enviar_grupal/", {
@@ -295,7 +338,7 @@ export default function ComposeComunicadoFamilia({
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.detail || "No se pudo enviar el mensaje grupal.")
-        setOkMsg(`Mensaje enviado a ${data?.creados ?? 0} alumnos de ${cursoSel}.`)
+        setOkMsg(`Mensaje enviado a ${data?.creados ?? 0} alumnos de ${cursoSel} correctamente.`)
       }
     } catch (e) {
       setErrMsg(e?.message || "Error al enviar.")
@@ -312,7 +355,27 @@ export default function ComposeComunicadoFamilia({
             {modo === "familia" ? "Comunicado a familias" : (modo === "alumno" ? "Mensaje a alumno" : "Mensaje a curso (alumnos)")}
           </DialogTitle>
           {errMsg && <p className="text-sm text-red-600 mt-1">{errMsg}</p>}
-          {okMsg && <p className="text-sm text-green-600 mt-1">{okMsg}</p>}
+          {okMsg && (
+            <p className="text-sm text-green-700 mt-1 inline-flex items-center gap-2">
+              <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-green-600">
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  aria-hidden="true"
+                  className="h-3 w-3 text-white"
+                >
+                  <path
+                    d="M5 10.5l3.2 3.2L15 6.9"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              {okMsg}
+            </p>
+          )}
         </DialogHeader>
 
         {/* Modo */}

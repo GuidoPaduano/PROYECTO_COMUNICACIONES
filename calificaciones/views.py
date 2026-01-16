@@ -14,7 +14,6 @@ from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.authentication import SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.decorators import (
@@ -39,10 +38,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    # ✅ NUEVO: si existe el modelo real preceptor→cursos, lo usamos para permisos
-    from .models_preceptores import PreceptorCurso  # type: ignore
+    # ✅ NUEVO: si existen los modelos reales preceptor/profesor→cursos, los usamos para permisos
+    from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
 except Exception:
     PreceptorCurso = None
+    ProfesorCurso = None
 
 
 # =========================================================
@@ -342,14 +342,6 @@ def _get_preview_role(request):
 
 
 # =========================================================
-#  Auth de sesión sin CSRF (para SPA en desarrollo)
-# =========================================================
-class CsrfExemptSessionAuthentication(SessionAuthentication):
-    def enforce_csrf(self, request):
-        return  # no-op
-
-
-# =========================================================
 #  Formularios
 # =========================================================
 class EventoForm(forms.ModelForm):
@@ -495,6 +487,37 @@ def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     return obtener_curso_del_preceptor(user) == curso_alumno
 
 
+def _profesor_cursos_asignados(user):
+    if ProfesorCurso is None:
+        return []
+    try:
+        return list(
+            ProfesorCurso.objects.filter(profesor=user)
+            .values_list("curso", flat=True)
+            .distinct()
+        )
+    except Exception:
+        return []
+
+
+def _profesor_can_access_curso(user, curso: str) -> bool:
+    curso = (curso or "").strip()
+    if not curso:
+        return False
+
+    asignados = _profesor_cursos_asignados(user)
+    if not asignados:
+        return True
+    return curso in set(asignados)
+
+
+def _profesor_can_access_alumno(user, alumno: Alumno) -> bool:
+    curso_alumno = getattr(alumno, "curso", None)
+    if not curso_alumno:
+        return False
+    return _profesor_can_access_curso(user, curso_alumno)
+
+
 # =========================================================
 #  ✅ NUEVO: Compat Mensaje (emisor/receptor vs remitente/destinatario)
 # =========================================================
@@ -543,7 +566,7 @@ def index(request):
 # =========================================================
 @csrf_exempt
 @api_view(["GET", "PATCH"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def perfil_api(request):
     """
@@ -699,7 +722,7 @@ def perfil_api(request):
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mi_curso(request):
     """
@@ -782,7 +805,7 @@ def mi_curso(request):
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notas_catalogos(request):
     """
@@ -792,6 +815,11 @@ def notas_catalogos(request):
     - tipos: (opcional) vacío por ahora; se puede poblar luego si definen choices
     """
     cursos = [{"id": c[0], "nombre": c[1]} for c in getattr(Alumno, "CURSOS", [])]
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        asignados = _profesor_cursos_asignados(request.user)
+        if asignados:
+            asignados_set = set(asignados)
+            cursos = [c for c in cursos if c.get("id") in asignados_set]
     materias = list(MATERIAS)
     tipos = []  # futuro: mapear choices de Nota si existen
 
@@ -807,7 +835,7 @@ def notas_catalogos(request):
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def preceptor_cursos(request):
     """
@@ -862,7 +890,7 @@ def _build_alumnos_payload(qs):
 
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def alumnos_por_curso(request):
     """
@@ -872,6 +900,10 @@ def alumnos_por_curso(request):
     curso = (request.GET.get("curso") or "").strip()
     if not curso:
         return Response({"detail": "Parámetro 'curso' es requerido."}, status=400)
+
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        if not _profesor_can_access_curso(request.user, curso):
+            return Response({"detail": "No autorizado para ese curso."}, status=403)
 
     # ✅ FIX: si Alumno no tiene apellido, no explota
     if _has_model_field(Alumno, "apellido"):
@@ -888,7 +920,7 @@ def alumnos_por_curso(request):
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def alumnos_por_curso_path(request, curso: str):
     """
@@ -904,6 +936,10 @@ def alumnos_por_curso_path(request, curso: str):
     if not curso:
         return Response({"detail": "curso vacío."}, status=400)
 
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        if not _profesor_can_access_curso(request.user, curso):
+            return Response({"detail": "No autorizado para ese curso."}, status=403)
+
     if _has_model_field(Alumno, "apellido"):
         qs = Alumno.objects.filter(curso=curso).order_by("apellido", "nombre")
     else:
@@ -917,7 +953,7 @@ def alumnos_por_curso_path(request, curso: str):
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def alumno_detalle(request, alumno_id):
     """
@@ -943,7 +979,8 @@ def alumno_detalle(request, alumno_id):
     # ✅ NUEVO: autorización consistente (incluye preceptor por curso)
     user = request.user
     is_padre = (getattr(a, "padre_id", None) == user.id)
-    is_prof_or_super = (user.is_superuser or _has_role(request, "Profesores"))
+    is_prof_ok = _has_role(request, "Profesores") and _profesor_can_access_alumno(user, a)
+    is_prof_or_super = (user.is_superuser or is_prof_ok)
     # Alumno propio:
     # - Vínculo explícito Alumno.usuario (si existe)
     # - Fallback robusto (username==legajo, padre con único hijo, etc.)
@@ -972,7 +1009,7 @@ def alumno_detalle(request, alumno_id):
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def alumno_notas(request, alumno_id):
     """
@@ -1011,11 +1048,12 @@ def alumno_notas(request, alumno_id):
 
     # ✅ NUEVO: sumar Preceptores (pero solo si tienen el curso asignado)
     is_preceptor_ok = (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, alumno))
+    is_prof_ok = (_has_role(request, "Profesores") and _profesor_can_access_alumno(user, alumno))
 
     # Autorización: superuser, profesores, preceptor por curso, padre o el propio alumno
     if not (
         user.is_superuser
-        or _has_role(request, 'Profesores')
+        or is_prof_ok
         or is_preceptor_ok
         or alumno.padre_id == user.id
         or is_alumno_mismo
@@ -1046,6 +1084,13 @@ def agregar_nota(request):
 
     cursos = getattr(Alumno, 'CURSOS', [])
     curso_seleccionado = request.GET.get('curso') or request.POST.get('curso')
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        asignados = _profesor_cursos_asignados(request.user)
+        if asignados:
+            asignados_set = set(asignados)
+            cursos = [c for c in cursos if c[0] in asignados_set]
+            if curso_seleccionado and curso_seleccionado not in asignados_set:
+                return HttpResponse("No tenés permiso para ese curso.", status=403)
 
     if request.method == 'POST':
         alumnos_list = request.POST.getlist('alumno[]')
@@ -1164,6 +1209,13 @@ def agregar_nota_masiva(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Método no permitido'}, status=405)
 
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        asignados = _profesor_cursos_asignados(request.user)
+        if asignados:
+            curso_qs = (request.POST.get("curso") or "").strip()
+            if curso_qs and curso_qs not in asignados:
+                return JsonResponse({"detail": "No autorizado para ese curso."}, status=403)
+
     alumnos_ids = request.POST.getlist('alumno[]')
     materias = request.POST.getlist('materia[]')
     tipos = request.POST.getlist('tipo[]')
@@ -1271,6 +1323,13 @@ def enviar_mensaje(request):
 
     cursos_disponibles = Alumno.CURSOS
     curso_seleccionado = request.GET.get('curso')
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        asignados = _profesor_cursos_asignados(request.user)
+        if asignados:
+            asignados_set = set(asignados)
+            cursos_disponibles = [c for c in cursos_disponibles if c[0] in asignados_set]
+            if curso_seleccionado and curso_seleccionado not in asignados_set:
+                return HttpResponse("No tenés permiso para ese curso.", status=403)
     alumnos = Alumno.objects.filter(curso=curso_seleccionado) if curso_seleccionado else []
 
     if request.method == 'POST':
@@ -1312,9 +1371,18 @@ def enviar_comunicado(request):
         return HttpResponse("No tenés permiso.", status=403)
 
     cursos = Alumno.CURSOS
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        asignados = _profesor_cursos_asignados(request.user)
+        if asignados:
+            asignados_set = set(asignados)
+            cursos = [c for c in cursos if c[0] in asignados_set]
 
     if request.method == 'POST':
         curso = request.POST['curso']
+        if _has_role(request, "Profesores") and not request.user.is_superuser:
+            asignados = _profesor_cursos_asignados(request.user)
+            if asignados and curso not in set(asignados):
+                return HttpResponse("No tenés permiso para ese curso.", status=403)
         asunto = request.POST['asunto']
         contenido = request.POST['contenido']
         alumnos = Alumno.objects.filter(curso=curso, padre__isnull=False)
@@ -1344,7 +1412,7 @@ def enviar_comunicado(request):
 # =========================================================
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser])
 def mensajes_enviar_api(request):
@@ -1441,6 +1509,9 @@ def historial_notas_profesor(request, alumno_id):
         return HttpResponse("No tenés permiso para ver esto.", status=403)
 
     alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        if not _profesor_can_access_alumno(request.user, alumno):
+            return HttpResponse("No tenés permiso para ese curso.", status=403)
     materias = set(Nota.objects.filter(alumno=alumno).values_list('materia', flat=True))
     materia_seleccionada = request.GET.get('materia')
     notas = []
@@ -1495,7 +1566,7 @@ def api_eventos_tipos(request):
 
 @csrf_exempt
 @api_view(["GET", "POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def api_eventos(request):
@@ -1503,6 +1574,10 @@ def api_eventos(request):
 
     if user.is_superuser or _has_role(request, 'Profesores'):
         qs = Evento.objects.all()
+        if _has_role(request, "Profesores") and not user.is_superuser:
+            asignados = _profesor_cursos_asignados(user)
+            if asignados:
+                qs = qs.filter(curso__in=asignados)
     else:
         try:
             alumno = Alumno.objects.get(padre=user)
@@ -1518,6 +1593,11 @@ def api_eventos(request):
     payload = _coerce_json(request)
     data = _normalize_event_payload(payload)
 
+    if _has_role(request, "Profesores") and not user.is_superuser:
+        asignados = _profesor_cursos_asignados(user)
+        if asignados and data.get("curso") not in set(asignados):
+            return Response({"detail": "No tenés permiso para ese curso."}, status=403)
+
     ser = EventoSerializer(data=data)
     if not ser.is_valid():
         logger.warning("❌ Validación evento (POST) fallida. data=%s errors=%s", data, ser.errors)
@@ -1532,7 +1612,7 @@ def api_eventos(request):
 
 @csrf_exempt
 @api_view(["PUT", "PATCH", "DELETE"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def api_evento_detalle(request, pk: int):
@@ -1567,7 +1647,7 @@ class EventoViewSet(viewsets.ModelViewSet):
     queryset = Evento.objects.all()
     serializer_class = EventoSerializer
     permission_classes = [IsAuthenticated]
-    authentication_classes = (CsrfExemptSessionAuthentication, JWTAuthentication)
+    authentication_classes = (JWTAuthentication,)
     parser_classes = (JSONParser, FormParser, MultiPartParser)
 
     @action(detail=False, methods=["get"], url_path="tipos",
@@ -1578,7 +1658,12 @@ class EventoViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.is_superuser or _has_role(self.request, 'Profesores'):
-            return Evento.objects.all()
+            qs = Evento.objects.all()
+            if _has_role(self.request, "Profesores") and not user.is_superuser:
+                asignados = _profesor_cursos_asignados(user)
+                if asignados:
+                    qs = qs.filter(curso__in=asignados)
+            return qs
         try:
             alumno = Alumno.objects.get(padre=user)
             return Evento.objects.filter(curso=alumno.curso)
@@ -1631,8 +1716,16 @@ def crear_evento(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
         return HttpResponse("No tenés permiso para crear eventos.", status=403)
 
+    asignados = []
+    if _has_role(request, "Profesores") and not request.user.is_superuser:
+        asignados = _profesor_cursos_asignados(request.user)
+
     if request.method == 'POST':
         form = EventoForm(request.POST)
+        if asignados:
+            curso = (request.POST.get("curso") or "").strip()
+            if curso and curso not in set(asignados):
+                return JsonResponse({"success": False, "detail": "No autorizado para ese curso."}, status=403)
         if form.is_valid():
             evento = form.save(commit=False)
             evento.creado_por = request.user
@@ -1733,7 +1826,8 @@ def perfil_alumno(request, alumno_id):
     alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
 
     is_padre = (request.user == alumno.padre)
-    is_prof_or_super = (request.user.is_superuser or _has_role(request, 'Profesores'))
+    is_prof_ok = _has_role(request, 'Profesores') and _profesor_can_access_alumno(request.user, alumno)
+    is_prof_or_super = (request.user.is_superuser or is_prof_ok)
     # Alumno propio (mismo criterio que en endpoints API)
     is_alumno_mismo = False
     try:
@@ -1808,7 +1902,7 @@ def mi_perfil(request):
 # =========================================================
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication])  # sin CSRF para SPA
+@authentication_classes([JWTAuthentication])
 @permission_classes([AllowAny])
 def auth_logout(request):
     """
@@ -1831,7 +1925,7 @@ def auth_logout(request):
 #  ✅ NUEVO: contador de no leídos para el badge de la topbar
 # =========================================================
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_unread_count(request):
     user = request.user

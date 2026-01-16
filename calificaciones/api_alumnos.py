@@ -15,7 +15,6 @@ from rest_framework.response import Response
 from rest_framework.parsers import JSONParser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .views import CsrfExemptSessionAuthentication
 from .models import Alumno
 
 
@@ -89,7 +88,7 @@ def _generar_id_alumno_para_curso(curso: str) -> str:
 @csrf_exempt
 @api_view(["POST"])
 @parser_classes([JSONParser])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def crear_alumno(request):
     """
@@ -163,7 +162,7 @@ def crear_alumno(request):
 @csrf_exempt
 @api_view(["POST"])
 @parser_classes([JSONParser])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def vincular_mi_legajo(request):
     """

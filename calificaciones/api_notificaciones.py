@@ -10,7 +10,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .views import CsrfExemptSessionAuthentication
 from .models import Notificacion
 
 
@@ -44,7 +43,7 @@ def _serialize_notif(n: Notificacion):
 
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_unread_count(request):
     user = request.user
@@ -54,7 +53,7 @@ def notificaciones_unread_count(request):
 
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_recientes(request):
     user = request.user
@@ -72,7 +71,7 @@ def notificaciones_recientes(request):
 
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_marcar_leida(request, notif_id: int):
     user = request.user
@@ -82,7 +81,7 @@ def notificaciones_marcar_leida(request, notif_id: int):
 
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_marcar_todas_leidas(request):
     user = request.user

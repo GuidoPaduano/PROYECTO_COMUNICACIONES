@@ -6,7 +6,6 @@ from typing import Optional
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.authentication import SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno, Nota
@@ -14,18 +13,11 @@ from .serializers import NotaPublicSerializer
 from .contexto import resolve_alumno_for_user
 
 try:
-    # Si existe el modelo real de preceptor → cursos
-    from .models_preceptores import PreceptorCurso  # type: ignore
+    # Si existen los modelos reales de preceptor/profesor → cursos
+    from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
 except Exception:
     PreceptorCurso = None
-
-
-# =========================================================
-#  Auth de sesión sin CSRF (para SPA en desarrollo)
-# =========================================================
-class CsrfExemptSessionAuthentication(SessionAuthentication):
-    def enforce_csrf(self, request):
-        return  # no-op
+    ProfesorCurso = None
 
 
 def _has_model_field(model, name: str) -> bool:
@@ -74,6 +66,30 @@ def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     return False
 
 
+def _profesor_cursos_asignados(user) -> list[str]:
+    if ProfesorCurso is None:
+        return []
+    try:
+        return list(
+            ProfesorCurso.objects.filter(profesor=user)
+            .values_list("curso", flat=True)
+            .distinct()
+        )
+    except Exception:
+        return []
+
+
+def _profesor_can_access_alumno(user, alumno: Alumno) -> bool:
+    curso_alumno = getattr(alumno, "curso", None)
+    if not curso_alumno:
+        return False
+
+    asignados = _profesor_cursos_asignados(user)
+    if not asignados:
+        return True
+    return curso_alumno in set(asignados)
+
+
 def _authorize_alumno(request, alumno: Alumno) -> bool:
     """
     Autorización básica:
@@ -89,7 +105,7 @@ def _authorize_alumno(request, alumno: Alumno) -> bool:
         return True
 
     if user.groups.filter(name="Profesores").exists():
-        return True
+        return _profesor_can_access_alumno(user, alumno)
 
     # Preceptores con restricción por curso
     if user.groups.filter(name="Preceptores").exists():
@@ -168,7 +184,7 @@ def _get_alumno_from_query_params(request) -> Optional[Alumno]:
 
 
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notas_listar(request):
     """
@@ -196,7 +212,7 @@ def notas_listar(request):
 
 
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notas_por_codigo(request, id_alumno: str):
     """

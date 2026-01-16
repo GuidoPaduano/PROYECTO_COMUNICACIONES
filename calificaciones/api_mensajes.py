@@ -17,7 +17,6 @@ from django.utils import timezone
 from django.db import models
 from django.contrib.auth import get_user_model
 
-from .views import CsrfExemptSessionAuthentication
 from .models import Alumno, Mensaje
 
 from uuid import UUID, uuid4
@@ -367,7 +366,7 @@ def _qs_conversacion_por_participantes(base_msg):
 # ===================== Envíos =====================
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def enviar_mensaje(request):
@@ -467,7 +466,7 @@ def enviar_mensaje(request):
 
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def enviar_mensaje_grupal(request):
@@ -551,7 +550,7 @@ def enviar_mensaje_grupal(request):
 # ===================== Lectura / estado =====================
 @csrf_exempt
 @api_view(["GET"])
-@authentication_classes([JWTAuthentication, CsrfExemptSessionAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_unread_count(request):
     qs = _qs_inbox_for_user(request.user)
@@ -576,7 +575,7 @@ def mensajes_unread_count(request):
 
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_marcar_todos_leidos(request):
     qs = _qs_inbox_for_user(request.user)
@@ -588,7 +587,7 @@ def mensajes_marcar_todos_leidos(request):
 
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_marcar_leido(request, mensaje_id: int):
     try:
@@ -627,7 +626,7 @@ def mensajes_marcar_leido(request, mensaje_id: int):
 # ===================== Eliminar (bandeja) =====================
 @csrf_exempt
 @api_view(["DELETE", "POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_eliminar(request, mensaje_id: int):
     """
@@ -655,7 +654,7 @@ def mensajes_eliminar(request, mensaje_id: int):
     return Response({"ok": True, "id": mensaje_id}, status=200)
 # ===================== Listados =====================
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_recibidos(request):
     qs = _qs_inbox_for_user(request.user)
@@ -696,7 +695,7 @@ mensajes_listar = mensajes_recibidos
 
 # ===================== Conversaciones (hilos) =====================
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
     """
@@ -779,7 +778,7 @@ def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
 
 
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_conversacion_por_thread(request, thread_id: str):
     if not _threads_enabled():
@@ -824,7 +823,7 @@ def mensajes_conversacion_por_thread(request, thread_id: str):
 
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_marcar_thread_leidos(request, thread_id: str):
     if not _threads_enabled():
@@ -851,7 +850,7 @@ def mensajes_marcar_thread_leidos(request, thread_id: str):
 # ===================== Responder =====================
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def responder_mensaje(request):
@@ -947,7 +946,7 @@ mensajes_responder = responder_mensaje
 # ===================== Mantenimiento / Normalización (opcional) =====================
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_normalizar_flags(request):
     body = {}
