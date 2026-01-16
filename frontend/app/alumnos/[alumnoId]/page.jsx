@@ -45,10 +45,15 @@ import {
 import ComposeMensajeAlumno from "./_compose-alumno"
 import { NotificationBell } from "@/components/notification-bell"
 
+const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+
 /* ======================== Fix Mis Hijos: persistencia tab ======================== */
 const MIS_HIJOS_LAST_TAB_KEY = "mis_hijos_last_tab"
 const MIS_HIJOS_LAST_ALUMNO_KEY = "mis_hijos_last_alumno"
 const VALID_TABS = new Set(["notas", "sanciones", "asistencias"])
+const ALUMNO_DETAIL_CACHE_PREFIX = "alumno_detail_cache:"
+const ALUMNO_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000
+const ALUMNO_DETAIL_ENDPOINT_KEY = "alumno_detail_endpoint"
 
 function safeGetLS(key) {
   try {
@@ -63,6 +68,39 @@ function safeSetLS(key, value) {
     if (typeof window === "undefined") return
     localStorage.setItem(key, String(value ?? ""))
   } catch {}
+}
+
+function safeGetLSJson(key) {
+  const raw = safeGetLS(key)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function safeSetLSJson(key, value) {
+  try {
+    if (typeof window === "undefined") return
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {}
+}
+
+function getCachedAlumnoDetail(idParam) {
+  if (!idParam) return null
+  const cached = safeGetLSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${idParam}`)
+  if (!cached?.data) return null
+  if (cached.ts && Date.now() - cached.ts > ALUMNO_DETAIL_CACHE_TTL_MS) return null
+  return cached.data
+}
+
+function setCachedAlumnoDetail(idParam, data) {
+  if (!idParam || !data) return
+  safeSetLSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${idParam}`, {
+    ts: Date.now(),
+    data,
+  })
 }
 
 function kidLegajo(h) {
@@ -192,16 +230,29 @@ async function fetchJSON(url, opts) {
 /* ------------------------------------------------------------
    Rutas compatibles (PK o id_alumno/legajo)
 ------------------------------------------------------------ */
-async function getAlumnoIdsFromAny(idParam) {
-  const tries = [
-    `/alumnos/${encodeURIComponent(idParam)}/`,
-    `/alumnos/detalle/${encodeURIComponent(idParam)}/`,
-    `/alumno/${encodeURIComponent(idParam)}/`,
-    `/perfil_alumno/${encodeURIComponent(idParam)}/`,
-    `/api/alumnos/${encodeURIComponent(idParam)}/`,
-  ]
+const ALUMNO_DETAIL_ENDPOINTS = [
+  "/alumnos/{id}/",
+  "/alumnos/detalle/{id}/",
+  "/alumno/{id}/",
+  "/perfil_alumno/{id}/",
+  "/api/alumnos/{id}/",
+]
 
-  for (const url of tries) {
+function alumnoDetailEndpointOrder() {
+  const preferred = safeGetLS(ALUMNO_DETAIL_ENDPOINT_KEY).trim()
+  if (preferred && ALUMNO_DETAIL_ENDPOINTS.includes(preferred)) {
+    return [preferred, ...ALUMNO_DETAIL_ENDPOINTS.filter((t) => t !== preferred)]
+  }
+  return ALUMNO_DETAIL_ENDPOINTS
+}
+
+async function getAlumnoIdsFromAny(idParam) {
+  const encoded = encodeURIComponent(idParam)
+  const order = alumnoDetailEndpointOrder()
+  const tries = order.map((t) => t.replace("{id}", encoded))
+
+  for (let i = 0; i < tries.length; i += 1) {
+    const url = tries[i]
     try {
       const r = await fetchJSON(url)
       if (!r.ok) continue
@@ -209,7 +260,11 @@ async function getAlumnoIdsFromAny(idParam) {
       const a = obj.alumno || obj
       const pk = a?.id ?? obj?.id
       const code = a?.id_alumno ?? obj?.id_alumno ?? idParam
-      if (pk || code) return { detail: obj, pk, code }
+      if (pk || code) {
+        const template = order[i]
+        if (template) safeSetLS(ALUMNO_DETAIL_ENDPOINT_KEY, template)
+        return { detail: obj, pk, code }
+      }
     } catch {}
   }
   return { detail: null, pk: null, code: idParam }
@@ -675,6 +730,24 @@ function AlumnoPerfilPageInner() {
     setFilAsisMes("ALL")
     setFilAsisTipo("ALL")
 
+    const cachedDetail = getCachedAlumnoDetail(alumnoid)
+    if (cachedDetail && alive) {
+      const cachedAlumno = cachedDetail?.alumno || cachedDetail || {}
+      const cachedPk = cachedAlumno?.id ?? cachedDetail?.id ?? null
+      const cachedCode =
+        cachedAlumno?.id_alumno ??
+        cachedDetail?.id_alumno ??
+        cachedAlumno?.legajo ??
+        cachedAlumno?.codigo ??
+        null
+
+      setAlumnoDetail(cachedDetail)
+      setPk(cachedPk || null)
+      if (cachedCode != null && String(cachedCode).trim()) {
+        setCode(String(cachedCode))
+      }
+    }
+
     ;(async () => {
       try {
         const { detail, pk, code } = await getAlumnoIdsFromAny(alumnoid)
@@ -683,6 +756,7 @@ function AlumnoPerfilPageInner() {
         setAlumnoDetail(detail)
         setPk(pk || null)
         setCode(code || alumnoid)
+        setCachedAlumnoDetail(alumnoid, detail)
 
         const [n, s, a] = await Promise.all([
           getNotasByPkOrCode(pk, code),
@@ -742,9 +816,10 @@ function AlumnoPerfilPageInner() {
   const meLoaded = !!me
   const hidePadreNavAndMessage = isFromMisHijos || isPadre
   const showKidSelector = hidePadreNavAndMessage
+  const hasHijos = hijos.length > 0
 
   // ✅ título dinámico del header (padre vs alumno)
-  const topbarTitle = isPadre ? "Perfil del hijo/a" : "Perfil del alumno"
+  const topbarTitle = "Perfil de Alumno"
 
   // ✅ Carga de hijos (solo PADRE /mis-hijos) para poder cambiar de hijo sin salir del perfil
   useEffect(() => {
@@ -1142,11 +1217,12 @@ function AlumnoPerfilPageInner() {
   }
 
   const nombreAlumno = useMemo(() => {
+    if (loading && !alumnoDetail) return ""
     const a = alumnoDetail?.alumno || alumnoDetail || {}
     return a.nombre && a.apellido
       ? `${a.nombre} ${a.apellido}`
       : a.full_name || a.apellido_y_nombre || a.nombre || "Alumno"
-  }, [alumnoDetail])
+  }, [alumnoDetail, loading])
 
   const cursoAlumno = useMemo(() => {
     const a = alumnoDetail?.alumno || alumnoDetail || {}
@@ -1207,38 +1283,38 @@ function AlumnoPerfilPageInner() {
 
           {/* ✅ ocultamos "Enviar mensaje" cuando es padre / viene de /mis-hijos */}
           <div className="flex flex-col items-end gap-3 w-full md:flex-1">
-            {showKidSelector && hijos.length > 0 && (
+            {showKidSelector && (
               <Card className="w-full md:max-w-[900px] shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                 <CardContent className="p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                    <div className="md:col-span-3">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
                       <Label className="block text-sm mb-1">Elegí el hijo/a</Label>
                       <Select
                         value={selectedKid}
                         onValueChange={onChangeKid}
-                        disabled={!hijosLoaded}
+                        disabled={!hijosLoaded || !hasHijos}
                       >
                         <SelectTrigger className="w-full">
                           <SelectValue
-                            placeholder={hijosLoaded ? "Seleccionar" : "Cargando…"}
+                            placeholder={
+                              hijosLoaded ? (hasHijos ? "Seleccionar" : "Sin hijos") : "Cargando…"
+                            }
                           />
                         </SelectTrigger>
-                        <SelectContent>
-                          {hijos.map((h) => {
-                            const v = kidValue(h)
-                            if (!v) return null
-                            return (
-                              <SelectItem key={v} value={v}>
-                                {kidLabel(h)}
-                              </SelectItem>
-                            )
-                          })}
-                        </SelectContent>
+                        {hasHijos && (
+                          <SelectContent>
+                            {hijos.map((h) => {
+                              const v = kidValue(h)
+                              if (!v) return null
+                              return (
+                                <SelectItem key={v} value={v}>
+                                  {kidLabel(h)}
+                                </SelectItem>
+                              )
+                            })}
+                          </SelectContent>
+                        )}
                       </Select>
-                    </div>
-                    <div className="text-sm text-gray-600 md:col-span-2">
-                      Cambiás de hijo sin salir del perfil. Se mantiene la sección actual
-                      (Notas, Sanciones o Asistencias).
                     </div>
                   </div>
                 </CardContent>
@@ -1842,10 +1918,12 @@ function Topbar({
     <div className="bg-blue-600 text-white px-6 py-4">
       <div className="flex items-center justify-between max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-            <div className="w-6 h-6 bg-blue-600 rounded-sm flex items-center justify-center">
-              <span className="text-white text-xs font-bold">🎓</span>
-            </div>
+          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
+            <img
+              src={LOGO_SRC}
+              alt="Escuela Santa Teresa"
+              className="h-full w-full object-contain"
+            />
           </div>
           <h1 className="text-xl font-semibold">{title}</h1>
         </div>

@@ -45,7 +45,7 @@ export default function ComposeMensajeAlumno({
   // ✅ Mostrar SOLO el nombre (sin "Alumno:" ni "Familia de")
   const destinatarioLabel = useMemo(() => {
     const base = String(alumnoNombre || "").trim()
-    return base || "Alumno"
+    return base
   }, [alumnoNombre])
 
   const canSend = useMemo(() => {
