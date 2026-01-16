@@ -71,7 +71,7 @@ export default function CargarNotasRapidas() {
   // Perfil/rol
   const [me, setMe] = useState(null)
   const userLabel = useMemo(
-    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || "Usuario"),
+    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || ""),
     [me]
   )
 

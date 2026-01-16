@@ -536,7 +536,7 @@ export default function MensajesPage() {
     (me?.full_name && String(me.full_name).trim()) ||
     me?.username ||
     [me?.user?.first_name, me?.user?.last_name].filter(Boolean).join(" ") ||
-    "Usuario"
+    ""
 
   const showDebug =
     unreadCount > 0 && !loading && !error && (Array.isArray(list) ? list.length : 0) === 0

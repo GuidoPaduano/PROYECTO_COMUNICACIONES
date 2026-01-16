@@ -153,7 +153,7 @@ export default function Profile() {
   }, []);
 
   const displayName = useMemo(
-    () => profileData.name || "Usuario",
+    () => profileData.name || "",
     [profileData.name]
   );
 

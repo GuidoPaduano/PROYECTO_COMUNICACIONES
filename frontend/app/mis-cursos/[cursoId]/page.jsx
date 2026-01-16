@@ -66,7 +66,7 @@ export default function CursoDetallePage({ params }) {
   const unreadCount = useUnreadCount()
 
   const userLabel = useMemo(
-    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || "Usuario"),
+    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || ""),
     [me]
   )
 
