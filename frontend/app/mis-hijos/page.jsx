@@ -13,9 +13,12 @@ import { Button } from "@/components/ui/button"
 
 import { ChevronLeft, Mail, Users as UsersIcon } from "lucide-react"
 
+const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+
 /* ======================== LocalStorage keys ======================== */
 const LAST_TAB_KEY = "mis_hijos_last_tab" // "notas" | "sanciones" | "asistencias"
 const LAST_ALUMNO_KEY = "mis_hijos_last_alumno"
+const ALUMNO_DETAIL_CACHE_PREFIX = "alumno_detail_cache:"
 const VALID_TABS = new Set(["notas", "sanciones", "asistencias"])
 
 /* ======================== Helpers ======================== */
@@ -45,6 +48,13 @@ function safeSetLS(key, value) {
   try {
     if (typeof window === "undefined") return
     localStorage.setItem(key, String(value ?? ""))
+  } catch {}
+}
+
+function safeSetLSJson(key, value) {
+  try {
+    if (typeof window === "undefined") return
+    localStorage.setItem(key, JSON.stringify(value))
   } catch {}
 }
 
@@ -110,6 +120,14 @@ function MisHijosPageInner() {
           : hijosRes?.data?.results || hijosRes?.data?.hijos || []
 
         const hijos = Array.isArray(arr) ? arr : []
+        hijos.forEach((h) => {
+          const id = hijoRouteId(h)
+          if (!id) return
+          safeSetLSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${id}`, {
+            ts: Date.now(),
+            data: h,
+          })
+        })
         const ids = hijos
           .map((h) => hijoRouteId(h))
           .filter((x) => x != null && String(x) !== "")
@@ -222,12 +240,14 @@ function Topbar({ unreadCount, me }) {
     <div className="bg-blue-600 text-white px-6 py-4">
       <div className="flex items-center justify-between max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-            <div className="w-6 h-6 bg-blue-600 rounded-sm flex items-center justify-center">
-              <span className="text-white text-xs font-bold">🎓</span>
-            </div>
+          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
+            <img
+              src={LOGO_SRC}
+              alt="Escuela Santa Teresa"
+              className="h-full w-full object-contain"
+            />
           </div>
-          <h1 className="text-xl font-semibold">Perfil de mis hijos</h1>
+          <h1 className="text-xl font-semibold">Perfil de alumno</h1>
         </div>
 
         <div className="flex items-center gap-4">
