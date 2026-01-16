@@ -18,24 +18,16 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
-from rest_framework.authentication import SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno, Asistencia
 
 try:
-    # Si existe el modelo real de preceptor → cursos
-    from .models_preceptores import PreceptorCurso  # type: ignore
+    # Si existen los modelos reales de preceptor/profesor → cursos
+    from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
 except Exception:
     PreceptorCurso = None
-
-
-# =========================================================
-#  Auth de sesión sin CSRF (para SPA en desarrollo)
-# =========================================================
-class CsrfExemptSessionAuthentication(SessionAuthentication):
-    def enforce_csrf(self, request):
-        return  # no-op
+    ProfesorCurso = None
 
 
 # =========================================================
@@ -343,6 +335,17 @@ def _cursos_de_usuario(user) -> List[str]:
         except Exception:
             asignados = []
 
+    if ProfesorCurso is not None:
+        try:
+            asignados_prof = list(
+                ProfesorCurso.objects.filter(profesor=user)
+                .values_list("curso", flat=True)
+                .distinct()
+            )
+            asignados = list(set(asignados) | set(asignados_prof))
+        except Exception:
+            pass
+
     if not asignados:
         c = obtener_curso_del_preceptor(user)
         if c:
@@ -351,6 +354,8 @@ def _cursos_de_usuario(user) -> List[str]:
     if not asignados:
         try:
             grupos = {g.name.strip() for g in user.groups.all()}
+            if "Profesores" in grupos or "Profesor" in grupos:
+                return todos
             asignados = [c for c in todos if c in grupos]
         except Exception:
             asignados = []
@@ -461,7 +466,7 @@ def _bulk_upsert_asistencias(
 #  Preceptor: cursos
 # =========================================================
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def preceptor_cursos(request):
     cursos = _cursos_de_usuario(request.user)
@@ -473,7 +478,7 @@ def preceptor_cursos(request):
 #  Tipos de asistencia (combo del front)
 # =========================================================
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def tipos_asistencia(request):
     data = []
@@ -486,7 +491,7 @@ def tipos_asistencia(request):
 #  Registrar asistencias
 # =========================================================
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def registrar_asistencias(request):
@@ -804,7 +809,7 @@ def registrar_asistencias(request):
 #  Justificar inasistencia / tardanza
 # =========================================================
 @api_view(["GET", "PATCH", "POST", "PUT"])  # GET para debug/compat + PATCH preferido, POST/PUT compat
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def justificar_asistencia(request, pk: int):
@@ -899,7 +904,7 @@ def justificar_asistencia(request, pk: int):
 #  Editar detalle (observación) de una asistencia
 # =========================================================
 @api_view(["GET", "PATCH", "POST", "PUT"])  # GET para leer; PATCH preferido; POST/PUT compat
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def editar_detalle_asistencia(request, pk: int):
@@ -982,7 +987,7 @@ def editar_detalle_asistencia(request, pk: int):
 
 
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def asistencias_por_alumno(request, alumno_id=None):
     """GET:
@@ -1035,7 +1040,7 @@ def asistencias_por_alumno(request, alumno_id=None):
 
 
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def asistencias_por_codigo(request, id_alumno):
     try:
@@ -1046,7 +1051,7 @@ def asistencias_por_codigo(request, id_alumno):
 
 
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def asistencias_por_curso_y_fecha(request):
     """GET /api/asistencias/curso/?curso=1A&fecha=YYYY-MM-DD&tipo=informatica"""

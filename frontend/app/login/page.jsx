@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { API_BASE, setTokens } from "../_lib/auth"
+import { API_BASE, clearTokens, setTokens } from "../_lib/auth"
 
 
 
@@ -13,9 +13,8 @@ export default function LoginPage() {
 
   useEffect(() => {
     try {
-      if (localStorage.getItem("access_token")) {
-        window.location.href = "/dashboard"
-      }
+      // Forzamos logout al llegar a /login para evitar tokens viejos
+      clearTokens()
     } catch {}
   }, [])
 

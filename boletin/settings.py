@@ -136,7 +136,6 @@ if ALLOW_VERCEL_ORIGINS:
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.SessionAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     # Si querés exigir auth por defecto, descomentá:

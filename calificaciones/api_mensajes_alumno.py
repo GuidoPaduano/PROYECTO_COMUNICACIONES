@@ -14,7 +14,6 @@ from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 
-from .views import CsrfExemptSessionAuthentication
 from .models import Alumno, Mensaje
 
 
@@ -100,7 +99,7 @@ def _allowed_docentes_qs():
 # GET: destinatarios (alumno) → lista de docentes/preceptores
 # =========================================================
 @api_view(["GET"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def docentes_destinatarios(request):
     user = request.user
@@ -133,7 +132,7 @@ def docentes_destinatarios(request):
 # POST: enviar (alumno → docente/preceptor)
 # =========================================================
 @api_view(["POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def alumno_enviar(request):

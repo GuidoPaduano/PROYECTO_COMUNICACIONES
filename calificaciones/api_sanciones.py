@@ -22,8 +22,6 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno, Sancion, Notificacion
 from .serializers import SancionPublicSerializer
-from .views import CsrfExemptSessionAuthentication  # mismo patrón que en mensajes
-
 # ✅ FIX CLAVE: antes no existía User y las notificaciones fallaban silenciosamente
 User = get_user_model()
 
@@ -134,7 +132,7 @@ def _get_payload(request) -> dict:
 # =========================================================
 @csrf_exempt
 @api_view(["GET", "POST"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def sanciones_lista_crear(request):
@@ -329,7 +327,7 @@ def sanciones_lista_crear(request):
 
 @csrf_exempt
 @api_view(["GET", "DELETE"])
-@authentication_classes([CsrfExemptSessionAuthentication, JWTAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def sancion_detalle(request, pk: int):
     """
