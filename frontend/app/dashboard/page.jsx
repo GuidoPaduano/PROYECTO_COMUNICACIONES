@@ -43,6 +43,8 @@ import { Textarea } from "@/components/ui/textarea"
 
 import ComposeComunicadoFamilia from "../mensajes/_compose-comunicado-familia"
 
+const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+
 const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores"]
 const PREVIEW_KEY = "preview_role"
 
@@ -1013,10 +1015,12 @@ function Topbar({ userLabel, unreadCount }) {
     <div className="bg-blue-600 text-white px-6 py-4">
       <div className="flex items-center justify-between max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-            <div className="w-6 h-6 bg-blue-600 rounded-sm flex items-center justify-center">
-              <span className="text-white text-xs font-bold">🎓</span>
-            </div>
+          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
+            <img
+              src={LOGO_SRC}
+              alt="Escuela Santa Teresa"
+              className="h-full w-full object-contain"
+            />
           </div>
           <h1 className="text-xl font-semibold">Escuela Santa Teresa</h1>
         </div>

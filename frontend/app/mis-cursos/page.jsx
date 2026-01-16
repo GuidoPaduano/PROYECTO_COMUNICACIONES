@@ -15,6 +15,8 @@ import {
 import { NotificationBell } from "@/components/notification-bell"
 import { useUnreadCount } from "../_lib/useUnreadCount"
 
+const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+
 export default function MisCursosPage() {
   useAuthGuard()
 
@@ -73,10 +75,12 @@ export default function MisCursosPage() {
       <div className="bg-blue-600 text-white px-6 py-4">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-              <div className="w-6 h-6 bg-blue-600 rounded-sm flex items-center justify-center">
-                <span className="text-white text-xs font-bold">🎓</span>
-              </div>
+            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
+              <img
+                src={LOGO_SRC}
+                alt="Escuela Santa Teresa"
+                className="h-full w-full object-contain"
+              />
             </div>
             <h1 className="text-xl font-semibold">Mis cursos</h1>
           </div>
