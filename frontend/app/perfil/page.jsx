@@ -166,6 +166,27 @@ export default function Profile() {
     return rol && !grupos.includes(rol) ? `${base} · ${rol}` : base;
   }, [api]);
 
+  const rolPrincipal = useMemo(() => {
+    if (api?.user?.is_superuser) return "Administrador";
+    const grupos = (api?.user?.grupos || api?.user?.groups || []).map((g) =>
+      String(g || "").toLowerCase()
+    );
+    const rolRaw = String(api?.user?.rol || "").toLowerCase();
+    const tokens = [rolRaw, ...grupos].filter(Boolean);
+    if (tokens.some((t) => t.includes("preceptor"))) return "Preceptor";
+    if (tokens.some((t) => t.includes("profesor"))) return "Profesor";
+    if (tokens.some((t) => t.includes("padre"))) return "Padre";
+    if (tokens.some((t) => t.includes("alumno"))) return "Alumno";
+    if (api?.user?.rol) return String(api.user.rol);
+    return "Usuario";
+  }, [api]);
+
+  const cursoAlumnoTexto = useMemo(() => {
+    if (api?.alumno?.curso) return String(api.alumno.curso);
+    const raw = String(profileData.department || "");
+    return raw.replace(/^Alumno:\s*/i, "");
+  }, [api, profileData.department]);
+
   const handleSave = async () => {
     // Opcional: acá podrías hacer PATCH a /perfil_api/ para persistir nombre/email
     setIsEditing(false);
@@ -295,7 +316,7 @@ export default function Profile() {
                 />
               </div>
             </Link>
-            <h1 className="text-xl font-semibold">Perfil</h1>
+            <h1 className="text-xl font-semibold">Perfil de usuario</h1>
           </div>
 
           {/* User Bar + Volver al panel */}
@@ -402,48 +423,10 @@ export default function Profile() {
                   <h3 className="font-semibold text-gray-900 text-lg mb-1">
                     {displayName}
                   </h3>
-                  <p className="text-sm text-gray-600 mb-2">
-                    {profileData.position || "—"}
-                  </p>
-                  <p className="text-sm text-blue-600">
-                    {profileData.department || ""}
-                  </p>
+                  <p className="text-sm text-gray-600 mb-2">{rolPrincipal}</p>
+                  
 
-                  <div className="mt-4 text-left text-sm text-gray-700 space-y-1">
-                    <div>
-                      <span className="font-medium">Usuario:</span>{" "}
-                      {api?.user?.username}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="font-medium">Grupos:</span>
-                      <span>{gruposTexto}</span>
-                    </div>
-                    {api?.alumno && (
-                      <div>
-                        <span className="font-medium">Alumno:</span>{" "}
-                        {api.alumno.nombre} ({api.alumno.curso})
-                      </div>
-                    )}
-                    {api?.alumnos_del_padre &&
-                      api.alumnos_del_padre.length > 0 && (
-                        <div>
-                          <span className="font-medium">Hijos/as:</span>{" "}
-                          {api.alumnos_del_padre
-                            .map((a) => `${a.nombre} (${a.curso})`)
-                            .join(", ")}
-                        </div>
-                      )}
-                    {api?.curso_preceptor && (
-                      <div className="inline-flex items-center gap-1 mt-1">
-                        <BadgeCheck className="h-4 w-4" /> Preceptor de{" "}
-                        {api.curso_preceptor}
-                      </div>
-                    )}
-                    <div className="pt-2 text-xs text-muted-foreground">
-                      Notas: {api?.stats?.notas_count ?? 0} · Mensajes:{" "}
-                      {api?.stats?.mensajes_recibidos ?? 0}
-                    </div>
-                  </div>
+                  
                 </CardContent>
               </Card>
 
@@ -500,34 +483,6 @@ export default function Profile() {
                 </Card>
               )}
 
-              {/* Acceso directo a Mensajes */}
-              <Link href="/mensajes" className="relative block mt-6">
-                {unreadCount > 0 && (
-                  <span
-                    className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-red-600 text-white border border-white"
-                    title={`${unreadCount} sin leer`}
-                  >
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-                <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow">
-                  <CardContent className="p-6">
-                    <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Inbox className="h-6 w-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900 text-lg">
-                          Mensajes
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Bandeja de entrada
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
             </div>
 
             {/* Columna derecha — Información personal */}
@@ -625,38 +580,12 @@ export default function Profile() {
                       )}
                     </div>
 
-                    <div>
-                      <Label
-                        htmlFor="position"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Rol
-                      </Label>
-                      {isEditing ? (
-                        <Input
-                          id="position"
-                          value={profileData.position}
-                          onChange={(e) =>
-                            setProfileData({
-                              ...profileData,
-                              position: e.target.value,
-                            })
-                          }
-                          className="mt-1"
-                        />
-                      ) : (
-                        <p className="mt-1 text-gray-900">
-                          {profileData.position || "—"}
-                        </p>
-                      )}
-                    </div>
-
                     <div className="md:col-span-2">
                       <Label
                         htmlFor="department"
                         className="text-sm font-medium text-gray-700"
                       >
-                        Área / Curso
+                        Curso
                       </Label>
                       {isEditing ? (
                         <Input
@@ -672,7 +601,7 @@ export default function Profile() {
                         />
                       ) : (
                         <p className="mt-1 text-gray-900">
-                          {profileData.department || "—"}
+                          {cursoAlumnoTexto || "—"}
                         </p>
                       )}
                     </div>
