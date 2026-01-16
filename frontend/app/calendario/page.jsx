@@ -73,7 +73,7 @@ export default function CalendarioEscolarPage() {
   const [meLoaded, setMeLoaded] = useState(false) // ✅ CLAVE: evitar que FC se cree antes del whoami
 
   const userLabel = useMemo(
-    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || "Usuario"),
+    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || ""),
     [me]
   )
   const [puedeEditar, setPuedeEditar] = useState(false)

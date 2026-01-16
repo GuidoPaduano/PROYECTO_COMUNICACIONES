@@ -136,7 +136,7 @@ export default function DashboardPage() {
   const [error, setError] = useState("")
   const [previewRole, setPreviewRole] = useState("")
   const userLabel = useMemo(
-    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || "Usuario"),
+    () => (me?.full_name?.trim?.() ? me.full_name : me?.username || ""),
     [me]
   )
 

@@ -60,7 +60,7 @@ export default function AlumnosPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
-      <Topbar userLabel={me?.full_name || me?.username || "Usuario"} unreadCount={unreadCount} />
+      <Topbar userLabel={me?.full_name || me?.username || ""} unreadCount={unreadCount} />
 
       {/* Solo la grilla, sin buscador ni botón ni subtítulo */}
       <div className="max-w-6xl mx-auto px-6 py-8">
