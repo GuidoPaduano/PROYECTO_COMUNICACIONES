@@ -4,7 +4,6 @@ from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.authentication import SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno, Evento
@@ -35,7 +34,7 @@ def _parse_date(s):
     return d
 
 @api_view(["GET"])
-@authentication_classes([JWTAuthentication, SessionAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def eventos_para_hijo(request, alumno_id: str):
     """
@@ -64,7 +63,7 @@ def eventos_para_hijo(request, alumno_id: str):
     return JsonResponse({"ok": True, "alumno": alumno_id, "curso": alumno.curso, "results": data})
 
 @api_view(["GET"])
-@authentication_classes([JWTAuthentication, SessionAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def eventos_para_mis_hijos(request):
     """

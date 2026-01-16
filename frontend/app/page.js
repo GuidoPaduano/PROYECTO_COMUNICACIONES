@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { clearTokens } from "./_lib/auth"
 
 // Base de API configurable por .env o via rewrites de Next
 // - Si seteás NEXT_PUBLIC_API_BASE_URL (p.ej. http://192.168.1.38:8000/api)
@@ -14,6 +15,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    try {
+      clearTokens()
+    } catch {}
+  }, [])
 
   const handleLogin = async (e) => {
     e.preventDefault()

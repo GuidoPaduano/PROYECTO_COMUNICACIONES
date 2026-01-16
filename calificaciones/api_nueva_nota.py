@@ -24,6 +24,11 @@ try:
 except Exception:
     MATERIAS_CATALOGO = None
 
+try:
+    from .models_preceptores import ProfesorCurso  # type: ignore
+except Exception:
+    ProfesorCurso = None
+
 
 def _materias_por_defecto():
     return getattr(
@@ -62,6 +67,34 @@ def _cursos_catalogo():
         # Fallback muy básico si no hay choices
         cursos = sorted(set(Alumno.objects.values_list("curso", flat=True)))
         return [{"id": c, "nombre": str(c)} for c in cursos if c]
+
+
+def _cursos_profesor_asignados(user):
+    if ProfesorCurso is None:
+        return []
+    try:
+        return list(
+            ProfesorCurso.objects.filter(profesor=user)
+            .values_list("curso", flat=True)
+            .distinct()
+        )
+    except Exception:
+        return []
+
+
+def _filtrar_cursos_para_profesor(user, cursos):
+    try:
+        if not user.groups.filter(name="Profesores").exists():
+            return cursos
+    except Exception:
+        return cursos
+
+    asignados = _cursos_profesor_asignados(user)
+    if not asignados:
+        return cursos
+
+    asignados_set = set(asignados)
+    return [c for c in cursos if (c.get("id") if isinstance(c, dict) else c) in asignados_set]
 
 
 # ---------- WhoAmI ----------
@@ -134,9 +167,21 @@ class NuevaNotaDatosIniciales(APIView):
 
     def get(self, request, *args, **kwargs):
         curso = request.query_params.get("curso")
+        asignados_prof = []
+        try:
+            if request.user.groups.filter(name="Profesores").exists():
+                asignados_prof = _cursos_profesor_asignados(request.user)
+        except Exception:
+            asignados_prof = []
+
+        if curso and asignados_prof and curso not in asignados_prof:
+            return Response({"detail": "No tenés permiso para ese curso."}, status=status.HTTP_403_FORBIDDEN)
+
         alumnos_qs = Alumno.objects.all().order_by("nombre")
         if curso:
             alumnos_qs = alumnos_qs.filter(curso=curso)
+        elif asignados_prof:
+            alumnos_qs = alumnos_qs.filter(curso__in=asignados_prof)
 
         data = {
             "alumnos": AlumnoSerializer(alumnos_qs, many=True).data,
@@ -165,9 +210,10 @@ class CatalogosNuevaNota(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        cursos = _filtrar_cursos_para_profesor(request.user, _cursos_catalogo())
         return Response(
             {
-                "cursos": _cursos_catalogo(),
+                "cursos": cursos,
                 "materias": get_materias_catalogo(),
                 "tipos": _tipos_por_defecto(),
                 "cuatrimestres": _cuatris_por_defecto(),
@@ -190,6 +236,16 @@ class AlumnosPorCurso(APIView):
         curso = (request.query_params.get("curso") or "").strip()
         if not curso:
             return Response({"detail": "Parámetro 'curso' es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        asignados_prof = []
+        try:
+            if request.user.groups.filter(name="Profesores").exists():
+                asignados_prof = _cursos_profesor_asignados(request.user)
+        except Exception:
+            asignados_prof = []
+
+        if asignados_prof and curso not in asignados_prof:
+            return Response({"detail": "No tenés permiso para ese curso."}, status=status.HTTP_403_FORBIDDEN)
 
         qs = Alumno.objects.filter(curso=curso).order_by("nombre")
         data = AlumnoSerializer(qs, many=True).data

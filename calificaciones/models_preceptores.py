@@ -31,3 +31,29 @@ class PreceptorCurso(models.Model):
 
     def __str__(self):
         return f"{self.preceptor} → {self.curso}"
+
+
+class ProfesorCurso(models.Model):
+    profesor = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="cursos_asignados_profesor",
+    )
+    curso = models.CharField(
+        max_length=20,
+        choices=Alumno.CURSOS,
+        db_index=True,
+    )
+    asignado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("profesor", "curso")
+        verbose_name = "Asignación de curso a profesor"
+        verbose_name_plural = "Asignaciones de cursos a profesores"
+        indexes = [
+            models.Index(fields=["curso"]),
+            models.Index(fields=["profesor"]),
+        ]
+
+    def __str__(self):
+        return f"{self.profesor} → {self.curso}"

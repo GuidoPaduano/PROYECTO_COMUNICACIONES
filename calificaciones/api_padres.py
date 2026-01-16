@@ -4,7 +4,6 @@ from django.http import JsonResponse, HttpResponseForbidden
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.authentication import SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno, Nota
@@ -69,7 +68,7 @@ def _serialize_notas_fallback(qs):
 
 
 @api_view(["GET"])
-@authentication_classes([JWTAuthentication, SessionAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mis_hijos(request):
     """
@@ -99,7 +98,7 @@ def mis_hijos(request):
 
 
 @api_view(["GET"])
-@authentication_classes([JWTAuthentication, SessionAuthentication])
+@authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notas_de_hijo(request, alumno_id):
     """
