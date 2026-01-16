@@ -56,6 +56,12 @@ function hoyISO() {
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`
 }
 
+function capitalizeFirstLetter(text) {
+  const s = String(text || "")
+  if (!s) return s
+  return s[0].toUpperCase() + s.slice(1)
+}
+
 export default function CalendarioEscolarPage() {
   useAuthGuard()
 
@@ -343,6 +349,16 @@ export default function CalendarioEscolarPage() {
       initialView: "dayGridMonth",
       locale: "es",
       height: "auto",
+      buttonText: { today: "Hoy" },
+      datesSet: (info) => {
+        try {
+          const rawTitle = info?.view?.title || ""
+          const withoutDe = rawTitle.replace(/\s+de\s+/i, " ")
+          const title = capitalizeFirstLetter(withoutDe)
+          const titleEl = calElRef.current?.querySelector(".fc-toolbar-title")
+          if (titleEl && title) titleEl.textContent = title
+        } catch {}
+      },
 
       events: async (info, success, failure) => {
         try {
