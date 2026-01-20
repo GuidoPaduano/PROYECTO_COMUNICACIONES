@@ -443,7 +443,12 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-96 p-2">
+      <DropdownMenuContent
+        side="right"
+        align="start"
+        sideOffset={12}
+        className="w-96 p-2"
+      >
         <DropdownMenuLabel className="px-2">Notificaciones</DropdownMenuLabel>
         <DropdownMenuSeparator />
 

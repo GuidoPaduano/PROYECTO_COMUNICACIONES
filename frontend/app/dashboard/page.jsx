@@ -4,14 +4,11 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch } from "../_lib/auth"
 import { INBOX_EVENT } from "../_lib/inbox"
-import { NotificationBell } from "@/components/notification-bell"
 
 import {
   Calendar,
   Plus,
   CheckSquare,
-  ChevronDown,
-  Mail,
   User,
   BookOpen,
   Users,
@@ -22,12 +19,6 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 import {
   Dialog,
@@ -43,15 +34,134 @@ import { Textarea } from "@/components/ui/textarea"
 
 import ComposeComunicadoFamilia from "../mensajes/_compose-comunicado-familia"
 
-const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
-
 const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores"]
 const PREVIEW_KEY = "preview_role"
+const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 
 function hoyISO() {
   const d = new Date()
   const z = (n) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`
+}
+
+function addDaysISO(baseISO, days) {
+  const d = new Date(`${baseISO}T00:00:00`)
+  d.setDate(d.getDate() + days)
+  const z = (n) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`
+}
+
+function formatFechaCorta(raw) {
+  if (!raw) return ""
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return String(raw)
+  return d.toLocaleDateString("es-AR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  })
+}
+
+function parseEventosPayload(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw?.eventos || raw?.results || []
+  const parsed = Array.isArray(list)
+    ? list
+        .map((e) => ({
+          title: e?.title ?? e?.titulo ?? "",
+          date: e?.start ?? e?.fecha ?? e?.date ?? "",
+          id: String(e?.id ?? ""),
+        }))
+        .filter((e) => e.title && e.date)
+    : []
+  parsed.sort((a, b) => new Date(a.date) - new Date(b.date))
+  return parsed
+}
+
+function getStoredCurso() {
+  try {
+    return localStorage.getItem(LAST_CURSO_KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
+function setStoredCurso(value) {
+  try {
+    if (value) localStorage.setItem(LAST_CURSO_KEY, value)
+  } catch {}
+}
+
+function asistenciaTipoFromAny(a) {
+  const candidates = [
+    a?.tipo_asistencia,
+    a?.tipo,
+    a?.categoria,
+    a?.materia,
+    a?.asignatura,
+    a?.area,
+    a?.seccion,
+    a?.clase,
+  ]
+  for (const c of candidates) {
+    const t = String(c ?? "").trim()
+    if (t) return t
+  }
+  return ""
+}
+
+function normalizeAsistenciaTipo(raw) {
+  const s = String(raw ?? "").trim().toLowerCase()
+  if (!s) return ""
+  if (s === "clases" || s === "informatica" || s === "catequesis") return s
+  if (s.includes("info")) return "informatica"
+  if (s.includes("cateq")) return "catequesis"
+  if (s.includes("clase")) return "clases"
+  return s
+}
+
+function estadoTexto(v) {
+  if (v === true) return "Presente"
+  if (v === false) return "Ausente"
+  const s = String(v ?? "").trim().toLowerCase()
+  if (!s) return ""
+  if (["tarde", "llego tarde", "llegó tarde", "retardo", "late", "l"].includes(s)) {
+    return "Tarde"
+  }
+  if (["presente", "p", "si", "sí", "1", "true", "y", "yes", "on", "ok"].includes(s)) {
+    return "Presente"
+  }
+  if (["ausente", "a", "no", "0", "false", "f", "n", "inasistente"].includes(s)) {
+    return "Ausente"
+  }
+  return s
+}
+
+function asistenciaEstadoFromAny(a) {
+  if (!a || typeof a !== "object") return a
+  const raw = a.estado ?? a.status ?? a.estado_asistencia
+  if (raw != null && String(raw).trim() !== "") return raw
+  const tarde = a.tarde ?? a.llego_tarde ?? a.llegó_tarde ?? a.is_tarde
+  const pres = a.presente ?? a.asistio ?? a.asistió ?? a.pres
+  if (a.inasistente === true) return "ausente"
+  if (a.inasistente === false) return "presente"
+  if (pres === false) return "ausente"
+  if (tarde === true) return "tarde"
+  if (pres === true) return "presente"
+  return a.asistencia ?? pres
+}
+
+function isJustificadaFromAny(a) {
+  if (!a) return false
+  const v =
+    a.justificada ??
+    a.justificado ??
+    a.justify ??
+    a.is_justificada ??
+    a.isJustificada ??
+    false
+  return v === true || v === 1 || v === "1" || v === "true"
 }
 
 /* ======================== Helpers “Mis notas / sanciones” ======================== */
@@ -213,6 +323,17 @@ const [mensajeSan, setMensajeSan] = useState("")
 
   const [alumnoIdSelf, setAlumnoIdSelf] = useState(null)
   const [loadingAlumnoId, setLoadingAlumnoId] = useState(false)
+
+  const [alumnoCurso, setAlumnoCurso] = useState("")
+  const [alumnoCursoLoaded, setAlumnoCursoLoaded] = useState(false)
+  const [eventosProximos, setEventosProximos] = useState([])
+  const [eventosLoading, setEventosLoading] = useState(false)
+  const [inasistenciasCount, setInasistenciasCount] = useState(0)
+  const [inasistenciasLoading, setInasistenciasLoading] = useState(false)
+  const [profesorCursoSel, setProfesorCursoSel] = useState("")
+  const [profesorCursoLoaded, setProfesorCursoLoaded] = useState(false)
+  const [eventosProfesor, setEventosProfesor] = useState([])
+  const [eventosProfesorLoading, setEventosProfesorLoading] = useState(false)
 
   const [openAlumnoMsg, setOpenAlumnoMsg] = useState(false)
   const [loadingAlumnoMsg, setLoadingAlumnoMsg] = useState(false)
@@ -562,35 +683,25 @@ setMensajeSan("")
     setOpenSendPicker(false)
     setTimeout(() => setOpenGrp(true), 0)
   }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
-        <Topbar userLabel={userLabel} unreadCount={unreadCount} />
-        <div className="max-w-6xl mx-auto px-6 py-8">
-          <Card>
-            <CardContent className="pt-6 text-red-600">{error}</CardContent>
-          </Card>
-        </div>
-      </div>
-    )
+  const abrirFamiliaDesdePicker = () => {
+    setOpenSendPicker(false)
+    setTimeout(() => setOpenComFam(true), 0)
   }
 
-  if (!me) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
-        <Topbar userLabel={userLabel} unreadCount={unreadCount} />
-        <div className="max-w-6xl mx-auto px-6 py-8">
-          <Card>
-            <CardContent className="pt-6">Cargando…</CardContent>
-          </Card>
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    const handler = () => setOpenSendPicker(true)
+    if (typeof window !== "undefined") {
+      window.addEventListener("open-send-picker", handler)
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("open-send-picker", handler)
+      }
+    }
+  }, [])
 
-  const baseGroups = Array.isArray(me.groups) ? me.groups : []
-  const isSuper = !!me.is_superuser
+  const baseGroups = Array.isArray(me?.groups) ? me.groups : []
+  const isSuper = !!me?.is_superuser
 
   const effectiveGroups = isSuper && previewRole ? [previewRole] : baseGroups
   const showAll = isSuper && !previewRole
@@ -599,54 +710,286 @@ setMensajeSan("")
   const showAlumno = showAll || effectiveGroups.includes("Alumnos")
   const showPadre = showAll || effectiveGroups.includes("Padres")
   const showPreceptor = showAll || effectiveGroups.includes("Preceptores")
+  const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor
+  const showLegacyDashboardCards = false
+
+  useEffect(() => {
+    if (!showProfesor) return
+    let alive = true
+    setProfesorCursoLoaded(false)
+    const stored = typeof window !== "undefined" ? getStoredCurso() : ""
+    if (alive && stored) setProfesorCursoSel(stored)
+    setProfesorCursoLoaded(true)
+    return () => {
+      alive = false
+    }
+  }, [showProfesor, previewRole])
+
+  useEffect(() => {
+    if (!showProfesor) return
+    if (profesorCursoSel) return
+    const first = Array.isArray(cursos) && cursos.length > 0 ? getCursoId(cursos[0]) : ""
+    if (first) setProfesorCursoSel(String(first))
+  }, [showProfesor, profesorCursoSel, cursos])
+
+  useEffect(() => {
+    if (!showProfesor) return
+    if (!profesorCursoSel) return
+    setStoredCurso(String(profesorCursoSel))
+  }, [showProfesor, profesorCursoSel])
+
+  useEffect(() => {
+    if (!showProfesor) return
+    if (!profesorCursoSel) {
+      setEventosProfesor([])
+      return
+    }
+    let alive = true
+    ;(async () => {
+      setEventosProfesorLoading(true)
+      try {
+        const desde = hoyISO()
+        const hasta = addDaysISO(desde, 5)
+        const res = await pfetch(
+          `/eventos/?curso=${encodeURIComponent(profesorCursoSel)}&desde=${desde}&hasta=${hasta}`
+        )
+        if (!res.ok) {
+          if (alive) setEventosProfesor([])
+          return
+        }
+        const raw = await res.json().catch(() => ({}))
+        if (alive) setEventosProfesor(parseEventosPayload(raw))
+      } catch {
+        if (alive) setEventosProfesor([])
+      } finally {
+        if (alive) setEventosProfesorLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProfesor, profesorCursoSel, previewRole])
+
+  useEffect(() => {
+    if (!showAlumno) return
+    let alive = true
+    ;(async () => {
+      setAlumnoCursoLoaded(false)
+      try {
+        const res = await pfetch("/mi-curso/")
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}))
+          const curso = String(data?.curso ?? "").trim()
+          if (alive) setAlumnoCurso(curso)
+        }
+      } catch {
+      } finally {
+        if (alive) setAlumnoCursoLoaded(true)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAlumno, previewRole])
+
+  useEffect(() => {
+    if (!isAlumnoOnly) return
+    if (!alumnoCurso) return
+    let alive = true
+    ;(async () => {
+      setEventosLoading(true)
+      try {
+        const desde = hoyISO()
+        const hasta = addDaysISO(desde, 5)
+        const res = await pfetch(
+          `/eventos/?curso=${encodeURIComponent(alumnoCurso)}&desde=${desde}&hasta=${hasta}`
+        )
+        if (!res.ok) {
+          if (alive) setEventosProximos([])
+          return
+        }
+        const raw = await res.json().catch(() => ({}))
+        if (alive) setEventosProximos(parseEventosPayload(raw))
+      } catch {
+        if (alive) setEventosProximos([])
+      } finally {
+        if (alive) setEventosLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAlumnoOnly, alumnoCurso, previewRole])
+
+  useEffect(() => {
+    if (!isAlumnoOnly) return
+    if (!alumnoIdSelf) return
+    let alive = true
+    ;(async () => {
+      setInasistenciasLoading(true)
+      try {
+        const encoded = encodeURIComponent(alumnoIdSelf)
+        const tries = [
+          `/asistencias/?alumno=${encoded}`,
+          `/api/asistencias/?alumno=${encoded}`,
+          `/asistencias/alumno/${encoded}/`,
+          `/asistencias/?id_alumno=${encoded}`,
+          `/api/asistencias/?id_alumno=${encoded}`,
+          `/asistencias/alumno_codigo/${encoded}/`,
+        ]
+        let asistencias = []
+        for (const url of tries) {
+          const res = await pfetch(url)
+          if (!res.ok) continue
+          const data = await res.json().catch(() => ({}))
+          const list = Array.isArray(data)
+            ? data
+            : data?.asistencias || data?.results || []
+          if (Array.isArray(list)) {
+            asistencias = list
+            break
+          }
+        }
+
+        let total = 0
+        for (const a of asistencias) {
+          const tipo = normalizeAsistenciaTipo(asistenciaTipoFromAny(a)) || "clases"
+          if (tipo !== "clases") continue
+          if (isJustificadaFromAny(a)) continue
+          const estado = estadoTexto(asistenciaEstadoFromAny(a))
+          if (estado === "Ausente") total += 1
+          else if (estado === "Tarde") total += 0.5
+        }
+
+        if (alive) setInasistenciasCount(total)
+      } catch {
+        if (alive) setInasistenciasCount(0)
+      } finally {
+        if (alive) setInasistenciasLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAlumnoOnly, alumnoIdSelf, previewRole])
+
+  const roleLabel =
+    showAll && isSuper
+      ? "Todos los roles"
+      : effectiveGroups.length
+      ? effectiveGroups.join(", ")
+      : "Sin rol asignado"
+
+  const headerStats = [
+    { label: "Roles activos", value: roleLabel, icon: <Users className="w-5 h-5" /> },
+    {
+      label: "Cursos asignados",
+      value: Array.isArray(cursos) ? cursos.length : 0,
+      icon: <BookOpen className="w-5 h-5" />,
+    },
+    { label: "Mensajes sin leer", value: unreadCount || 0, icon: <Inbox className="w-5 h-5" /> },
+    {
+      label: "Vista actual",
+      value: previewRole || (isSuper ? "Superusuario" : "Perfil estandar"),
+      icon: <ClipboardList className="w-5 h-5" />,
+    },
+  ]
+
+  const headerContent = (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      {headerStats.map((stat) => (
+        <div key={stat.label} className="stat-card">
+          <div className="stat-icon">{stat.icon}</div>
+          <div>
+            <p className="text-sm text-slate-500">{stat.label}</p>
+            <p className="text-2xl font-semibold text-slate-900">
+              {typeof stat.value === "number" ? stat.value : stat.value}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+
+  if (error) {
+    return (
+      <div className="surface-card surface-card-pad text-red-600">{error}</div>
+    )
+  }
+
+  if (!me) {
+    return (
+      <div className="surface-card surface-card-pad">Cargando...</div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
-      <Topbar userLabel={userLabel} unreadCount={unreadCount} />
-
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        {isSuper && (
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-600">Vista como:</span>
-              <select
-                className="border rounded-md px-3 py-2 text-sm bg-white"
-                value={previewRole}
-                onChange={(e) => setPreviewRole(e.target.value)}
-              >
-                <option value="">— Ver todo (superusuario) —</option>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="text-xs text-gray-500">
-              Grupos reales: {baseGroups?.length ? baseGroups.join(", ") : "—"}
-              {isSuper ? " · superusuario" : ""}
-            </div>
+    <div className="space-y-6">
+      {showLegacyDashboardCards && !isAlumnoOnly && headerContent}
+      {showLegacyDashboardCards && isSuper && !isAlumnoOnly && (
+        <div className="surface-card surface-card-pad flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-700">Vista como:</span>
+            <select
+              className="border rounded-md px-3 py-2 text-sm bg-white"
+              value={previewRole}
+              onChange={(e) => setPreviewRole(e.target.value)}
+            >
+              <option value="">Ver todo (superusuario)</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
+          <div className="text-xs text-gray-500">
+            Grupos reales: {baseGroups?.length ? baseGroups.join(', ') : '--'}
+            {isSuper ? ' - superusuario' : ''}
+          </div>
+        </div>
+      )}
 
-        {showProfesor && <ProfesorGrid onAbrirComFam={() => setOpenComFam(true)} />}
-
-        {showAlumno && (
-          <AlumnoGrid
-            alumnoIdSelf={alumnoIdSelf}
-            loadingAlumnoId={loadingAlumnoId}
-            onAbrirNuevoMensaje={() => setOpenAlumnoMsg(true)}
+      <div className="space-y-8">
+        {isAlumnoOnly ? (
+          <AlumnoInicio
+            eventos={eventosProximos}
+            eventosLoading={eventosLoading || !alumnoCursoLoaded}
+            inasistenciasCount={inasistenciasCount}
+            inasistenciasLoading={inasistenciasLoading}
           />
-        )}
-
-        {showPadre && (
-          <PadreGrid
-            onAbrirNuevoMensaje={() => setOpenAlumnoMsg(true)}
-            unreadCount={unreadCount}
+        ) : showProfesor ? (
+          <ProfesorInicio
+            eventos={eventosProfesor}
+            eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
+            hasCurso={!!profesorCursoSel}
           />
-        )}
+        ) : showLegacyDashboardCards ? (
+          <>
+            {showProfesor && <ProfesorGrid onAbrirComFam={() => setOpenComFam(true)} />}
 
-        {showPreceptor && <PreceptorGrid onAbrirComFam={() => setOpenComFam(true)} />}
+            {showAlumno && (
+              <AlumnoGrid
+                alumnoIdSelf={alumnoIdSelf}
+                loadingAlumnoId={loadingAlumnoId}
+                onAbrirNuevoMensaje={() => setOpenAlumnoMsg(true)}
+              />
+            )}
+
+            {showPadre && (
+              <PadreGrid
+                onAbrirNuevoMensaje={() => setOpenAlumnoMsg(true)}
+                unreadCount={unreadCount}
+              />
+            )}
+
+            {showPreceptor && <PreceptorGrid onAbrirComFam={() => setOpenComFam(true)} />}
+          </>
+        ) : null}
       </div>
 
       {/* ✅ NUEVO: Selector “Enviar mensajes” (profesor) */}
@@ -659,13 +1002,12 @@ setMensajeSan("")
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <TileButton
               title="A un alumno"
               desc="Mensaje individual a un alumno"
               icon={<User className="h-4 w-4 text-blue-600" />}
               onClick={abrirIndividualDesdePicker}
-              emphasis
             />
             <TileButton
               title="A un curso"
@@ -673,12 +1015,15 @@ setMensajeSan("")
               icon={<Users className="h-4 w-4 text-blue-600" />}
               onClick={abrirGrupalDesdePicker}
             />
+            <TileButton
+              title="A la familia"
+              desc="Comunicado para padres o tutores"
+              icon={<Users className="h-4 w-4 text-blue-600" />}
+              onClick={abrirFamiliaDesdePicker}
+            />
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <Link href="/mensajes" className="text-sm text-blue-600 hover:underline">
-              Abrir bandeja de entrada
-            </Link>
+          <div className="flex items-center justify-end pt-2">
             <Button variant="outline" onClick={() => setOpenSendPicker(false)}>
               Cerrar
             </Button>
@@ -1001,7 +1346,7 @@ setMensajeSan("")
       <ComposeComunicadoFamilia
         open={openComFam}
         onOpenChange={setOpenComFam}
-        // ✅ Preceptor: cursos restringidos a su curso. Profesor: lista completa de cursos.
+        // Preceptor: cursos restringidos a su curso. Profesor: lista completa de cursos.
         cursosEndpoint={effectiveGroups.includes("Preceptores") ? "/preceptor/cursos/" : "/notas/catalogos/"}
       />
     </div>
@@ -1009,76 +1354,6 @@ setMensajeSan("")
 }
 
 /* ======================== Subcomponentes ======================== */
-
-function Topbar({ userLabel, unreadCount }) {
-  return (
-    <div className="bg-blue-600 text-white px-6 py-4">
-      <div className="flex items-center justify-between max-w-7xl mx-auto">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="inline-flex">
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
-              <img
-                src={LOGO_SRC}
-                alt="Escuela Santa Teresa"
-                className="h-full w-full object-contain"
-              />
-            </div>
-          </Link>
-          <h1 className="text-xl font-semibold">Escuela Santa Teresa</h1>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <NotificationBell unreadCount={unreadCount} />
-
-          <div className="relative">
-            <Link href="/mensajes">
-              <Button variant="ghost" size="icon" className="text-white hover:bg-blue-700">
-                <Mail className="h-5 w-5" />
-              </Button>
-            </Link>
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-red-600 text-white border border-white">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
-            )}
-          </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
-                <User className="h-4 w-4" />
-                {userLabel}
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem asChild className="text-sm">
-                <Link href="/perfil">
-                  <div className="flex items-center">
-                    <User className="h-4 w-4 mr-2" />
-                    Perfil
-                  </div>
-                </Link>
-              </DropdownMenuItem>
-
-              <DropdownMenuItem
-                onClick={() => {
-                  try {
-                    localStorage.clear()
-                  } catch {}
-                  window.location.href = "/login"
-                }}
-              >
-                <span className="h-4 w-4 mr-2">🚪</span>
-                Cerrar sesión
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function ProfesorGrid({ onAbrirComFam }) {
   return (
@@ -1287,6 +1562,152 @@ function PadreGrid({ onAbrirNuevoMensaje, unreadCount }) {
   )
 }
 
+function ProximosEventosCard({ eventos, eventosLoading, hasCurso }) {
+  return (
+    <Card className="surface-card">
+      <CardContent className="surface-card-pad flex flex-col gap-4 min-h-[240px] md:min-h-[280px]">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Calendar className="h-6 w-6 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="tile-title">Proximos eventos</h3>
+            <p className="tile-subtitle">En los proximos 5 dias</p>
+          </div>
+        </div>
+
+        <div className="flex-1">
+          {!hasCurso ? (
+            <p className="text-sm text-slate-500">
+              Selecciona un curso para ver eventos.
+            </p>
+          ) : eventosLoading ? (
+            <p className="text-sm text-slate-500">Cargando eventos...</p>
+          ) : eventos.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No hay eventos en los proximos 5 dias.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {eventos.map((ev) => (
+                <Link
+                  key={`${ev.id}-${ev.date}`}
+                  href="/calendario"
+                  className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 bg-white/80 hover:bg-white hover:shadow-md transition"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">
+                      {ev.title}
+                    </p>
+                    <p className="text-xs text-slate-500">{formatFechaCorta(ev.date)}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AlumnoInicio({
+  eventos,
+  eventosLoading,
+  inasistenciasCount,
+  inasistenciasLoading,
+}) {
+  return (
+    <section className="min-h-[60vh] flex items-center">
+      <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ProximosEventosCard eventos={eventos} eventosLoading={eventosLoading} hasCurso />
+
+        <Card className="surface-card">
+          <CardContent className="surface-card-pad flex flex-col gap-4 min-h-[240px] md:min-h-[280px]">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <CheckSquare className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="tile-title">Inasistencias</h3>
+                <p className="tile-subtitle">Cantidad de inasistencias a Clases</p>
+              </div>
+            </div>
+
+            <div className="flex items-baseline gap-2 mt-auto">
+              <span className="text-4xl font-semibold text-slate-900">
+                {inasistenciasLoading ? "..." : inasistenciasCount}
+              </span>
+              <span className="text-sm text-slate-500">faltas</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  )
+}
+
+function ProfesorInicio({ eventos, eventosLoading, hasCurso }) {
+  return (
+    <section className="min-h-[60vh] flex items-center">
+      <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ProximosEventosCard
+          eventos={eventos}
+          eventosLoading={eventosLoading}
+          hasCurso={hasCurso}
+        />
+
+        <Card className="surface-card">
+          <CardContent className="surface-card-pad flex flex-col gap-4 min-h-[240px] md:min-h-[280px]">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Plus className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="tile-title">Accesos rapidos</h3>
+                <p className="tile-subtitle">Acciones frecuentes para tu curso</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Link href="/agregar_nota" className="block">
+                <Button variant="outline" className="w-full justify-start">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nueva nota
+                </Button>
+              </Link>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => {
+                  try {
+                    window.dispatchEvent(new Event("open-sancion"))
+                  } catch {}
+                }}
+              >
+                <Gavel className="h-4 w-4 mr-2" />
+                Nueva sancion
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start sm:col-span-2"
+                onClick={() => {
+                  try {
+                    window.dispatchEvent(new Event("open-send-picker"))
+                  } catch {}
+                }}
+              >
+                <Inbox className="h-4 w-4 mr-2" />
+                Enviar mensaje a alumnos o familia
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  )
+}
+
 function PreceptorGrid({ onAbrirComFam }) {
   return (
     <section className="mb-10">
@@ -1396,7 +1817,11 @@ function TileButton({ title, desc, icon, onClick, emphasis = false }) {
         >
           <span className={emphasis ? "text-blue-600" : ""}>{icon}</span>
         </div>
-        <h4 className={`font-medium ${emphasis ? "text-blue-800" : "text-gray-900"}`}>
+        <h4
+          className={`font-medium whitespace-nowrap text-sm ${
+            emphasis ? "text-blue-800" : "text-gray-900"
+          }`}
+        >
           {title}
         </h4>
       </div>
@@ -1406,3 +1831,6 @@ function TileButton({ title, desc, icon, onClick, emphasis = false }) {
     </div>
   )
 }
+
+
+

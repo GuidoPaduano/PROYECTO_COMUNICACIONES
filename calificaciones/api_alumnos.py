@@ -17,6 +17,11 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno
 
+try:
+    from .models_preceptores import PreceptorCurso  # type: ignore
+except Exception:
+    PreceptorCurso = None
+
 
 def _is_valid_curso(curso: str) -> bool:
     cursos_validos = {c[0] for c in Alumno.CURSOS}
@@ -83,6 +88,34 @@ def _generar_id_alumno_para_curso(curso: str) -> str:
 
     # Último recurso (muy improbable)
     return f"{pref}{max_n + 1:03d}"
+
+
+def _is_preceptor_user(user) -> bool:
+    try:
+        if user is None:
+            return False
+        return user.groups.filter(name__in=["Preceptores", "Preceptor"]).exists()
+    except Exception:
+        return False
+
+
+def _resolve_alumno_for_transfer(data) -> Alumno | None:
+    alumno_id = data.get("alumno_id") or data.get("id")
+    legajo = data.get("id_alumno") or data.get("legajo")
+
+    if alumno_id:
+        try:
+            return Alumno.objects.get(pk=int(alumno_id))
+        except Exception:
+            return None
+
+    if legajo:
+        try:
+            return Alumno.objects.get(id_alumno__iexact=str(legajo).strip())
+        except Exception:
+            return None
+
+    return None
 
 
 @csrf_exempt
@@ -233,6 +266,82 @@ def vincular_mi_legajo(request):
             "ok": True,
             "already_linked": False,
             "alumno": _alumno_to_dict(a),
+        },
+        status=200,
+    )
+
+
+@csrf_exempt
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def cursos_disponibles(request):
+    """
+    GET /alumnos/cursos/
+    Devuelve todos los cursos disponibles (catalogo Alumno.CURSOS).
+    """
+    cursos = [{"id": c[0], "nombre": c[1]} for c in Alumno.CURSOS]
+    return Response({"cursos": cursos}, status=200)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@parser_classes([JSONParser])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def transferir_alumno(request):
+    """
+    POST /alumnos/transferir/
+    JSON:
+      {
+        "alumno_id": 123,   # opcional si envias id_alumno
+        "id_alumno": "1A002",
+        "curso": "2A"
+      }
+    """
+    data = request.data or {}
+    curso = (data.get("curso") or "").strip()
+
+    if not _is_preceptor_user(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    if not curso:
+        return Response({"detail": "Falta el campo requerido: curso."}, status=400)
+    if not _is_valid_curso(curso):
+        return Response({"detail": f"Curso inválido: {curso}."}, status=400)
+
+    alumno = _resolve_alumno_for_transfer(data)
+    if not alumno:
+        return Response({"detail": "Alumno no encontrado."}, status=404)
+
+    # Si existe PreceptorCurso, validamos acceso al curso actual del alumno
+    if PreceptorCurso is not None:
+        try:
+            if not PreceptorCurso.objects.filter(
+                preceptor=request.user,
+                curso=alumno.curso,
+            ).exists():
+                return Response({"detail": "No autorizado para ese alumno."}, status=403)
+        except Exception:
+            return Response({"detail": "No autorizado para ese alumno."}, status=403)
+
+    if alumno.curso == curso:
+        return Response(
+            {
+                "ok": True,
+                "alumno": _alumno_to_dict(alumno),
+                "message": "El alumno ya pertenece a ese curso.",
+            },
+            status=200,
+        )
+
+    alumno.curso = curso
+    alumno.save(update_fields=["curso"])
+
+    return Response(
+        {
+            "ok": True,
+            "alumno": _alumno_to_dict(alumno),
         },
         status=200,
     )

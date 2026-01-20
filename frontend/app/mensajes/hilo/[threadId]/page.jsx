@@ -215,8 +215,8 @@ export default function HiloMensajesPage() {
   const myId = me?.id ?? me?.user?.id
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
-      <div className="max-w-4xl mx-auto p-6">
+    <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center gap-3 mb-4">
           <Button variant="outline" onClick={() => router.back()} className="gap-2">
             <ArrowLeft className="h-4 w-4" /> Volver
@@ -227,7 +227,7 @@ export default function HiloMensajesPage() {
           </Button>
         </div>
 
-        <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+        <Card>
           <CardContent className="p-6">
             {loading ? (
               <div className="text-sm text-gray-600">Cargando hilo…</div>
