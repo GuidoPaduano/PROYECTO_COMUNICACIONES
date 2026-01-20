@@ -302,7 +302,7 @@ export default function Profile() {
     !api?.alumno;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
+    <div className="space-y-6">
       {/* Header */}
       <div className="bg-blue-600 text-white px-6 py-4">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
@@ -388,9 +388,9 @@ export default function Profile() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="space-y-6">
         {/* Page Header */}
-        <div className="mb-8">
+        <div className="surface-card surface-card-pad">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Mi Perfil</h2>
           <p className="text-gray-600">
             Gestioná tu información personal y configuración de cuenta
@@ -413,7 +413,7 @@ export default function Profile() {
                     </div>
                     <Button
                       size="icon"
-                      className="absolute bottom-0 right-0 rounded-full w-10 h-10 bg-blue-600 hover:bg-blue-700"
+                      className="absolute bottom-0 right-0 rounded-full w-10 h-10 bg-[#0c1b3f] hover:bg-[#0a1736]"
                       disabled
                       title="Próximamente"
                     >
@@ -472,7 +472,7 @@ export default function Profile() {
                           <Button
                             type="submit"
                             disabled={linking}
-                            className="bg-blue-600 hover:bg-blue-700"
+                            className="bg-[#0c1b3f] hover:bg-[#0a1736]"
                           >
                             {linking ? "Vinculando…" : "Vincular"}
                           </Button>
@@ -499,7 +499,7 @@ export default function Profile() {
                           <Button
                             size="sm"
                             onClick={handleSave}
-                            className="bg-blue-600 hover:bg-blue-700"
+                            className="bg-[#0c1b3f] hover:bg-[#0a1736]"
                           >
                             <Save className="h-4 w-4 mr-2" />
                             Guardar
@@ -633,3 +633,5 @@ export default function Profile() {
     </div>
   );
 }
+
+

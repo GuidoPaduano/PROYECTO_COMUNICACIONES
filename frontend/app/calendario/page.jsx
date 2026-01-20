@@ -47,6 +47,8 @@ import {
 } from "@/components/ui/select"
 
 const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
+const fetchCache = new Map()
 
 // ⛔️ Sin imports NPM de FullCalendar (usamos CDN)
 
@@ -60,6 +62,31 @@ function capitalizeFirstLetter(text) {
   const s = String(text || "")
   if (!s) return s
   return s[0].toUpperCase() + s.slice(1)
+}
+
+function getStoredCurso() {
+  try {
+    return localStorage.getItem(LAST_CURSO_KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
+function setStoredCurso(value) {
+  try {
+    if (value) localStorage.setItem(LAST_CURSO_KEY, value)
+  } catch {}
+}
+
+async function fetchWithCache(url, opts) {
+  const key = `${url}::${JSON.stringify(opts || {})}`
+  if (fetchCache.has(key)) return fetchCache.get(key)
+  const p = authFetch(url, opts).catch((err) => {
+    fetchCache.delete(key)
+    throw err
+  })
+  fetchCache.set(key, p)
+  return p
 }
 
 export default function CalendarioEscolarPage() {
@@ -112,6 +139,9 @@ export default function CalendarioEscolarPage() {
   const [preceptorCursos, setPreceptorCursos] = useState([]) // [{id,nombre}]
   const [selectedCurso, setSelectedCurso] = useState("")
   const [preceptorCursosLoaded, setPreceptorCursosLoaded] = useState(false)
+  const [selectedProfesorCurso, setSelectedProfesorCurso] = useState("")
+  const profesorCursoRef = useRef("")
+  const cursosRef = useRef([])
 
   // FullCalendar refs
   const calRef = useRef(null)
@@ -202,7 +232,7 @@ export default function CalendarioEscolarPage() {
         try {
           if (groups.includes("Preceptores")) {
             setPreceptorCursosLoaded(false)
-            const cr = await authFetch("/preceptor/cursos/")
+            const cr = await fetchWithCache("/preceptor/cursos/")
             if (cr.ok) {
               const cj = await cr.json().catch(() => ({}))
               const arr = Array.isArray(cj?.cursos) ? cj.cursos : []
@@ -241,11 +271,39 @@ export default function CalendarioEscolarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!isProfesor) return
+    if (selectedProfesorCurso) return
+    const stored = typeof window !== "undefined" ? getStoredCurso() : ""
+    if (stored && cursos.includes(stored)) {
+      setSelectedProfesorCurso(stored)
+      return
+    }
+    if (Array.isArray(cursos) && cursos.length > 0) {
+      setSelectedProfesorCurso(String(cursos[0]))
+    }
+  }, [isProfesor, cursos, selectedProfesorCurso])
+
+  useEffect(() => {
+    if (!isProfesor) return
+    if (!selectedProfesorCurso) return
+    setStoredCurso(String(selectedProfesorCurso))
+  }, [isProfesor, selectedProfesorCurso])
+
+  useEffect(() => {
+    profesorCursoRef.current = String(selectedProfesorCurso || "")
+    if (selectedProfesorCurso) setError("")
+  }, [selectedProfesorCurso])
+
+  useEffect(() => {
+    cursosRef.current = Array.isArray(cursos) ? cursos : []
+  }, [cursos])
+
   // catálogos (cursos / tipos)
   useEffect(() => {
     ;(async () => {
       try {
-        const r = await authFetch("/calificaciones/nueva-nota/datos/")
+        const r = await fetchWithCache("/calificaciones/nueva-nota/datos/")
         if (r.ok) {
           const data = await r.json()
           const alumnos = Array.isArray(data?.alumnos) ? data.alumnos : []
@@ -258,7 +316,7 @@ export default function CalendarioEscolarPage() {
         }
       } catch {}
       try {
-        const r2 = await authFetch("/eventos/tipos/")
+        const r2 = await fetchWithCache("/eventos/tipos/")
         if (r2.ok) {
           const data = await r2.json()
           if (Array.isArray(data) && data.length) setTiposEvento(data)
@@ -311,6 +369,12 @@ export default function CalendarioEscolarPage() {
     refetchEvents()
   }, [isPreceptor, selectedCurso])
 
+  useEffect(() => {
+    if (!isProfesor) return
+    if (!selectedProfesorCurso) return
+    refetchEvents()
+  }, [isProfesor, selectedProfesorCurso])
+
   // si cambia el rol, también refetch
   useEffect(() => {
     refetchEvents()
@@ -350,6 +414,13 @@ export default function CalendarioEscolarPage() {
       locale: "es",
       height: "auto",
       buttonText: { today: "Hoy" },
+      dayHeaderFormat: { weekday: "long" },
+      dayHeaderContent: (info) => {
+        const label = new Intl.DateTimeFormat("es-ES", {
+          weekday: "long",
+        }).format(info.date)
+        return capitalizeFirstLetter(label || "")
+      },
       datesSet: (info) => {
         try {
           const rawTitle = info?.view?.title || ""
@@ -391,6 +462,13 @@ export default function CalendarioEscolarPage() {
               return
             }
             url = `/eventos/?curso=${encodeURIComponent(selectedCurso)}&desde=${desde}&hasta=${hasta}`
+          } else if (isProfesor) {
+            const cursoProf = profesorCursoRef.current || String(cursosRef.current?.[0] || "")
+            if (!cursoProf) {
+              success([])
+              return
+            }
+            url = `/eventos/?curso=${encodeURIComponent(cursoProf)}&desde=${desde}&hasta=${hasta}`
           } else {
             url = `/eventos/?desde=${desde}&hasta=${hasta}`
           }
@@ -666,7 +744,7 @@ export default function CalendarioEscolarPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-100 to-white">
+    <div className="space-y-6">
       <Head>
         <link
           rel="stylesheet"
@@ -761,7 +839,7 @@ export default function CalendarioEscolarPage() {
       </div>
 
       {/* Contenido */}
-      <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
+      <div className="space-y-6">
         {okMsg && (
           <Card className="shadow-sm border-0 bg-green-50/90 backdrop-blur-sm">
             <CardContent className="p-4 text-green-800">{okMsg}</CardContent>
@@ -784,7 +862,7 @@ export default function CalendarioEscolarPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div>
                   <Label className="block text-sm mb-1">
-                    Elegí el hijo/a (calendario)
+                    Alumno
                   </Label>
                   <Select value={selectedKid} onValueChange={(v) => setSelectedKid(v)}>
                     <SelectTrigger className="w-full">
@@ -856,8 +934,8 @@ export default function CalendarioEscolarPage() {
         )}
 
         <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
-          <CardContent className="p-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <CardContent className="p-6 flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-center gap-3 flex-1 min-w-[220px]">
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                 <CalIcon className="h-6 w-6 text-blue-600" />
               </div>
@@ -870,6 +948,31 @@ export default function CalendarioEscolarPage() {
                 </p>
               </div>
             </div>
+            {isProfesor && (
+              <div className="min-w-[240px]">
+                <Label className="block text-xs text-slate-500 mb-1">Curso</Label>
+                <Select
+                  value={selectedProfesorCurso}
+                  onValueChange={(v) => {
+                    setSelectedProfesorCurso(v)
+                    setError("")
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue
+                      placeholder={cursos.length ? "Seleccionar curso" : "Sin cursos"}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cursos.map((c) => (
+                      <SelectItem key={String(c)} value={String(c)}>
+                        {String(c)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {puedeEditar && (
               <Button onClick={openCrearModal} className="inline-flex items-center">
                 <Plus className="h-4 w-4 mr-2" /> Agregar nuevo evento
@@ -1103,16 +1206,96 @@ export default function CalendarioEscolarPage() {
           text-decoration: none;
           cursor: pointer;
         }
+        .fc-wrapper {
+          background: #f8fafc;
+          border-radius: 18px;
+          overflow: hidden;
+        }
+        .fc-wrapper.fc,
+        .fc-wrapper .fc {
+          --fc-border-color: #e2e8f0;
+          --fc-page-bg-color: #ffffff;
+          --fc-neutral-bg-color: #f8fafc;
+          --fc-today-bg-color: rgba(12, 27, 63, 0.08);
+          --fc-event-bg-color: #0c1b3f;
+          --fc-event-border-color: #0c1b3f;
+          --fc-event-text-color: #ffffff;
+          --fc-button-bg-color: #0c1b3f;
+          --fc-button-border-color: #0c1b3f;
+          --fc-button-hover-bg-color: #0a1631;
+          --fc-button-hover-border-color: #0a1631;
+          --fc-button-active-bg-color: #09122a;
+          --fc-button-active-border-color: #09122a;
+        }
         .fc .fc-toolbar.fc-header-toolbar {
-          padding: 8px;
+          margin-bottom: 12px;
+          padding: 8px 10px;
+        }
+        .fc .fc-toolbar-title {
+          font-size: 1.5rem;
+          font-weight: 600;
+          color: #0f172a;
+        }
+        .fc .fc-button {
+          border-radius: 10px;
+          font-weight: 600;
+          text-transform: none;
+          box-shadow: none;
         }
         .fc .fc-button-primary {
-          background: #2563eb;
-          border-color: #2563eb;
+          background: var(--fc-button-bg-color);
+          border-color: var(--fc-button-border-color);
         }
-        .fc .fc-button-primary:hover {
-          background: #1d4ed8;
-          border-color: #1d4ed8;
+        .fc .fc-button-primary:hover,
+        .fc .fc-button-primary:focus {
+          background: var(--fc-button-hover-bg-color);
+          border-color: var(--fc-button-hover-border-color);
+        }
+        .fc .fc-button-primary:not(:disabled).fc-button-active,
+        .fc .fc-button-primary:not(:disabled):active {
+          background: var(--fc-button-active-bg-color);
+          border-color: var(--fc-button-active-border-color);
+        }
+        .fc .fc-scrollgrid {
+          border: 1px solid var(--fc-border-color);
+          border-radius: 16px;
+          overflow: hidden;
+        }
+        .fc .fc-scrollgrid-section-header td {
+          background: #f8fafc;
+        }
+        .fc .fc-col-header-cell-cushion {
+          padding: 10px 0;
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: #475569;
+          letter-spacing: 0.02em;
+        }
+        .fc .fc-daygrid-day-number {
+          padding: 6px 8px;
+          font-weight: 600;
+          color: #334155;
+        }
+        .fc .fc-daygrid-day.fc-day-other .fc-daygrid-day-number {
+          color: #94a3b8;
+        }
+        .fc .fc-daygrid-day-frame {
+          padding: 6px;
+        }
+        .fc .fc-daygrid-day:hover {
+          background: #f1f5f9;
+        }
+        .fc .fc-daygrid-day.fc-day-today {
+          background: rgba(12, 27, 63, 0.08);
+        }
+        .fc .fc-event {
+          border-radius: 999px;
+          padding: 2px 8px;
+          font-size: 0.75rem;
+          font-weight: 600;
+        }
+        .fc .fc-daygrid-event-dot {
+          border-color: #0c1b3f;
         }
       `}</style>
     </div>

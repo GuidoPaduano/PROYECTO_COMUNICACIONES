@@ -254,18 +254,17 @@ export default function HistorialNotasPadrePage() {
 
   /* -------- Render -------- */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
-      {/* Topbar unificado con campanita y mail */}
-      <Topbar unreadCount={unreadCount} me={me} />
+    <div className="space-y-6">
+      {/* Topbar unificado con campanita y mail */}
 
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="space-y-6">
         {/* Toolbar */}
         <Card className="border-0 shadow-sm bg-white/90 backdrop-blur-sm">
           <CardContent className="p-4 md:p-5">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 md:gap-4">
               {/* Hijo */}
               <div className="col-span-1">
-                <label className="block text-sm mb-1">Elegí el hijo/a</label>
+                <label className="block text-sm mb-1">Alumno</label>
                 <Select
                   value={selectedId}
                   onValueChange={(v) => setSelectedId(v)}
@@ -503,3 +502,4 @@ function Topbar({ unreadCount, me }) {
     </div>
   )
 }
+

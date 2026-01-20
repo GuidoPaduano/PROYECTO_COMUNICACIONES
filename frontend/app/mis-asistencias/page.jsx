@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { authFetch } from "../_lib/auth"
 
 function alumnoRouteIdFromWhoami(me) {
@@ -31,13 +31,8 @@ function alumnoRouteIdFromWhoami(me) {
   return null
 }
 
-export default function MisNotasAlias() {
+export default function MisAsistenciasAlias() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const tabParam = useMemo(() => {
-    const raw = String(searchParams.get("tab") || "").toLowerCase().trim()
-    return raw === "sanciones" || raw === "asistencias" ? raw : "notas"
-  }, [searchParams])
 
   useEffect(() => {
     ;(async () => {
@@ -48,7 +43,7 @@ export default function MisNotasAlias() {
 
         if (alumnoId) {
           router.replace(
-            `/alumnos/${encodeURIComponent(alumnoId)}?from=mis-notas&tab=${encodeURIComponent(tabParam)}`
+            `/alumnos/${encodeURIComponent(alumnoId)}?from=mis-asistencias&tab=asistencias`
           )
         } else {
           router.replace("/dashboard")
@@ -57,12 +52,12 @@ export default function MisNotasAlias() {
         router.replace("/login")
       }
     })()
-  }, [router, tabParam])
+  }, [router])
 
   return (
     <div className="flex items-center justify-center">
       <div className="surface-card surface-card-pad text-center text-gray-700 text-sm">
-        Redirigiendo a <span className="font-semibold">Mis notas...</span>
+        Redirigiendo a <span className="font-semibold">Mis asistencias...</span>
       </div>
     </div>
   )

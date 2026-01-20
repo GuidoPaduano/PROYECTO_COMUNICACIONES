@@ -13,8 +13,8 @@ export default function GestionAlumnosPage() {
   }, [router])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white flex items-center justify-center">
-      <div className="text-sm text-gray-600">Cargando…</div>
+    <div className="flex items-center justify-center">
+      <div className="surface-card surface-card-pad text-sm text-gray-600">Cargando...</div>
     </div>
   )
 }
