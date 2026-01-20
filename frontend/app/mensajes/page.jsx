@@ -544,10 +544,8 @@ export default function MensajesPage() {
   const cursoChip = (msgSel?.curso_asociado || msgSel?.curso || "").toString().trim()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
-      <Topbar userLabel={userLabel} unreadCount={unreadCount} />
-
-      <div className="max-w-7xl mx-auto p-6">
+    <div className="space-y-6">
+      <div className="space-y-6">
         {showDebug && (
           <div className="mb-3 p-3 text-[12px] rounded-md border border-amber-300 bg-amber-50 text-amber-800">
             El contador indica mensajes no leídos, pero el listado quedó vacío.

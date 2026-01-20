@@ -10,6 +10,8 @@ const backendOrigin = apiBase.replace(/\/+$/g, "").replace(/\/api$/i, "");
 
 const nextConfig = {
   outputFileTracingRoot: __dirname,
+  reactStrictMode: true,
+  swcMinify: true,
   async rewrites() {
     return [
       {

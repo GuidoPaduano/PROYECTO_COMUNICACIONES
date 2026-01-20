@@ -111,7 +111,7 @@ export default function ComposeMensajeAlumno({
     <>
       <Button
         onClick={() => setOpen(true)}
-        className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+        className="gap-2"
       >
         <Mail className="w-4 h-4" />
         Enviar mensaje
@@ -178,10 +178,10 @@ export default function ComposeMensajeAlumno({
               <Button
                 onClick={handleSend}
                 disabled={!canSend || sending}
-                className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                className="gap-2"
               >
                 <Send className="w-4 h-4" />
-                {sending ? "Enviando…" : "Enviar"}
+                {sending ? "Enviando..." : "Enviar"}
               </Button>
             </div>
           </div>
@@ -190,3 +190,4 @@ export default function ComposeMensajeAlumno({
     </>
   )
 }
+

@@ -106,7 +106,7 @@ from .api_asistencias import (
 )
 
 # API para crear alumnos (preceptor)
-from .api_alumnos import crear_alumno, vincular_mi_legajo  # ✅ FIX: importar también vincular
+from .api_alumnos import crear_alumno, vincular_mi_legajo, transferir_alumno, cursos_disponibles  # ✅ FIX: importar también vincular
 
 router = DefaultRouter()
 
@@ -181,6 +181,10 @@ urlpatterns = [
     path("gestion_alumnos/api/curso/<str:curso>/", alumnos_por_curso_path, name="gestion_alumnos_curso_path"),
     path("gestion_alumnos/api/curso/<str:curso>", alumnos_por_curso_path, name="gestion_alumnos_curso_path_noslash"),
 
+    # ===== Catalogo de cursos =====
+    path("alumnos/cursos/", cursos_disponibles, name="alumnos_cursos"),
+    path("alumnos/cursos", cursos_disponibles, name="alumnos_cursos_noslash"),
+
     # ===== Crear alumno =====
     path("alumnos/crear/", crear_alumno, name="alumnos_crear"),
     path("alumnos/crear", crear_alumno, name="alumnos_crear_noslash"),
@@ -188,6 +192,8 @@ urlpatterns = [
     # ✅ FIX: Vincular alumno ↔ usuario por legajo
     path("alumnos/vincular/", vincular_mi_legajo, name="alumnos_vincular"),
     path("alumnos/vincular", vincular_mi_legajo, name="alumnos_vincular_noslash"),
+    path("alumnos/transferir/", transferir_alumno, name="alumnos_transferir"),
+    path("alumnos/transferir", transferir_alumno, name="alumnos_transferir_noslash"),
 
     # Dinámicas alumno
     path("alumnos/<str:alumno_id>/", alumno_detalle, name="alumno_detalle"),

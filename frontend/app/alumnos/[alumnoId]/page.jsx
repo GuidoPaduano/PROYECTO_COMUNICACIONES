@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Suspense, useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
 import { useAuthGuard, authFetch } from "../../_lib/auth"
 import { INBOX_EVENT } from "../../_lib/inbox" // ✅ NUEVO: evento unificado inbox
@@ -43,6 +43,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import ComposeMensajeAlumno from "./_compose-alumno"
+import TransferAlumno from "./_transfer-alumno"
 import { NotificationBell } from "@/components/notification-bell"
 
 const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
@@ -591,7 +592,7 @@ export default function AlumnoPerfilPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white flex items-center justify-center">
+        <div className="flex items-center justify-center">
           <div className="text-gray-700">Cargando...</div>
         </div>
       }
@@ -801,22 +802,53 @@ function AlumnoPerfilPageInner() {
   const cursoParam = searchParams.get("curso")
   const fromParam = searchParams.get("from")
 
+  /* ====================== FIX: tab por URL + persistencia para /mis-hijos ====================== */
+  const initialTabParam = String(searchParams.get("tab") || "").toLowerCase().trim()
+  const initialFromParam = String(searchParams.get("from") || "").trim()
+  const [tabParamRaw, setTabParamRaw] = useState(initialTabParam)
+  const [fromParamRaw, setFromParamRaw] = useState(initialFromParam)
+  const tabFromUrl = VALID_TABS.has(tabParamRaw) ? tabParamRaw : ""
+  const fromParamEffective = String(fromParamRaw || fromParam || "").trim()
+  const isAlumnoMenuNav =
+    fromParamEffective === "mis-notas" ||
+    fromParamEffective === "mis-sanciones" ||
+    fromParamEffective === "mis-asistencias"
+
   // 👇 acá detectamos si venimos de /mis-notas
-  const isMisNotas = fromParam === "mis-notas"
+  const isMisNotas = fromParamEffective === "mis-notas"
 
   // ✅ PADRE: ocultar acciones de navegación y “Enviar mensaje”
-  const isFromMisHijos = fromParam === "/mis-hijos" || fromParam === "mis-hijos"
-  const meGroups = Array.isArray(me?.groups) ? me.groups : []
-  const isPadre = meGroups.includes("Padres") && !me?.is_superuser
-  const isAlumno = meGroups.includes("Alumnos") && !me?.is_superuser
-  const isPreceptor =
-    meGroups.includes("Preceptores") || meGroups.includes("Preceptor")
+  const isFromMisHijos =
+    fromParamEffective === "/mis-hijos" || fromParamEffective === "mis-hijos"
+  const rawGroups = Array.isArray(me?.groups)
+    ? me.groups
+    : Array.isArray(me?.grupos)
+    ? me.grupos
+    : []
+  const groupNames = rawGroups
+    .map((g) => (typeof g === "string" ? g : g?.name || g?.nombre || ""))
+    .filter(Boolean)
+  const groupSet = new Set(groupNames.map((g) => String(g).toLowerCase()))
+  const hasGroup = (name) => groupSet.has(String(name).toLowerCase())
+  const isPadre = (hasGroup("padres") || hasGroup("padre")) && !me?.is_superuser
+  const isAlumno = (hasGroup("alumnos") || hasGroup("alumno")) && !me?.is_superuser
+  const isPreceptor = hasGroup("preceptores") || hasGroup("preceptor")
   const canJustifyAsistencias =
     !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
+  const canTransferAlumno =
+    !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
   const meLoaded = !!me
+  const rolesReady = meLoaded
   const hidePadreNavAndMessage = isFromMisHijos || isPadre
   const showKidSelector = hidePadreNavAndMessage
   const hasHijos = hijos.length > 0
+  const shouldHideAlumnoContent = isAlumnoMenuNav && !tabFromUrl
+  const activeSectionLower = String(activeSection || "").toLowerCase().trim()
+  const alumnoTab = VALID_TABS.has(tabFromUrl)
+    ? tabFromUrl
+    : VALID_TABS.has(activeSectionLower)
+    ? activeSectionLower
+    : "notas"
 
   // ✅ título dinámico del header (padre vs alumno)
   const topbarTitle = "Perfil de Alumno"
@@ -932,11 +964,11 @@ function AlumnoPerfilPageInner() {
 
   // Reconstrucción del "volver a alumnos"
   const backToAlumnosHref = useMemo(() => {
-    if (fromParam && fromParam !== "mis-notas") return fromParam
+    if (fromParamEffective && fromParamEffective !== "mis-notas") return fromParamEffective
     const c = cursoParam || (alumnoDetail?.alumno?.curso || alumnoDetail?.curso)
     if (c) return `/gestion_alumnos/curso/${encodeURIComponent(String(c))}`
     return null
-  }, [fromParam, cursoParam, alumnoDetail])
+  }, [fromParamEffective, cursoParam, alumnoDetail])
 
   // Handler robusto
   function handleBackToAlumnos() {
@@ -958,11 +990,16 @@ function AlumnoPerfilPageInner() {
   }
 
   /* ====================== FIX: tab por URL + persistencia para /mis-hijos ====================== */
-  const tabParamRaw = (searchParams.get("tab") || "").toLowerCase().trim()
-  const shouldRememberTab = fromParam === "/mis-hijos"
+  const shouldRememberTab = fromParamEffective === "/mis-hijos"
 
   useEffect(() => {
-    const tabFromUrl = VALID_TABS.has(tabParamRaw) ? tabParamRaw : ""
+    const rawTab = String(searchParams.get("tab") || "").toLowerCase().trim()
+    const rawFrom = String(searchParams.get("from") || "").trim()
+    setTabParamRaw(rawTab)
+    setFromParamRaw(rawFrom)
+  }, [searchParams])
+
+  useEffect(() => {
     if (tabFromUrl) {
       setActiveSection(tabFromUrl)
       if (shouldRememberTab) safeSetLS(MIS_HIJOS_LAST_TAB_KEY, tabFromUrl)
@@ -1234,8 +1271,153 @@ function AlumnoPerfilPageInner() {
     return a.id_alumno || a.legajo || a.codigo || String(code || "")
   }, [alumnoDetail, code])
 
+  const renderNotasPanel = ({
+    title,
+    subtitle,
+    icon,
+    iconWrapClass,
+    idPrefix = "notas",
+  }) => {
+    const materiaId = `${idPrefix}-filMateria`
+    const cuatrId = `${idPrefix}-filCuatr`
+    const tipoId = `${idPrefix}-filTipo`
+    const buscarId = `${idPrefix}-buscar`
+
+    return (
+      <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+        <CardContent className="p-6">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="flex items-start gap-4">
+              <div
+                className={`w-12 h-12 rounded-lg flex items-center justify-center ${iconWrapClass}`}
+              >
+                {icon}
+              </div>
+              <div className="flex-1">
+                <h3 className="tile-title">{title}</h3>
+                {subtitle ? <p className="tile-subtitle">{subtitle}</p> : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div>
+              <Label htmlFor={materiaId} className="text-xs text-gray-600">
+                Materia
+              </Label>
+              <select
+                id={materiaId}
+                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                value={filMateria}
+                onChange={(e) => setFilMateria(e.target.value)}
+              >
+                <option value="ALL">Todas</option>
+                {materiasCat.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor={cuatrId} className="text-xs text-gray-600">
+                Cuatrimestre
+              </Label>
+              <select
+                id={cuatrId}
+                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                value={filCuatr}
+                onChange={(e) => setFilCuatr(e.target.value)}
+              >
+                <option value="ALL">Todos</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor={tipoId} className="text-xs text-gray-600">
+                Tipo
+              </Label>
+              <select
+                id={tipoId}
+                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                value={filTipo}
+                onChange={(e) => setFilTipo(e.target.value)}
+              >
+                <option value="ALL">Todos</option>
+                <option value="Examen">Examen</option>
+                <option value="Trabajo Práctico">Trabajo Práctico</option>
+                <option value="Participación">Participación</option>
+                <option value="Tarea">Tarea</option>
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor={buscarId} className="text-xs text-gray-600">
+                Buscar
+              </Label>
+              <input
+                id={buscarId}
+                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                placeholder="Materia, nota, comentario..."
+                value={buscar}
+                onChange={(e) => setBuscar(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {notasFiltradas.length === 0 ? (
+            <div className="text-sm text-gray-600">
+              No se encontraron notas con los filtros actuales.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-600 border-b">
+                    <th className="py-2 pr-4">Fecha</th>
+                    <th className="py-2 pr-4">Materia</th>
+                    <th className="py-2 pr-4">Cuatrimestre</th>
+                    <th className="py-2 pr-4">Tipo</th>
+                    <th className="py-2 pr-4">Calificación</th>
+                    <th className="py-2 pr-4">Comentarios</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {notasFiltradas.map((n, i) => {
+                    const cuatr = notaCuatr(n)
+                    return (
+                      <tr key={n.id || i} className="border-b last:border-b-0">
+                        <td className="py-2 pr-4">
+                          {fmtFecha(n.fecha || n.created_at)}
+                        </td>
+                        <td className="py-2 pr-4">{n.materia || "—"}</td>
+                        <td className="py-2 pr-4">{cuatr ?? "—"}</td>
+                        <td className="py-2 pr-4">{n.tipo || "—"}</td>
+                        <td className="py-2 pr-4">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                            {toNumberOrText(n.calificacion)}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4">
+                          {n.observaciones || n.comentarios || "—"}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
+    <div className="space-y-6">
       {/* ===== Banner de depuración (opcional por env) ===== */}
       {debugEnabled && showDebug && (
         <div className="fixed z-[100] top-2 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-md bg-fuchsia-600 text-white text-xs shadow flex items-center gap-2">
@@ -1255,21 +1437,20 @@ function AlumnoPerfilPageInner() {
         </div>
       )}
 
-      <Topbar
-        title={topbarTitle}
-        userLabel={userLabel}
-        unreadCount={unreadCount}
-        backToAlumnosHref={backToAlumnosHref}
-        onBackToAlumnos={handleBackToAlumnos}
-        // ✅ ocultamos volver a alumnos/cursos para padres (/mis-hijos) y también para mis-notas
-        showBackAlumnos={!isMisNotas && !hidePadreNavAndMessage}
-        showBackCursos={!isMisNotas && !hidePadreNavAndMessage}
-      />
-
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="space-y-6">
         {/* ===== Encabezado + acciones ===== */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-4">
+        <div
+          className={[
+            "flex justify-between gap-4",
+            showKidSelector ? "items-center" : "items-start",
+          ].join(" ")}
+        >
+          <div
+            className={[
+              "flex gap-4",
+              showKidSelector ? "items-center" : "items-start",
+            ].join(" ")}
+          >
             <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
               <Users className="w-7 h-7 text-blue-600" />
             </div>
@@ -1288,7 +1469,7 @@ function AlumnoPerfilPageInner() {
                 <CardContent className="p-4">
                   <div className="grid grid-cols-1 gap-4">
                     <div>
-                      <Label className="block text-sm mb-1">Elegí el hijo/a</Label>
+                      <Label className="block text-sm mb-1">Alumno</Label>
                       <Select
                         value={selectedKid}
                         onValueChange={onChangeKid}
@@ -1323,6 +1504,21 @@ function AlumnoPerfilPageInner() {
 
             {meLoaded && !hidePadreNavAndMessage && !isAlumno && (
               <div className="flex items-center gap-2">
+                {canTransferAlumno && (
+                  <TransferAlumno
+                    alumnoPk={pk}
+                    alumnoCode={code}
+                    cursoActual={cursoAlumno}
+                    onTransferred={() => {
+                      try {
+                        router.refresh?.()
+                      } catch {}
+                    }}
+                  />
+                )}
+                <Button type="button" variant="primary" onClick={handleBackToAlumnos}>
+                  &lt; Volver a alumnos
+                </Button>
                 <ComposeMensajeAlumno
                   cursoSugerido={searchParams.get("curso") || cursoAlumno || ""}
                   // ✅ NUEVO: identificadores y nombre para preseleccionar destinatario
@@ -1342,7 +1538,9 @@ function AlumnoPerfilPageInner() {
           </div>
         </div>
 
-        {/* ===== Tarjetas resumen (clickeables) ===== */}
+        {!isAlumno && rolesReady && (
+          <>
+            {/* ===== Tarjetas resumen (clickeables) ===== */}
         <div className="grid md:grid-cols-3 gap-4">
           <Card
             onClick={() => setActiveSection("notas")}
@@ -1415,12 +1613,14 @@ function AlumnoPerfilPageInner() {
             Seleccioná una de las tarjetas de arriba para ver el detalle.
           </p>
         )}
+          </>
+        )}
 
-        {error ? (
+        {shouldHideAlumnoContent ? null : error ? (
           <div className="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
             {error}
           </div>
-        ) : loading ? (
+        ) : loading || !rolesReady ? (
           <div className="text-sm text-gray-600">Cargando información del alumno…</div>
         ) : (
           <>

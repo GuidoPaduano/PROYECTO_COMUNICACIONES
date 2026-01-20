@@ -26,6 +26,7 @@ import {
 import { NotificationBell } from "@/components/notification-bell"
 
 const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 
 /** ⬅️ Acepta también “NO ENTREGADO” (con espacios múltiples) */
 const CALIF_REGEX = /^(?:[1-9]|10|TEA|TEP|TED|NO\s+ENTREGADO)$/i
@@ -335,7 +336,7 @@ export default function CargarNotasRapidas() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-blue-25 to-white">
+    <div className="space-y-6">
       {/* Header (misma estética que dashboard) */}
       <div className="bg-blue-600 text-white px-6 py-4">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -419,7 +420,7 @@ export default function CargarNotasRapidas() {
       </div>
 
       {/* Contenido principal (mismo estilo de cards que el dashboard) */}
-      <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
+      <div className="space-y-6">
         {/* Flashes */}
         {okMsg && (
           <Card className="shadow-sm border-0 bg-green-50/90 backdrop-blur-sm">
@@ -447,7 +448,13 @@ export default function CargarNotasRapidas() {
                   <select
                     className="border rounded-lg px-3 py-2 bg-white"
                     value={cursoSel}
-                    onChange={(e) => setCursoSel(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setCursoSel(value)
+                      try {
+                        if (value) localStorage.setItem(LAST_CURSO_KEY, value)
+                      } catch {}
+                    }}
                     disabled={loadingInit}
                   >
                     <option value="">-- Seleccionar Curso --</option>
