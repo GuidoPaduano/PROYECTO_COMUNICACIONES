@@ -152,6 +152,7 @@
   .app-header {
     @apply mb-6 rounded-2xl border border-gray-200 bg-white px-5 sm:px-6 py-4 sm:py-5 shadow-sm flex items-center justify-between gap-4 flex-wrap;
   }
+  .app-header--no-subtitle { @apply py-3 sm:py-4; }
   .app-header-left { @apply flex items-center gap-3; }
   .app-header-icon { @apply h-11 w-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center; }
   .app-header-title { @apply text-2xl font-semibold text-slate-900 leading-tight; }
@@ -169,6 +170,12 @@
   .stat-card { @apply bg-white border border-gray-200 rounded-2xl shadow-sm flex items-center justify-between gap-4 p-4 sm:p-5; }
   .stat-icon { @apply h-11 w-11 rounded-xl flex items-center justify-center text-indigo-600 bg-indigo-50; }
   .ghost-button { @apply text-sm text-[#0c1b3f] bg-white border border-[#0c1b3f] px-3 py-2 rounded-lg hover:bg-[#0c1b3f] hover:text-white transition; }
+
+  /* Switch */
+  .switch { @apply relative inline-flex h-6 w-11 items-center rounded-full bg-slate-200 transition; }
+  .switch[data-checked="true"] { @apply bg-[#0c1b3f]; }
+  .switch-thumb { @apply absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition; transform: translateX(0); }
+  .switch[data-checked="true"] .switch-thumb { transform: translateX(20px); }
 }
 
 /* App shell fallback (no Tailwind processing) */
@@ -302,6 +309,10 @@ body {
   gap: 16px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
+.app-header--no-subtitle {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
 .app-header-left { display: flex; align-items: center; gap: 12px; }
 .app-header-icon {
   height: 44px;
@@ -396,6 +407,31 @@ body {
   cursor: pointer;
 }
 .primary-button:hover { background: #0a1736; border-color: #0a1736; }
+
+/* Switch fallback */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  width: 44px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  transition: background 0.2s ease;
+}
+.switch[data-checked="true"] { background: #0c1b3f; }
+.switch-thumb {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  height: 20px;
+  width: 20px;
+  border-radius: 999px;
+  background: #ffffff;
+  transform: translateX(0);
+  transition: transform 0.2s ease;
+}
+.switch[data-checked="true"] .switch-thumb { transform: translateX(20px); }
 
 /* Neutralizar layouts viejos dentro del shell */
 .app-main .min-h-screen { min-height: auto; }

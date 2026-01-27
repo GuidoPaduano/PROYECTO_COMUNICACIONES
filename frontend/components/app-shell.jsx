@@ -219,7 +219,7 @@ export function AppShell({
           )}
           {!resolvedHideHeader && (
             <>
-              <div className="app-header">
+              <div className={cn("app-header", !subtitle && "app-header--no-subtitle")}>
                 <div className="app-header-left">
                   <div className="app-header-icon">{icon}</div>
                   <div>
