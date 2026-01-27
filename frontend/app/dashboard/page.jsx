@@ -877,44 +877,6 @@ setMensajeSan("")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAlumnoOnly, alumnoIdSelf, previewRole])
 
-  const roleLabel =
-    showAll && isSuper
-      ? "Todos los roles"
-      : effectiveGroups.length
-      ? effectiveGroups.join(", ")
-      : "Sin rol asignado"
-
-  const headerStats = [
-    { label: "Roles activos", value: roleLabel, icon: <Users className="w-5 h-5" /> },
-    {
-      label: "Cursos asignados",
-      value: Array.isArray(cursos) ? cursos.length : 0,
-      icon: <BookOpen className="w-5 h-5" />,
-    },
-    { label: "Mensajes sin leer", value: unreadCount || 0, icon: <Inbox className="w-5 h-5" /> },
-    {
-      label: "Vista actual",
-      value: previewRole || (isSuper ? "Superusuario" : "Perfil estandar"),
-      icon: <ClipboardList className="w-5 h-5" />,
-    },
-  ]
-
-  const headerContent = (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      {headerStats.map((stat) => (
-        <div key={stat.label} className="stat-card">
-          <div className="stat-icon">{stat.icon}</div>
-          <div>
-            <p className="text-sm text-slate-500">{stat.label}</p>
-            <p className="text-2xl font-semibold text-slate-900">
-              {typeof stat.value === "number" ? stat.value : stat.value}
-            </p>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-
   if (error) {
     return (
       <div className="surface-card surface-card-pad text-red-600">{error}</div>
@@ -929,31 +891,6 @@ setMensajeSan("")
 
   return (
     <div className="space-y-6">
-      {showLegacyDashboardCards && !isAlumnoOnly && headerContent}
-      {showLegacyDashboardCards && isSuper && !isAlumnoOnly && (
-        <div className="surface-card surface-card-pad flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-700">Vista como:</span>
-            <select
-              className="border rounded-md px-3 py-2 text-sm bg-white"
-              value={previewRole}
-              onChange={(e) => setPreviewRole(e.target.value)}
-            >
-              <option value="">Ver todo (superusuario)</option>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="text-xs text-gray-500">
-            Grupos reales: {baseGroups?.length ? baseGroups.join(', ') : '--'}
-            {isSuper ? ' - superusuario' : ''}
-          </div>
-        </div>
-      )}
-
       <div className="space-y-8">
         {isAlumnoOnly ? (
           <AlumnoInicio
@@ -968,27 +905,6 @@ setMensajeSan("")
             eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
             hasCurso={!!profesorCursoSel}
           />
-        ) : showLegacyDashboardCards ? (
-          <>
-            {showProfesor && <ProfesorGrid onAbrirComFam={() => setOpenComFam(true)} />}
-
-            {showAlumno && (
-              <AlumnoGrid
-                alumnoIdSelf={alumnoIdSelf}
-                loadingAlumnoId={loadingAlumnoId}
-                onAbrirNuevoMensaje={() => setOpenAlumnoMsg(true)}
-              />
-            )}
-
-            {showPadre && (
-              <PadreGrid
-                onAbrirNuevoMensaje={() => setOpenAlumnoMsg(true)}
-                unreadCount={unreadCount}
-              />
-            )}
-
-            {showPreceptor && <PreceptorGrid onAbrirComFam={() => setOpenComFam(true)} />}
-          </>
         ) : null}
       </div>
 
@@ -1024,7 +940,7 @@ setMensajeSan("")
           </div>
 
           <div className="flex items-center justify-end pt-2">
-            <Button variant="outline" onClick={() => setOpenSendPicker(false)}>
+            <Button onClick={() => setOpenSendPicker(false)}>
               Cerrar
             </Button>
           </div>
@@ -1111,7 +1027,7 @@ setMensajeSan("")
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpenInd(false)}>
+              <Button type="button" onClick={() => setOpenInd(false)}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={loadingInd || !alumnoInd}>
@@ -1173,7 +1089,7 @@ setMensajeSan("")
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpenGrp(false)}>
+              <Button type="button" onClick={() => setOpenGrp(false)}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={loadingGrp || !cursoGrp}>
@@ -1259,7 +1175,7 @@ setMensajeSan("")
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpenSan(false)}>
+              <Button type="button" onClick={() => setOpenSan(false)}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={loadingSan || !alumnoSan}>
@@ -1355,228 +1271,26 @@ setMensajeSan("")
 
 /* ======================== Subcomponentes ======================== */
 
-function ProfesorGrid({ onAbrirComFam }) {
-  return (
-    <section className="mb-10">
-      <h2 className="text-lg font-semibold text-gray-800 mb-3">Panel del profesor</h2>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-6">
-          <Link href="/calendario" className="block">
-            <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-              <CardContent className="p-6">
-                <Tile
-                  icon={<Calendar className="h-6 w-6 text-blue-600" />}
-                  title="Ver calendario escolar"
-                  desc="Consultá próximos eventos y horarios"
-                />
-              </CardContent>
-            </Card>
-          </Link>
-
-          <Link href="/agregar_nota" className="block">
-            <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-              <CardContent className="p-6">
-                <Tile
-                  icon={<Plus className="h-6 w-6 text-blue-600" />}
-                  title="Nueva nota"
-                  desc="Agregar una calificación u observación"
-                />
-              </CardContent>
-            </Card>
-          </Link>
-
-          {/* ✅ CAMBIO: Sanciones sin botón, tarjeta clickeable */}
-          <Card
-            className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => {
-              const ev = new Event("open-sancion", { bubbles: true })
-              window.dispatchEvent(ev)
-            }}
-          >
-            <CardContent className="p-6">
-              <Tile
-                icon={<Gavel className="h-6 w-6 text-blue-600" />}
-                title="Nueva sancion disciplinaria"
-                desc="Registrar una sanción para un alumno"
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          {/* ✅ MISMO COMPORTAMIENTO QUE PRECEPTORES: abre el modal unificado */}
-          <Card
-            className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onAbrirComFam?.()
-            }}
-          >
-            <CardContent className="p-6">
-              <Tile
-                icon={<Users className="h-6 w-6 text-blue-600" />}
-                title="Enviar mensajes"
-                desc="Enviá mensajes a alumnos, padres o cursos"
-              />
-            </CardContent>
-          </Card>
-
-          <Link href="/mis-cursos" className="block">
-            <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-              <CardContent className="p-6">
-                <Tile
-                  icon={<BookOpen className="h-6 w-6 text-blue-600" />}
-                  title="Mis cursos"
-                  desc="Ver la lista de cursos asignados"
-                />
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function AlumnoGrid({ alumnoIdSelf, loadingAlumnoId, onAbrirNuevoMensaje }) {
-  const notasCard = (
-    <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow">
-      <CardContent className="p-6">
-        <Tile
-          icon={<ClipboardList className="h-6 w-6 text-blue-600" />}
-          title="Mis notas"
-          desc="Tus calificaciones por materia"
-        />
-      </CardContent>
-    </Card>
-  )
-
-  return (
-    <section className="mb-10">
-      <h2 className="text-lg font-semibold text-gray-800 mb-3">Panel del alumno</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <Link href="/calendario" className="block">
-          <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-6">
-              <Tile
-                icon={<Calendar className="h-6 w-6 text-blue-600" />}
-                title="Calendario"
-                desc="Exámenes y eventos del curso"
-              />
-            </CardContent>
-          </Card>
-        </Link>
-
-        {alumnoIdSelf ? (
-          <Link
-            href={`/alumnos/${encodeURIComponent(alumnoIdSelf)}?from=mis-notas&tab=notas`}
-            className="block"
-          >
-            <div className="cursor-pointer">{notasCard}</div>
-          </Link>
-        ) : loadingAlumnoId ? (
-          <div className="block opacity-70">
-            <div className="cursor-wait">{notasCard}</div>
-            <div className="px-6 pb-4 text-xs text-gray-500">Cargando vínculo…</div>
-          </div>
-        ) : (
-          <div className="block opacity-70">
-            <div className="cursor-not-allowed">{notasCard}</div>
-            <div className="px-6 pb-1 text-xs text-red-600">
-              No pudimos determinar tu alumno automáticamente.
-            </div>
-            <div className="px-6 pb-4 text-xs text-gray-600">
-              Ingresá primero a tu perfil para que podamos asociar tu legajo.
-            </div>
-          </div>
-        )}
-
-        <Card
-          className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onAbrirNuevoMensaje?.()
-          }}
-        >
-          <CardContent className="p-6">
-            <Tile
-              icon={<Inbox className="h-6 w-6 text-blue-600" />}
-              title="Enviar mensaje"
-              desc="Enviá mensajes a Profesores y preceptores"
-            />
-          </CardContent>
-        </Card>
-      </div>
-    </section>
-  )
-}
-
-function PadreGrid({ onAbrirNuevoMensaje, unreadCount }) {
-  return (
-    <section className="mb-10">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <Link href="/mis-hijos" className="block">
-          <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-6">
-              <Tile
-                icon={<ClipboardList className="h-6 w-6 text-blue-600" />}
-                title="Notas / Asistencias / Sanciones"
-                desc="Seguimiento por materia y cuatrimestre"
-              />
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/calendario" className="block">
-          <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-6">
-              <Tile
-                icon={<Calendar className="h-6 w-6 text-blue-600" />}
-                title="Calendario"
-                desc="Reuniones, actos y eventos"
-              />
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Card
-          className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onAbrirNuevoMensaje?.()
-          }}
-        >
-          <CardContent className="p-6">
-            <Tile
-              icon={<Inbox className="h-6 w-6 text-blue-600" />}
-              title="Enviar mensajes"
-              desc="Enviá mensajes a Profesores y preceptores"
-            />
-          </CardContent>
-        </Card>
-      </div>
-    </section>
-  )
-}
-
 function ProximosEventosCard({ eventos, eventosLoading, hasCurso }) {
   return (
     <Card className="surface-card">
-      <CardContent className="surface-card-pad flex flex-col gap-4 min-h-[240px] md:min-h-[280px]">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Calendar className="h-6 w-6 text-blue-600" />
+      <CardContent className="surface-card-pad flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Calendar className="h-6 w-6 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="tile-title">Proximos eventos</h3>
+              <p className="tile-subtitle">En los proximos 5 dias</p>
+            </div>
           </div>
-          <div>
-            <h3 className="tile-title">Proximos eventos</h3>
-            <p className="tile-subtitle">En los proximos 5 dias</p>
+          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
+            {eventosLoading ? "Cargando…" : `${eventos.length} eventos`}
           </div>
         </div>
 
-        <div className="flex-1">
+        <div>
           {!hasCurso ? (
             <p className="text-sm text-slate-500">
               Selecciona un curso para ver eventos.
@@ -1601,6 +1315,9 @@ function ProximosEventosCard({ eventos, eventosLoading, hasCurso }) {
                     </p>
                     <p className="text-xs text-slate-500">{formatFechaCorta(ev.date)}</p>
                   </div>
+                  <span className="text-[11px] px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                    {formatFechaCorta(ev.date)}
+                  </span>
                 </Link>
               ))}
             </div>
@@ -1622,8 +1339,8 @@ function AlumnoInicio({
       <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ProximosEventosCard eventos={eventos} eventosLoading={eventosLoading} hasCurso />
 
-        <Card className="surface-card">
-          <CardContent className="surface-card-pad flex flex-col gap-4 min-h-[240px] md:min-h-[280px]">
+        <Card className="surface-card h-full">
+          <CardContent className="surface-card-pad h-full flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
                 <CheckSquare className="h-6 w-6 text-blue-600" />
@@ -1634,11 +1351,10 @@ function AlumnoInicio({
               </div>
             </div>
 
-            <div className="flex items-baseline gap-2 mt-auto">
-              <span className="text-4xl font-semibold text-slate-900">
+            <div className="flex flex-col items-start sm:items-end">
+              <div className="min-w-[96px] h-12 px-4 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-2xl font-semibold">
                 {inasistenciasLoading ? "..." : inasistenciasCount}
-              </span>
-              <span className="text-sm text-slate-500">faltas</span>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1671,13 +1387,12 @@ function ProfesorInicio({ eventos, eventosLoading, hasCurso }) {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Link href="/agregar_nota" className="block">
-                <Button variant="outline" className="w-full justify-start">
+                <Button className="w-full justify-start">
                   <Plus className="h-4 w-4 mr-2" />
                   Nueva nota
                 </Button>
               </Link>
               <Button
-                variant="outline"
                 className="w-full justify-start"
                 onClick={() => {
                   try {
@@ -1689,7 +1404,6 @@ function ProfesorInicio({ eventos, eventosLoading, hasCurso }) {
                 Nueva sancion
               </Button>
               <Button
-                variant="outline"
                 className="w-full justify-start sm:col-span-2"
                 onClick={() => {
                   try {
@@ -1701,68 +1415,6 @@ function ProfesorInicio({ eventos, eventosLoading, hasCurso }) {
                 Enviar mensaje a alumnos o familia
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-    </section>
-  )
-}
-
-function PreceptorGrid({ onAbrirComFam }) {
-  return (
-    <section className="mb-10">
-      <h2 className="text-lg font-semibold text-gray-800 mb-3">Panel del preceptor</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <Link href="/pasar_asistencia" className="block">
-          <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-6">
-              <Tile
-                icon={<CheckSquare className="h-6 w-6 text-blue-600" />}
-                title="Pasar asistencia"
-                desc="Marcar presentes y ausentes"
-              />
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/calendario" className="block">
-          <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-6">
-              <Tile
-                icon={<Calendar className="h-6 w-6 text-blue-600" />}
-                title="Calendario del curso"
-                desc="Eventos del curso a cargo"
-              />
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/gestion_alumnos" className="block">
-          <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-6">
-              <Tile
-                icon={<Users className="h-6 w-6 text-blue-600" />}
-                title="Gestión de Alumnos"
-                desc="Ver cursos y perfiles de alumnos"
-              />
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Card
-          className="shadow-sm border-0 bg-white/80 backdrop-blur-sm hover:shadow-md transition-shadow cursor-pointer"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onAbrirComFam?.()
-          }}
-        >
-          <CardContent className="p-6">
-            <Tile
-              icon={<Users className="h-6 w-6 text-blue-600" />}
-              title="Enviar mensajes"
-              desc="Envia mensajes a alumnos, padres o cursos"
-            />
           </CardContent>
         </Card>
       </div>
@@ -1831,6 +1483,7 @@ function TileButton({ title, desc, icon, onClick, emphasis = false }) {
     </div>
   )
 }
+
 
 
 

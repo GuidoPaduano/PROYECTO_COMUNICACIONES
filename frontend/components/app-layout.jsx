@@ -13,6 +13,7 @@ import {
   Home,
   MessageSquare,
   NotebookText,
+  Plus,
   User,
   Users,
 } from "lucide-react"
@@ -58,7 +59,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/calendario"),
     title: () => "Calendario",
-    subtitle: "Eventos, examenes y fechas clave.",
+    subtitle: "",
     icon: <CalendarDays className="w-5 h-5 text-indigo-500" />,
   },
   {
@@ -148,6 +149,7 @@ function ProtectedShell({ children, pathname }) {
   const [roles, setRoles] = useState([])
   const [rolesReady, setRolesReady] = useState(false)
   const [isSuper, setIsSuper] = useState(false)
+  const [isStaff, setIsStaff] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -168,6 +170,7 @@ function ProtectedShell({ children, pathname }) {
           setUserLabel(label)
           setRoles(names)
           setIsSuper(!!data?.is_superuser)
+          setIsStaff(!!data?.is_staff)
           setRolesReady(true)
         }
       } catch {}
@@ -182,13 +185,40 @@ function ProtectedShell({ children, pathname }) {
     () => shouldHideHeader(roles, isSuper, pathname),
     [roles, isSuper, pathname]
   )
+  const canAgregarAlumno = useMemo(() => {
+    if (isSuper || isStaff) return true
+    const names = Array.isArray(roles) ? roles : []
+    return names.some((r) => String(r || "").toLowerCase().includes("precep"))
+  }, [roles, isSuper, isStaff])
+  const actions = useMemo(() => {
+    if (pathname.startsWith("/mis-cursos/")) {
+      return (
+        <div className="flex items-center gap-2">
+          <Link href="/mis-cursos" prefetch>
+            <Button variant="primary" className="gap-2 primary-button">
+              <ChevronLeft className="h-4 w-4" /> Volver a cursos
+            </Button>
+          </Link>
+          {canAgregarAlumno && (
+            <Link href={`${pathname}?add=1`} prefetch>
+              <Button variant="primary" className="gap-2 primary-button">
+                <Plus className="h-4 w-4" />
+                Agregar alumno
+              </Button>
+            </Link>
+          )}
+        </div>
+      )
+    }
+    return meta.actions
+  }, [pathname, canAgregarAlumno, meta.actions])
 
   return (
     <AppShell
       title={meta.title}
       subtitle={meta.subtitle}
       icon={meta.icon}
-      actions={meta.actions}
+      actions={actions}
       userLabel={userLabel}
       roles={roles}
       rolesReady={rolesReady}
