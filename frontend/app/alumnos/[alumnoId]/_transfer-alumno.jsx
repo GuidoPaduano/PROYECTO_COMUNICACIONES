@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { ArrowLeftRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import SuccessMessage from "@/components/ui/success-message"
 import {
   Dialog,
   DialogContent,
@@ -150,7 +151,7 @@ export default function TransferAlumno({
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} className="gap-2">
+      <Button onClick={() => setOpen(true)} className="gap-2 primary-button">
         <ArrowLeftRight className="w-4 h-4" />
         Transferir alumno
       </Button>
@@ -195,15 +196,11 @@ export default function TransferAlumno({
                 {error}
               </div>
             )}
-            {okMsg && (
-              <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md p-3">
-                {okMsg}
-              </div>
-            )}
+            {okMsg && <SuccessMessage className="mt-1">{okMsg}</SuccessMessage>}
           </div>
 
           <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button onClick={() => setOpen(false)}>
               Cancelar
             </Button>
             <Button
@@ -219,3 +216,4 @@ export default function TransferAlumno({
     </>
   )
 }
+

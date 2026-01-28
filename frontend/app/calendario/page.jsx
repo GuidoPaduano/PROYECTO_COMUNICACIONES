@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import SuccessMessage from "@/components/ui/success-message"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,6 +79,32 @@ function setStoredCurso(value) {
   } catch {}
 }
 
+function normalizeCursosList(input) {
+  const arr = Array.isArray(input) ? input : []
+  return arr
+    .map((c) => String(c?.id ?? c?.value ?? c?.curso ?? c?.nombre ?? c ?? "").trim())
+    .filter(Boolean)
+}
+
+const CURSOS_VALIDOS = new Set([
+  "1A",
+  "1B",
+  "2A",
+  "2B",
+  "3A",
+  "3B",
+  "4ECO",
+  "4NAT",
+  "5ECO",
+  "5NAT",
+  "6ECO",
+  "6NAT",
+])
+
+function filterCursosValidos(list) {
+  return list.filter((c) => CURSOS_VALIDOS.has(String(c || "").trim()))
+}
+
 async function fetchWithCache(url, opts) {
   const key = `${url}::${JSON.stringify(opts || {})}`
   if (fetchCache.has(key)) return fetchCache.get(key)
@@ -124,6 +151,7 @@ export default function CalendarioEscolarPage() {
 
   // Catálogos
   const [cursos, setCursos] = useState([])
+  const [cursosLoaded, setCursosLoaded] = useState(false)
   const [tiposEvento, setTiposEvento] = useState([
     "examen",
     "acto",
@@ -151,6 +179,8 @@ export default function CalendarioEscolarPage() {
   const [openCrear, setOpenCrear] = useState(false)
   const [openEditar, setOpenEditar] = useState(false)
   const [openEliminar, setOpenEliminar] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [crearError, setCrearError] = useState("")
 
   // Formularios
   const [crear, setCrear] = useState({
@@ -188,6 +218,12 @@ export default function CalendarioEscolarPage() {
     }, 60)
     return () => clearInterval(t)
   }, [fcReady])
+
+  useEffect(() => {
+    if (!okMsg) return
+    const t = setTimeout(() => setOkMsg(""), 4000)
+    return () => clearTimeout(t)
+  }, [okMsg])
 
   // whoami + detectar permisos y cargar hijos si es padre
   useEffect(() => {
@@ -228,28 +264,9 @@ export default function CalendarioEscolarPage() {
           if (groups.includes("Alumnos")) setAlumnoCursoChecked(true)
         }
 
-        // Preceptor: obtener cursos
-        try {
-          if (groups.includes("Preceptores")) {
-            setPreceptorCursosLoaded(false)
-            const cr = await fetchWithCache("/preceptor/cursos/")
-            if (cr.ok) {
-              const cj = await cr.json().catch(() => ({}))
-              const arr = Array.isArray(cj?.cursos) ? cj.cursos : []
-              setPreceptorCursos(arr)
-
-              if (!selectedCurso && arr.length > 0) {
-                const firstId = String(arr[0]?.id ?? "").trim()
-                if (firstId) setSelectedCurso(firstId)
-              }
-            } else {
-              setPreceptorCursos([])
-            }
-          }
-        } catch {
-          setPreceptorCursos([])
-        } finally {
-          if (groups.includes("Preceptores")) setPreceptorCursosLoaded(true)
+        // Preceptor: cursos se cargan desde catálogo global (todos los cursos)
+        if (groups.includes("Preceptores")) {
+          setPreceptorCursosLoaded(true)
         }
       } catch {
         setError("No se pudo obtener tu perfil.")
@@ -299,21 +316,71 @@ export default function CalendarioEscolarPage() {
     cursosRef.current = Array.isArray(cursos) ? cursos : []
   }, [cursos])
 
+  const allCursosList = useMemo(() => Array.from(CURSOS_VALIDOS).sort(), [])
+
+  // Preceptor: permitir ver todos los cursos (no solo asignados)
+  useEffect(() => {
+    if (!isPreceptor) return
+    const list = allCursosList.map((c) => ({ id: c, nombre: c }))
+    setPreceptorCursos(list)
+    setPreceptorCursosLoaded(true)
+    if (!selectedCurso && list.length > 0) {
+      setSelectedCurso(list[0].id)
+    }
+  }, [isPreceptor, allCursosList, selectedCurso])
+
   // catálogos (cursos / tipos)
   useEffect(() => {
     ;(async () => {
       try {
-        const r = await fetchWithCache("/calificaciones/nueva-nota/datos/")
-        if (r.ok) {
-          const data = await r.json()
-          const alumnos = Array.isArray(data?.alumnos) ? data.alumnos : []
-          const setC = new Set()
-          for (const a of alumnos) {
-            const c = String(a?.curso ?? a?.division ?? a?.grado ?? "").trim()
-            if (c) setC.add(c)
-          }
-          setCursos(Array.from(setC).sort())
+        let list = []
+
+        // 1) Fuente principal: cursos reales
+        const r1 = await fetchWithCache("/cursos/")
+        if (r1.ok) {
+          const data = await r1.json().catch(() => ({}))
+          list = normalizeCursosList(Array.isArray(data) ? data : data?.results || [])
         }
+
+        // 2) Fallback: /cursos/list/
+        if (list.length === 0) {
+          const r2 = await fetchWithCache("/cursos/list/")
+          if (r2.ok) {
+            const data = await r2.json().catch(() => ({}))
+            list = normalizeCursosList(Array.isArray(data) ? data : data?.results || [])
+          }
+        }
+
+        // 3) Último fallback: catálogos
+        if (list.length === 0) {
+          const rCat = await fetchWithCache("/notas/catalogos/")
+          if (rCat.ok) {
+            const data = await rCat.json().catch(() => ({}))
+            list = normalizeCursosList(data?.cursos || [])
+          }
+        }
+
+        // 4) Último fallback: derivamos desde alumnos
+        if (list.length === 0) {
+          const r = await fetchWithCache("/calificaciones/nueva-nota/datos/")
+          if (r.ok) {
+            const data = await r.json()
+            const alumnos = Array.isArray(data?.alumnos) ? data.alumnos : []
+            const setC = new Set()
+            for (const a of alumnos) {
+              const c = String(a?.curso ?? a?.division ?? a?.grado ?? "").trim()
+              if (c) setC.add(c)
+            }
+            list = Array.from(setC)
+          }
+        }
+
+        // Preceptor: siempre mostrar cursos válidos globales
+        if (isPreceptor) {
+          list = Array.from(CURSOS_VALIDOS)
+        }
+
+        setCursos(filterCursosValidos(list).sort())
       } catch {}
       try {
         const r2 = await fetchWithCache("/eventos/tipos/")
@@ -322,8 +389,9 @@ export default function CalendarioEscolarPage() {
           if (Array.isArray(data) && data.length) setTiposEvento(data)
         }
       } catch {}
+      setCursosLoaded(true)
     })()
-  }, [])
+  }, [isPreceptor])
 
   // helpers
   function refetchEvents() {
@@ -348,9 +416,10 @@ export default function CalendarioEscolarPage() {
   function openCrearModal() {
     setError("")
     setOkMsg("")
+    setCrearError("")
     setCrear((v) => ({
       ...v,
-      curso: isPreceptor ? String(selectedCurso || v.curso || "") : v.curso,
+      curso: isPreceptor ? (v.curso === "ALL" ? "ALL" : String(selectedCurso || v.curso || "")) : v.curso,
     }))
     setOpenCrear(true)
   }
@@ -456,7 +525,7 @@ export default function CalendarioEscolarPage() {
           } else if (isPreceptor) {
             if (!selectedCurso) {
               const msg =
-                "Seleccioná un curso para ver el calendario. Si no te aparece ninguno, revisá las asignaciones del preceptor."
+                "Seleccioná un curso para ver el calendario."
               setError(msg)
               failure(new Error(msg))
               return
@@ -652,29 +721,26 @@ export default function CalendarioEscolarPage() {
   async function crearEvento() {
     setError("")
     setOkMsg("")
+    setCrearError("")
+    if (creating) return
+    setCreating(true)
     try {
       const cursoToSend = (crear.curso || "").trim() || (isPreceptor ? String(selectedCurso || "") : "")
       if (isPreceptor && !cursoToSend) {
         throw new Error(
-          "Seleccioná un curso asignado para crear el evento (arriba, en el selector de curso del preceptor)."
+          "Seleccioná un curso o 'Todos los cursos' para crear el evento."
         )
       }
 
-      const res = await authFetch("/eventos/crear/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          titulo: crear.titulo,
-          fecha: crear.fecha,
-          descripcion: crear.descripcion,
-          curso: cursoToSend,
-          tipo_evento: crear.tipo_evento,
-        }),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
+      const payload = {
+        titulo: crear.titulo,
+        fecha: crear.fecha,
+        descripcion: crear.descripcion,
+        curso: cursoToSend,
+        tipo_evento: crear.tipo_evento,
       }
+
+      // Optimista: cerrar modal y avisar éxito inmediato
       setOpenCrear(false)
       setCrear({
         titulo: "",
@@ -683,10 +749,29 @@ export default function CalendarioEscolarPage() {
         curso: "",
         tipo_evento: "",
       })
-      setOkMsg("✅ Evento creado.")
+      setOkMsg("✅ Evento agregado exitosamente.")
+      try {
+        if (typeof window !== "undefined") {
+          window.scrollTo({ top: 0, behavior: "smooth" })
+        }
+      } catch {}
+
+      const res = await authFetch("/eventos/crear/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
+      }
       refetchEvents()
     } catch (e) {
-      setError(e.message || "No se pudo crear el evento.")
+      const msg = e?.message || "No se pudo crear el evento."
+      setError(msg)
+      setCrearError(msg)
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -841,9 +926,9 @@ export default function CalendarioEscolarPage() {
       {/* Contenido */}
       <div className="space-y-6">
         {okMsg && (
-          <Card className="shadow-sm border-0 bg-green-50/90 backdrop-blur-sm">
-            <CardContent className="p-4 text-green-800">{okMsg}</CardContent>
-          </Card>
+          <div className="mb-3">
+            <SuccessMessage>{okMsg}</SuccessMessage>
+          </div>
         )}
         {error && (
           <Card className="shadow-sm border-0 bg-red-50/90 backdrop-blur-sm">
@@ -859,7 +944,7 @@ export default function CalendarioEscolarPage() {
         {hijos.length > 0 && (
           <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
             <CardContent className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                 <div>
                   <Label className="block text-sm mb-1">
                     Alumno
@@ -878,9 +963,8 @@ export default function CalendarioEscolarPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="text-sm text-gray-600 md:col-span-2">
-                  El calendario mostrará únicamente eventos del curso de{" "}
-                  {selectedKid ? "ese hijo/a seleccionado" : "tu hijo/a"}.
+                <div className="text-sm text-gray-600 md:col-span-2 flex items-center min-h-[40px]">
+                  El calendario mostrará únicamente eventos del curso del alumno seleccionado.
                 </div>
               </div>
             </CardContent>
@@ -891,12 +975,12 @@ export default function CalendarioEscolarPage() {
           <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
             <CardContent className="p-6">
               {!preceptorCursosLoaded ? (
-                <div className="text-sm text-gray-700">Cargando cursos asignados…</div>
+                <div className="text-sm text-gray-700">Cargando cursos…</div>
               ) : preceptorCursos.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                   <div>
                     <Label className="block text-sm mb-1">
-                      Elegí el curso (calendario)
+                      Elegí el curso
                     </Label>
                     <Select
                       value={selectedCurso}
@@ -909,23 +993,23 @@ export default function CalendarioEscolarPage() {
                         <SelectValue placeholder="Seleccionar curso" />
                       </SelectTrigger>
                       <SelectContent>
-                        {preceptorCursos.map((c) => (
-                          <SelectItem key={String(c.id)} value={String(c.id)}>
-                            {c.nombre ? String(c.nombre) : String(c.id)}
+                        {allCursosList.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {c}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="text-sm text-gray-600 md:col-span-2">
+                  <div className="text-sm text-gray-600 md:col-span-2 flex items-center min-h-[40px]">
                     El calendario mostrará únicamente eventos del curso seleccionado.
                   </div>
                 </div>
               ) : (
                 <div className="text-sm text-gray-700">
-                  <span className="font-semibold">Preceptor:</span> no tenés cursos asignados.
+                  <span className="font-semibold">Preceptor:</span> no hay cursos disponibles.
                   <span className="block text-gray-600 mt-1">
-                    Pedile al administrador que te asigne al menos un curso (PreceptorCurso).
+                    Pedile al administrador que cargue cursos en el catálogo.
                   </span>
                 </div>
               )}
@@ -974,7 +1058,7 @@ export default function CalendarioEscolarPage() {
               </div>
             )}
             {puedeEditar && (
-              <Button onClick={openCrearModal} className="inline-flex items-center">
+              <Button onClick={openCrearModal} className="inline-flex items-center primary-button">
                 <Plus className="h-4 w-4 mr-2" /> Agregar nuevo evento
               </Button>
             )}
@@ -1027,25 +1111,42 @@ export default function CalendarioEscolarPage() {
                 className="border rounded-md px-3 py-2 bg-white"
                 value={crear.curso}
                 onChange={(e) => setCrear((v) => ({ ...v, curso: e.target.value }))}
+                disabled={isPreceptor && crear.curso === "ALL"}
               >
                 <option value="">—</option>
-                {isPreceptor
-                  ? preceptorCursos.map((c) => {
-                      const id = String(c?.id ?? "").trim()
-                      if (!id) return null
-                      const label = String(c?.nombre ?? id)
-                      return (
-                        <option key={id} value={id}>
-                          {label}
-                        </option>
-                      )
-                    })
-                  : cursos.map((c) => (
+                {isPreceptor ? (
+                  <>
+                    {allCursosList.map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>
                     ))}
+                  </>
+                ) : (
+                  cursos.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))
+                )}
               </select>
+              {isPreceptor && (
+                <label className="inline-flex items-center gap-3 text-sm text-gray-600">
+                  <button
+                    type="button"
+                    className="switch"
+                    data-checked={crear.curso === "ALL" ? "true" : "false"}
+                    onClick={() =>
+                      setCrear((v) => ({ ...v, curso: v.curso === "ALL" ? "" : "ALL" }))
+                    }
+                    aria-pressed={crear.curso === "ALL"}
+                    aria-label="Todos los cursos"
+                  >
+                    <span className="switch-thumb" />
+                  </button>
+                  Todos los cursos
+                </label>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="tipo">Tipo de evento</Label>
@@ -1063,12 +1164,22 @@ export default function CalendarioEscolarPage() {
                 ))}
               </select>
             </div>
+            {error && (
+              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+                {error}
+              </div>
+            )}
+            {crearError && (
+              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+                {crearError}
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setOpenCrear(false)}>
               Cancelar
             </Button>
-            <Button onClick={crearEvento}>
+            <Button onClick={crearEvento} disabled={creating}>
               <Save className="h-4 w-4 mr-2" /> Guardar
             </Button>
           </DialogFooter>

@@ -186,6 +186,7 @@ body {
   background: #f6f8fb;
   color: #0f172a;
 }
+a, button, [role="button"] { cursor: pointer; }
 .app-shell {
   min-height: 100vh;
   background: #f6f8fb;
@@ -223,6 +224,14 @@ body {
 .sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sidebar-brand { display: flex; align-items: center; gap: 12px; }
 .sidebar-bell { display: flex; align-items: center; }
+.sidebar-bell button:focus,
+.sidebar-bell button:focus-visible,
+.sidebar-bell button:active,
+.sidebar-bell button[data-state="open"] {
+  outline: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+}
 .sidebar-logo {
   height: 48px;
   width: 48px;

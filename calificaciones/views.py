@@ -25,7 +25,8 @@ from reportlab.pdfgen import canvas
 
 from django.db.models import Q  # ✅ NUEVO (para filtros robustos de no leídos)
 
-from .models import Alumno, Nota, Mensaje, Evento, Asistencia
+from .models import Alumno, Nota, Mensaje, Evento, Asistencia, Notificacion
+from .utils_cursos import filtrar_cursos_validos
 from .serializers import EventoSerializer, AlumnoFullSerializer, NotaPublicSerializer  # ⬅️ NUEVO
 from .constants import MATERIAS
 from .contexto import resolve_alumno_for_user
@@ -149,8 +150,8 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
         if not alumno:
             return False
 
-        destinatario, _source = _resolver_destinatario_padre(alumno)
-        if not destinatario:
+        destinatarios = _resolver_destinatarios_notif(alumno)
+        if not destinatarios:
             return False
 
         # Nombre consistente (el modelo Alumno del proyecto no tiene 'apellido', pero dejamos fallback por si aparece)
@@ -191,19 +192,20 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
         # URL destino (Parte B/C usan esto)
         url = f"/alumnos/{alumno.id}/?tab=notas"
 
-        Notificacion.objects.create(
-            destinatario=destinatario,
-            tipo="nota",
-            titulo=titulo,
-            descripcion=descripcion,
-            url=url,
-            meta={
-                "alumno_id": alumno.id,
-                "nota_id": getattr(nota, "id", None),
-                "curso": curso or None,
-            },
-            leida=False,
-        )
+        for destinatario in destinatarios:
+            Notificacion.objects.create(
+                destinatario=destinatario,
+                tipo="nota",
+                titulo=titulo,
+                descripcion=descripcion,
+                url=url,
+                meta={
+                    "alumno_id": alumno.id,
+                    "nota_id": getattr(nota, "id", None),
+                    "curso": curso or None,
+                },
+                leida=False,
+            )
         return True
     except Exception:
         if silent:
@@ -814,7 +816,8 @@ def notas_catalogos(request):
     - materias: lista desde constants.MATERIAS
     - tipos: (opcional) vacío por ahora; se puede poblar luego si definen choices
     """
-    cursos = [{"id": c[0], "nombre": c[1]} for c in getattr(Alumno, "CURSOS", [])]
+    cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
+    cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
     if _has_role(request, "Profesores") and not request.user.is_superuser:
         asignados = _profesor_cursos_asignados(request.user)
         if asignados:
@@ -845,7 +848,8 @@ def preceptor_cursos(request):
     """
     user = request.user
     if user.is_superuser:
-        cursos = [{"id": c[0], "nombre": c[1]} for c in getattr(Alumno, "CURSOS", [])]
+        cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
+        cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
     elif _has_role(request, 'Preceptores'):
         cid = obtener_curso_del_preceptor(user)
         nombre = dict(getattr(Alumno, "CURSOS", [])).get(cid, cid)
@@ -1353,7 +1357,31 @@ def enviar_mensaje(request):
             if cf:
                 kwargs[cf] = getattr(alumno, "curso", None)
 
-            Mensaje.objects.create(**kwargs)
+            msg = Mensaje.objects.create(**kwargs)
+            try:
+                contenido_corto = (contenido[:160] + "...") if len(contenido) > 160 else contenido
+                url = "/mensajes"
+                if hasattr(msg, "thread_id") and getattr(msg, "thread_id", None):
+                    url = f"/mensajes/hilo/{getattr(msg, 'thread_id')}"
+                actor_label = (request.user.get_full_name() or request.user.username or "Usuario").strip()
+                titulo = f"{actor_label}: {asunto}" if asunto else f"Nuevo mensaje de {actor_label}"
+                Notificacion.objects.create(
+                    destinatario=receptor,
+                    tipo="mensaje",
+                    titulo=titulo,
+                    descripcion=contenido_corto.strip() or None,
+                    url=url,
+                    leida=False,
+                    meta={
+                        "mensaje_id": getattr(msg, "id", None),
+                        "thread_id": str(getattr(msg, "thread_id", "")) if hasattr(msg, "thread_id") else str(getattr(msg, "id", "")),
+                        "curso": getattr(alumno, "curso", "") if alumno else "",
+                        "remitente_id": getattr(request.user, "id", None),
+                        "alumno_id": getattr(alumno, "id", None) if alumno else None,
+                    },
+                )
+            except Exception:
+                pass
             return redirect('index')
         else:
             return HttpResponse("Este alumno no tiene padre asignado.", status=400)
@@ -1391,6 +1419,7 @@ def enviar_comunicado(request):
         rf = _mensaje_recipient_field()
         cf = _mensaje_curso_field()
 
+        notifs = []
         for alumno in alumnos:
             kwargs = {
                 sf: request.user,
@@ -1400,7 +1429,39 @@ def enviar_comunicado(request):
             }
             if cf:
                 kwargs[cf] = curso
-            Mensaje.objects.create(**kwargs)
+            msg = Mensaje.objects.create(**kwargs)
+            try:
+                contenido_corto = (contenido[:160] + "...") if len(contenido) > 160 else contenido
+                url = "/mensajes"
+                if hasattr(msg, "thread_id") and getattr(msg, "thread_id", None):
+                    url = f"/mensajes/hilo/{getattr(msg, 'thread_id')}"
+                actor_label = (request.user.get_full_name() or request.user.username or "Usuario").strip()
+                titulo = f"{actor_label}: {asunto}" if asunto else f"Nuevo mensaje de {actor_label}"
+                notifs.append(
+                    Notificacion(
+                        destinatario=alumno.padre,
+                        tipo="mensaje",
+                        titulo=titulo,
+                        descripcion=contenido_corto.strip() or None,
+                        url=url,
+                        leida=False,
+                        meta={
+                            "mensaje_id": getattr(msg, "id", None),
+                            "thread_id": str(getattr(msg, "thread_id", "")) if hasattr(msg, "thread_id") else str(getattr(msg, "id", "")),
+                            "curso": curso or "",
+                            "remitente_id": getattr(request.user, "id", None),
+                            "alumno_id": getattr(alumno, "id", None),
+                        },
+                    )
+                )
+            except Exception:
+                pass
+
+        if notifs:
+            try:
+                Notificacion.objects.bulk_create(notifs)
+            except Exception:
+                pass
 
         return redirect('index')
 
@@ -1463,6 +1524,30 @@ def mensajes_enviar_api(request):
         kwargs[cf] = alumno.curso
 
     m = Mensaje.objects.create(**kwargs)
+    try:
+        contenido_corto = (contenido[:160] + "...") if len(contenido) > 160 else contenido
+        url = "/mensajes"
+        if hasattr(m, "thread_id") and getattr(m, "thread_id", None):
+            url = f"/mensajes/hilo/{getattr(m, 'thread_id')}"
+        actor_label = (request.user.get_full_name() or request.user.username or "Usuario").strip()
+        titulo = f"{actor_label}: {asunto}" if asunto else f"Nuevo mensaje de {actor_label}"
+        Notificacion.objects.create(
+            destinatario=receptor,
+            tipo="mensaje",
+            titulo=titulo,
+            descripcion=contenido_corto.strip() or None,
+            url=url,
+            leida=False,
+            meta={
+                "mensaje_id": getattr(m, "id", None),
+                "thread_id": str(getattr(m, "thread_id", "")) if hasattr(m, "thread_id") else str(getattr(m, "id", "")),
+                "curso": getattr(alumno, "curso", "") if alumno else "",
+                "remitente_id": getattr(request.user, "id", None),
+                "alumno_id": getattr(alumno, "id", None) if alumno else None,
+            },
+        )
+    except Exception:
+        pass
     return Response({"ok": True, "mensaje_id": m.id}, status=201)
 
 
@@ -1730,6 +1815,11 @@ def crear_evento(request):
             evento = form.save(commit=False)
             evento.creado_por = request.user
             evento.save()
+            try:
+                from .api_eventos import _notify_evento_creado
+                _notify_evento_creado(request, evento)
+            except Exception:
+                pass
             return JsonResponse({'success': True})
         else:
             return JsonResponse({'success': False, 'errors': form.errors}, status=400)
@@ -1798,6 +1888,7 @@ def pasar_asistencia(request):
     if request.method == 'POST':
         fecha_actual = date.today()
         asistencia_objs = []
+        ausentes_ids = []
         for alumno in alumnos:
             presente = request.POST.get(f'asistencia_{alumno.id}') == 'on'
             asistencia_objs.append(Asistencia(
@@ -1805,9 +1896,43 @@ def pasar_asistencia(request):
                 fecha=fecha_actual,
                 presente=presente
             ))
+            if not presente:
+                ausentes_ids.append(alumno.id)
 
         Asistencia.objects.filter(alumno__in=alumnos, fecha=fecha_actual).delete()
         Asistencia.objects.bulk_create(asistencia_objs)
+
+        # Notificar inasistencias a padres/alumnos
+        try:
+            for alumno in alumnos:
+                if alumno.id not in ausentes_ids:
+                    continue
+                destinatarios = _resolver_destinatarios_notif(alumno)
+                if not destinatarios:
+                    continue
+                alumno_nombre = (f"{getattr(alumno, 'apellido', '')} {getattr(alumno, 'nombre', '')}").strip()
+                if not alumno_nombre:
+                    alumno_nombre = getattr(alumno, "nombre", "") or str(getattr(alumno, "id_alumno", "")) or "Alumno"
+                titulo = f"Inasistencia registrada: {alumno_nombre}"
+                descripcion = f"Alumno: {alumno_nombre} · Curso: {getattr(alumno, 'curso', '')} · Fecha: {fecha_actual.isoformat()}"
+                for dest in destinatarios:
+                    Notificacion.objects.create(
+                        destinatario=dest,
+                        tipo="inasistencia",
+                        titulo=titulo,
+                        descripcion=descripcion,
+                        url=f"/alumnos/{getattr(alumno, 'id', '')}/?tab=asistencias",
+                        leida=False,
+                        meta={
+                            "alumno_id": getattr(alumno, "id", None),
+                            "alumno_legajo": getattr(alumno, "id_alumno", None),
+                            "curso": getattr(alumno, "curso", ""),
+                            "fecha": fecha_actual.isoformat(),
+                            "tipo_asistencia": "clases",
+                        },
+                    )
+        except Exception:
+            pass
 
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
             return JsonResponse({'success': True})

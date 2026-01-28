@@ -1,9 +1,10 @@
 "use client"
 
 import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { use, useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch } from "../../_lib/auth"
-import { ChevronLeft, Users, Plus } from "lucide-react"
+import { ChevronLeft, Users } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +27,14 @@ async function fetchJSON(url, opts) {
 const getCursoId = (c) => c?.id ?? c?.value ?? c
 const getCursoNombre = (c) => c?.nombre ?? c?.label ?? String(getCursoId(c))
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
+const getInitials = (name) => {
+  const s = String(name || "").trim()
+  if (!s) return "—"
+  const parts = s.split(/\s+/).filter(Boolean)
+  const first = parts[0]?.[0] || ""
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : ""
+  return (first + last).toUpperCase() || first.toUpperCase() || "—"
+}
 
 export default function CursoDetallePage({ params }) {
   useAuthGuard()
@@ -71,6 +80,16 @@ export default function CursoDetallePage({ params }) {
       return false
     }
   }, [me])
+
+  const pathname = usePathname() || ""
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    if (searchParams?.get("add") === "1" && canAgregarAlumno) {
+      setOpenAdd(true)
+    }
+  }, [searchParams, canAgregarAlumno])
 
   useEffect(() => {
     ;(async () => {
@@ -157,7 +176,7 @@ export default function CursoDetallePage({ params }) {
         return
       }
       await loadAlumnos()
-      setOpenAdd(false)
+      closeAddDialog()
       setIdAlumno("")
       setNombre("")
       setApellido("")
@@ -168,27 +187,16 @@ export default function CursoDetallePage({ params }) {
     }
   }
 
+  const closeAddDialog = () => {
+    setOpenAdd(false)
+    if (searchParams?.get("add") === "1") {
+      router.replace(pathname)
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div className="surface-card surface-card-pad space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            {canAgregarAlumno && (
-              <Button
-                variant="outline"
-                onClick={() => setOpenAdd(true)}
-                className="gap-2 text-indigo-600 border-indigo-200 hover:border-indigo-300"
-              >
-                <Plus className="h-4 w-4" />
-                Agregar alumno
-              </Button>
-            )}
-          </div>
-          <div className="text-sm text-slate-500">
-            Curso: <span className="font-medium text-slate-700">{cursoNombre || cursoId}</span>
-          </div>
-        </div>
-
+      <div className="surface-card surface-card-pad">
         <Input
           placeholder="Buscar alumno por nombre o legajo"
           value={busqueda}
@@ -213,11 +221,11 @@ export default function CursoDetallePage({ params }) {
               : null
             return href ? (
               <Link key={key} href={href} className="block">
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-5">
+                <Card className="surface-card hover:shadow-md transition-shadow">
+                  <CardContent className="surface-card-pad">
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Users className="h-5 w-5 text-indigo-600" />
+                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0 text-indigo-600 font-semibold text-sm">
+                        {getInitials(a?.nombre)}
                       </div>
                       <div className="flex-1">
                         <h3 className="font-semibold text-gray-900">{a.nombre}</h3>
@@ -230,11 +238,11 @@ export default function CursoDetallePage({ params }) {
                 </Card>
               </Link>
             ) : (
-              <Card key={`nolink-${a?.nombre}-${Math.random()}`}>
-                <CardContent className="p-5">
+              <Card key={`nolink-${a?.nombre}-${Math.random()}`} className="surface-card">
+                <CardContent className="surface-card-pad">
                   <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Users className="h-5 w-5 text-indigo-600" />
+                    <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0 text-indigo-600 font-semibold text-sm">
+                      {getInitials(a?.nombre)}
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900">{a?.nombre || "Alumno"}</h3>
@@ -250,7 +258,10 @@ export default function CursoDetallePage({ params }) {
         </div>
       )}
 
-      <Dialog open={openAdd} onOpenChange={setOpenAdd}>
+      <Dialog
+        open={openAdd}
+        onOpenChange={(next) => (next ? setOpenAdd(true) : closeAddDialog())}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Agregar alumno a {cursoNombre}</DialogTitle>
@@ -298,7 +309,7 @@ export default function CursoDetallePage({ params }) {
             {formError && <div className="text-sm text-red-600">{formError}</div>}
 
             <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => setOpenAdd(false)}>
+              <Button type="button" onClick={closeAddDialog}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={saving}>
@@ -311,3 +322,4 @@ export default function CursoDetallePage({ params }) {
     </div>
   )
 }
+

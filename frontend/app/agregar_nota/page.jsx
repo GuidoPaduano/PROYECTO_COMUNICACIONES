@@ -17,6 +17,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import SuccessMessage from "@/components/ui/success-message"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -423,9 +424,9 @@ export default function CargarNotasRapidas() {
       <div className="space-y-6">
         {/* Flashes */}
         {okMsg && (
-          <Card className="shadow-sm border-0 bg-green-50/90 backdrop-blur-sm">
-            <CardContent className="p-4 text-green-800">{okMsg}</CardContent>
-          </Card>
+          <div className="mb-3">
+            <SuccessMessage>{okMsg}</SuccessMessage>
+          </div>
         )}
         {error && (
           <Card className="shadow-sm border-0 bg-red-50/90 backdrop-blur-sm">
@@ -506,7 +507,7 @@ export default function CargarNotasRapidas() {
                           />
                           Reemplazar también campos ya llenos
                         </label>
-                        <Button variant="outline" onClick={onApplyFill}>
+                        <Button onClick={onApplyFill}>
                           Aplicar
                         </Button>
                       </div>
@@ -811,7 +812,6 @@ export default function CargarNotasRapidas() {
                   </Button>
                   <Link href="/dashboard">
                     <Button
-                      variant="outline"
                       className="inline-flex items-center"
                     >
                       <ArrowLeft className="h-4 w-4 mr-2" /> Volver
@@ -829,3 +829,4 @@ export default function CargarNotasRapidas() {
     </div>
   )
 }
+

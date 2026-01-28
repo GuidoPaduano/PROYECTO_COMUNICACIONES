@@ -4,6 +4,7 @@ from django.utils.dateparse import parse_date
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.db import transaction
 
 from rest_framework.decorators import (
     api_view,
@@ -209,6 +210,20 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
 # ------------------------------------------------------------
 # Validaciones / parsing
 # ------------------------------------------------------------
+VALID_CURSOS = {
+    "1A",
+    "1B",
+    "2A",
+    "2B",
+    "3A",
+    "3B",
+    "4ECO",
+    "4NAT",
+    "5ECO",
+    "5NAT",
+    "6ECO",
+    "6NAT",
+}
 def _parse_date(q):
     q = (q or "").strip()
     return parse_date(q) if q else None
@@ -221,6 +236,10 @@ def _is_valid_curso(curso: str) -> bool:
     curso = (curso or "").strip()
     if not curso:
         return False
+
+    # ✅ Preferimos el whitelist explícito si está definido
+    if VALID_CURSOS:
+        return curso in VALID_CURSOS
 
     if Alumno is None:
         return True
@@ -251,6 +270,37 @@ def _is_valid_tipo_evento(tipo: str) -> bool:
         pass
 
     return True
+
+
+def _is_all_cursos(value: str) -> bool:
+    return (value or "").strip().upper() in {"ALL", "*", "TODOS"}
+
+
+def _all_cursos_disponibles():
+    """
+    Devuelve la lista de cursos disponibles.
+    - Si Alumno.CURSOS existe, usa ese catálogo.
+    - Si no, intenta obtenerlos desde la base de alumnos.
+    """
+    if Alumno is None:
+        return []
+
+    # ✅ Preferimos whitelist explícito si existe
+    if VALID_CURSOS:
+        return sorted(VALID_CURSOS)
+
+    try:
+        cursos_validos = [c[0] for c in getattr(Alumno, "CURSOS", [])]
+        if cursos_validos:
+            return sorted({str(c).strip() for c in cursos_validos if str(c).strip()})
+    except Exception:
+        pass
+
+    try:
+        qs = Alumno.objects.values_list("curso", flat=True).distinct()  # type: ignore
+        return sorted({str(c).strip() for c in qs if str(c).strip()})
+    except Exception:
+        return []
 
 
 def _curso_para_alumno_user(user):
@@ -565,17 +615,15 @@ def eventos_listar(request):
             )
 
     elif _has_role(request, "Preceptores"):
-        if not curso:
-            return Response(
-                {"detail": "Falta el parámetro 'curso' para preceptores."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not _preceptor_puede_ver_curso(request.user, curso):
-            return Response(
-                {"detail": "No tenés permiso para ver eventos de este curso."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # ✅ Preceptores pueden listar todos los cursos si no pasan curso o si piden "ALL"
+        if _is_all_cursos(curso):
+            curso = ""
+        if curso:
+            if not _preceptor_puede_ver_curso(request.user, curso):
+                return Response(
+                    {"detail": "No tenés permiso para ver eventos de este curso."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
     elif _has_role(request, "Profesores"):
         cursos_prof = _cursos_habilitados_profesor(request.user)
         if curso:
@@ -629,7 +677,7 @@ def eventos_crear(request):
         return Response({"detail": "Fecha inválida o vacía."}, status=status.HTTP_400_BAD_REQUEST)
     if not curso:
         return Response({"detail": "Curso requerido."}, status=status.HTTP_400_BAD_REQUEST)
-    if not _is_valid_curso(curso):
+    if not _is_all_cursos(curso) and not _is_valid_curso(curso):
         return Response({"detail": "Curso inválido."}, status=status.HTTP_400_BAD_REQUEST)
 
     # ✅ NUEVO: validar tipo_evento (si tu front manda cualquier cosa, lo frenamos prolijo)
@@ -639,17 +687,40 @@ def eventos_crear(request):
         return Response({"detail": "Tipo de evento inválido."}, status=status.HTTP_400_BAD_REQUEST)
 
     if _has_role(request, "Preceptores") and not getattr(request.user, "is_superuser", False):
-        if not _preceptor_puede_ver_curso(request.user, curso):
-            return Response(
-                {"detail": "No tenés permiso para crear eventos en este curso."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # ✅ Preceptores pueden crear en cualquier curso y en "ALL"
+        pass
     if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
         if not _profesor_puede_ver_curso(request.user, curso):
             return Response(
                 {"detail": "No tenés permiso para crear eventos en este curso."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+    # ✅ "ALL" => crear un evento por cada curso disponible
+    if _is_all_cursos(curso):
+        cursos_all = _all_cursos_disponibles()
+        if not cursos_all:
+            return Response({"detail": "No hay cursos disponibles."}, status=status.HTTP_400_BAD_REQUEST)
+
+        objs = [
+            Evento(
+                titulo=titulo,
+                fecha=fecha,
+                descripcion=descripcion,
+                curso=c,
+                tipo_evento=tipo_evento,
+            )
+            for c in cursos_all
+        ]
+
+        with transaction.atomic():
+            created = Evento.objects.bulk_create(objs)
+
+        # Notificamos uno por curso (puede ser pesado, pero requerido)
+        for ev in created:
+            _notify_evento_creado(request, ev)
+
+        return Response({"creados": len(created)}, status=status.HTTP_201_CREATED)
 
     ev = Evento.objects.create(
         titulo=titulo,
@@ -675,12 +746,8 @@ def eventos_editar(request, pk: int):
     ev = get_object_or_404(Evento, pk=pk)
 
     if _has_role(request, "Preceptores") and not getattr(request.user, "is_superuser", False):
-        curso_actual = (getattr(ev, "curso", "") or "").strip()
-        if curso_actual and not _preceptor_puede_ver_curso(request.user, curso_actual):
-            return Response(
-                {"detail": "No tenés permiso para editar eventos de este curso."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # ✅ Preceptores pueden editar eventos de cualquier curso
+        pass
     if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
         curso_actual = (getattr(ev, "curso", "") or "").strip()
         if curso_actual and not _profesor_puede_ver_curso(request.user, curso_actual):
@@ -710,11 +777,8 @@ def eventos_editar(request, pk: int):
             return Response({"detail": "Curso inválido."}, status=status.HTTP_400_BAD_REQUEST)
 
         if _has_role(request, "Preceptores") and not getattr(request.user, "is_superuser", False):
-            if curso_nuevo and not _preceptor_puede_ver_curso(request.user, curso_nuevo):
-                return Response(
-                    {"detail": "No tenés permiso para asignar este curso al evento."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+            # ✅ Preceptores pueden asignar cualquier curso
+            pass
         if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
             if curso_nuevo and not _profesor_puede_ver_curso(request.user, curso_nuevo):
                 return Response(
@@ -746,12 +810,8 @@ def eventos_eliminar(request, pk: int):
     ev = get_object_or_404(Evento, pk=pk)
 
     if _has_role(request, "Preceptores") and not getattr(request.user, "is_superuser", False):
-        curso_actual = (getattr(ev, "curso", "") or "").strip()
-        if curso_actual and not _preceptor_puede_ver_curso(request.user, curso_actual):
-            return Response(
-                {"detail": "No tenés permiso para eliminar eventos de este curso."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # ✅ Preceptores pueden eliminar eventos de cualquier curso
+        pass
     if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
         curso_actual = (getattr(ev, "curso", "") or "").strip()
         if curso_actual and not _profesor_puede_ver_curso(request.user, curso_actual):

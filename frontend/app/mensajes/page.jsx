@@ -16,6 +16,7 @@ import {
   CheckCheck,
   Search,
   RefreshCcw, // ⬅️ Botón Actualizar
+  Plus,
   CalendarDays,
   History,
   Reply,
@@ -27,6 +28,8 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import SuccessMessage from "@/components/ui/success-message"
+import ComposeComunicadoFamilia from "./_compose-comunicado-familia"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,7 +84,18 @@ function initials(name) {
 function preview(text, max = 160) {
   const t = String(text || "").replace(/\s+/g, " ").trim()
   if (t.length <= max) return t
-  return t.slice(0, max - 1) + "…"
+  return t.slice(0, max - 1) + "..."
+}
+
+function stripRePrefix(s) {
+  return String(s || "").replace(/^(\s*re\s*:\s*)+/i, "").trim()
+}
+
+function collapseRePrefix(s) {
+  const base = stripRePrefix(s)
+  if (!base) return ""
+  const hasRe = /^\s*re\s*:/i.test(String(s || ""))
+  return hasRe ? `Re: ${base}` : base
 }
 
 async function fetchJSON(url, opts) {
@@ -223,6 +237,18 @@ export default function MensajesPage() {
   const [replySending, setReplySending] = useState(false)
 
   const [reloadTick, setReloadTick] = useState(0)
+  const [openSendPicker, setOpenSendPicker] = useState(false)
+  const [newMsgOpen, setNewMsgOpen] = useState(false)
+  const [composerMode, setComposerMode] = useState("familia")
+  const [openAlumnoMsg, setOpenAlumnoMsg] = useState(false)
+  const [loadingAlumnoMsg, setLoadingAlumnoMsg] = useState(false)
+  const [alumnoMsgErr, setAlumnoMsgErr] = useState("")
+  const [alumnoMsgOk, setAlumnoMsgOk] = useState("")
+  const [destSel, setDestSel] = useState("")
+  const [asuntoAlu, setAsuntoAlu] = useState("")
+  const [contenidoAlu, setContenidoAlu] = useState("")
+  const [destinatariosDoc, setDestinatariosDoc] = useState([])
+  const [alumnoDestType, setAlumnoDestType] = useState("")
   const myId = me?.id ?? me?.user?.id
 
   const unreadCount = useUnreadCount()
@@ -406,7 +432,7 @@ export default function MensajesPage() {
     setReplyErr("")
     setReplyOk("")
     setReplyTexto("")
-    setReplyAsunto(m?.asunto ? `Re: ${m.asunto}` : "Re:")
+    setReplyAsunto(m?.asunto ? `Re: ${stripRePrefix(m.asunto)}` : "Re:")
 
     try {
       const hasLeido = Object.prototype.hasOwnProperty.call(m, "leido")
@@ -482,7 +508,7 @@ export default function MensajesPage() {
 
     const payload = {
       mensaje_id: msgSel.id,
-      asunto: replyAsunto?.trim() || `Re: ${msgSel.asunto || ""}`.trim(),
+      asunto: replyAsunto?.trim() || `Re: ${stripRePrefix(msgSel.asunto || "")}`.trim(),
       contenido: replyTexto.trim(),
     }
 
@@ -538,10 +564,87 @@ export default function MensajesPage() {
     [me?.user?.first_name, me?.user?.last_name].filter(Boolean).join(" ") ||
     ""
 
+  const groups = Array.isArray(me?.groups)
+    ? me.groups
+    : Array.isArray(me?.grupos)
+    ? me.grupos
+    : []
+  const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
+  const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
+  const cursosEndpoint = isPreceptor ? "/preceptor/cursos/" : "/notas/catalogos/"
+
   const showDebug =
     unreadCount > 0 && !loading && !error && (Array.isArray(list) ? list.length : 0) === 0
 
   const cursoChip = (msgSel?.curso_asociado || msgSel?.curso || "").toString().trim()
+  const cursoSugeridoAlumno = me?.alumno?.curso || me?.curso || me?.user?.alumno?.curso || ""
+
+  useEffect(() => {
+    if (!openAlumnoMsg) return
+    let alive = true
+    setLoadingAlumnoMsg(true)
+    setAlumnoMsgErr("")
+    ;(async () => {
+      try {
+        const base = "/mensajes/destinatarios_docentes/"
+        const withCurso = cursoSugeridoAlumno
+          ? `${base}?curso=${encodeURIComponent(cursoSugeridoAlumno)}`
+          : base
+        const fallbacks = [withCurso, base, "/api/mensajes/destinatarios_docentes/"]
+        let data = null
+        for (const url of fallbacks) {
+          try {
+            const r = await authFetch(url, { headers: { Accept: "application/json" } })
+            if (!r.ok) continue
+            data = await r.json().catch(() => ({}))
+            break
+          } catch {}
+        }
+
+        let list = []
+        if (Array.isArray(data?.profesores) || Array.isArray(data?.preceptores)) {
+          const profs = Array.isArray(data?.profesores) ? data.profesores : []
+          const precs = Array.isArray(data?.preceptores) ? data.preceptores : []
+          list = [
+            ...profs.map((u) => ({
+              id: u.id,
+              label: `${u.nombre || u.username || u.email} (Profesor)`,
+              kind: "profesor",
+            })),
+            ...precs.map((u) => ({
+              id: u.id,
+              label: `${u.nombre || u.username || u.email} (Preceptor)`,
+              kind: "preceptor",
+            })),
+          ]
+        } else if (Array.isArray(data?.results)) {
+          list = data.results.map((u) => ({
+            id: u.id,
+            label: `${u.nombre || u.username || u.email}`,
+            kind: "docente",
+          }))
+        }
+
+        if (alive) {
+          const filtered =
+            alumnoDestType === "profesor"
+              ? list.filter((x) => x?.kind === "profesor")
+              : alumnoDestType === "preceptor"
+              ? list.filter((x) => x?.kind === "preceptor")
+              : list
+          setDestinatariosDoc(filtered.filter((x) => x?.id))
+          if (filtered.length && !destSel) setDestSel(String(filtered[0].id))
+        }
+      } catch (e) {
+        if (alive) setAlumnoMsgErr(e?.message || "No se pudieron cargar los destinatarios.")
+      } finally {
+        if (alive) setLoadingAlumnoMsg(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [openAlumnoMsg, cursoSugeridoAlumno, alumnoDestType, destSel])
 
   return (
     <div className="space-y-6">
@@ -558,7 +661,7 @@ export default function MensajesPage() {
         <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
           <CardContent className="p-6">
             {/* Acciones y búsqueda */}
-            <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="sm:col-span-2">
                 <Label htmlFor="buscar" className="text-xs text-gray-600">
                   Buscar
@@ -574,16 +677,22 @@ export default function MensajesPage() {
                   <Search className="h-4 w-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
                 </div>
               </div>
-              <div className="flex items-end gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end sm:col-span-2">
+                <Button
+                  onClick={() => (isAlumno ? setOpenSendPicker(true) : setOpenSendPicker(true))}
+                  className="w-full gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Mensaje nuevo
+                </Button>
                 <Button
                   onClick={() => setReloadTick((t) => t + 1)}
-                  variant="outline"
                   className="w-full gap-2"
                 >
                   <RefreshCcw className="h-4 w-4" />
                   Actualizar
                 </Button>
-                <Button onClick={marcarTodoLeido} variant="outline" className="w-full gap-2">
+                <Button onClick={marcarTodoLeido} className="w-full gap-2">
                   <CheckCheck className="h-4 w-4" />
                   Marcar todo leído
                 </Button>
@@ -647,7 +756,7 @@ export default function MensajesPage() {
                             <button
                               type="button"
                               onClick={(e) => pedirEliminar(m, e)}
-                              className="p-1 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                              className="p-1 rounded-md border border-transparent bg-red-50/70 text-red-600 shadow-sm hover:bg-red-100 hover:text-red-700 hover:border-red-200"
                               title="Eliminar mensaje"
                               aria-label="Eliminar mensaje"
                             >
@@ -660,7 +769,7 @@ export default function MensajesPage() {
                             esNoLeido(m, myId) ? "font-semibold text-gray-900" : "text-gray-900"
                           }`}
                         >
-                          {m.asunto || "Sin asunto"}
+                          {collapseRePrefix(m.asunto) || "Sin asunto"}
                         </div>
                         <div className="text-sm text-gray-600 mt-0.5 line-clamp-2 max-h-[3.2rem] overflow-hidden">
                           {preview(m.contenido || m.body || "")}
@@ -675,12 +784,241 @@ export default function MensajesPage() {
         </Card>
       </div>
 
+      <Dialog open={openSendPicker} onOpenChange={setOpenSendPicker}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Enviar mensajes</DialogTitle>
+            <DialogDescription>
+              {isAlumno
+                ? "Elegí si querés enviar a un profesor o preceptor."
+                : "Elegí si querés enviar a un alumno en particular o a un curso entero."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isAlumno ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setAlumnoDestType("profesor")
+                  setTimeout(() => setOpenAlumnoMsg(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">Profesores</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje a un profesor</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setAlumnoDestType("preceptor")
+                  setTimeout(() => setOpenAlumnoMsg(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">Preceptores</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje a un preceptor</div>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setComposerMode("alumno")
+                  setTimeout(() => setNewMsgOpen(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">A un alumno</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje individual a un alumno</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setComposerMode("curso_alumnos")
+                  setTimeout(() => setNewMsgOpen(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">A un curso</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje grupal a un curso</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setComposerMode("familia")
+                  setTimeout(() => setNewMsgOpen(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">A la familia</div>
+                <div className="text-xs text-slate-500 mt-1">Comunicado para padres o tutores</div>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end pt-2">
+            <Button onClick={() => setOpenSendPicker(false)}>Cerrar</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ComposeComunicadoFamilia
+        open={newMsgOpen}
+        onOpenChange={setNewMsgOpen}
+        cursosEndpoint={cursosEndpoint}
+        defaultMode={composerMode}
+        showModeSelect={false}
+      />
+
+      {/* ====== Modal alumno -> docentes/preceptores ====== */}
+      <Dialog open={openAlumnoMsg} onOpenChange={setOpenAlumnoMsg}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Enviar mensaje</DialogTitle>
+            <DialogDescription>
+              {alumnoDestType === "profesor"
+                ? "Elegí un profesor como destinatario."
+                : alumnoDestType === "preceptor"
+                ? "Elegí un preceptor como destinatario."
+                : "Elegí un profesor o preceptor como destinatario."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {alumnoMsgErr && (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+              {alumnoMsgErr}
+            </div>
+          )}
+          {alumnoMsgOk && <SuccessMessage className="mt-1">{alumnoMsgOk}</SuccessMessage>}
+
+          <div className="grid gap-4">
+            <div>
+              <Label htmlFor="destSel">Destinatario</Label>
+              <select
+                id="destSel"
+                className="mt-1 w-full border rounded-md px-3 py-2"
+                value={destSel}
+                onChange={(e) => {
+                  setDestSel(e.target.value)
+                  setAlumnoMsgErr("")
+                }}
+                disabled={loadingAlumnoMsg}
+              >
+                {!destinatariosDoc.length && (
+                  <option value="">
+                    {loadingAlumnoMsg ? "Cargando..." : "Sin destinatarios"}
+                  </option>
+                )}
+                {destinatariosDoc.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor="asuntoAlu">Asunto</Label>
+              <Input
+                id="asuntoAlu"
+                className="mt-1"
+                value={asuntoAlu}
+                onChange={(e) => setAsuntoAlu(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="contenidoAlu">Mensaje</Label>
+              <Textarea
+                id="contenidoAlu"
+                className="mt-1 min-h-[140px]"
+                value={contenidoAlu}
+                onChange={(e) => setContenidoAlu(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button onClick={() => setOpenAlumnoMsg(false)}>Cancelar</Button>
+            <Button
+              onClick={async () => {
+                if (!destSel) return setAlumnoMsgErr("Elegí un destinatario.")
+                if (!asuntoAlu.trim()) return setAlumnoMsgErr("Completá el asunto.")
+                if (!contenidoAlu.trim()) return setAlumnoMsgErr("Escribí el mensaje.")
+                setAlumnoMsgErr("")
+                setAlumnoMsgOk("")
+
+                const cursoSugerido =
+                  me?.alumno?.curso || me?.curso || me?.user?.alumno?.curso || ""
+                const payload = {
+                  receptor_id: Number(destSel),
+                  asunto: asuntoAlu.trim(),
+                  contenido: contenidoAlu.trim(),
+                  ...(cursoSugerido ? { curso: cursoSugerido } : {}),
+                }
+
+                const tries = [
+                  "/mensajes/alumno/enviar/",
+                  "/api/mensajes/alumno/enviar/",
+                  "/mensajes/enviar/",
+                  "/api/mensajes/enviar/",
+                ]
+
+                let sent = false
+                let lastErr = ""
+                for (const url of tries) {
+                  try {
+                    const r = await authFetch(url, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Accept: "application/json" },
+                      body: JSON.stringify(payload),
+                    })
+                    if (r.ok) {
+                      sent = true
+                      break
+                    }
+                    lastErr = `HTTP ${r.status}`
+                  } catch (e) {
+                    lastErr = e?.message || "Error de red"
+                  }
+                }
+
+                if (sent) {
+                  setAlumnoMsgOk("✅ Mensaje enviado.")
+                  try {
+                    window.dispatchEvent(new Event("inbox-changed"))
+                  } catch {}
+                  setTimeout(() => {
+                    setOpenAlumnoMsg(false)
+                    setDestSel("")
+                    setAsuntoAlu("")
+                    setContenidoAlu("")
+                    setAlumnoMsgOk("")
+                  }, 700)
+                } else {
+                  setAlumnoMsgErr(`No se pudo enviar el mensaje. ${lastErr}`)
+                }
+              }}
+            >
+              Enviar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ===================== MODAL LECTURA (REDISEÑADO) ===================== */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-3xl p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle className="text-lg sm:text-xl font-semibold pr-10 break-words">
-              {msgSel?.asunto || "Mensaje"}
+              {collapseRePrefix(msgSel?.asunto) || "Mensaje"}
             </DialogTitle>
 
             <DialogDescription className="mt-3">
@@ -741,7 +1079,7 @@ export default function MensajesPage() {
                 </div>
 
                 {replyErr && <div className="mb-3 text-sm text-red-600">{replyErr}</div>}
-                {replyOk && <div className="mb-3 text-sm text-green-700">{replyOk}</div>}
+                {replyOk && <SuccessMessage className="mb-3">{replyOk}</SuccessMessage>}
 
                 <div className="space-y-4">
                   <div>
@@ -773,7 +1111,6 @@ export default function MensajesPage() {
           <div className="px-6 py-4 flex items-center justify-end gap-2 bg-white">
             {msgSel?.id && (
               <Button
-                variant="outline"
                 onClick={handleVerHilo}
                 disabled={verHiloLoading}
                 className="gap-2"
@@ -783,7 +1120,7 @@ export default function MensajesPage() {
               </Button>
             )}
 
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button onClick={() => setOpen(false)}>
               Cerrar
             </Button>
 
@@ -828,7 +1165,6 @@ export default function MensajesPage() {
     <div className="mt-6 flex items-center justify-center gap-3">
       <Button
         type="button"
-        variant="outline"
         onClick={() => {
           setDeleteOpen(false)
           setDeleteTarget(null)
@@ -932,3 +1268,4 @@ function Topbar({ userLabel, unreadCount }) {
     </div>
   )
 }
+

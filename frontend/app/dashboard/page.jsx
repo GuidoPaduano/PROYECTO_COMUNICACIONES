@@ -15,10 +15,12 @@ import {
   ClipboardList,
   Inbox,
   Gavel,
+  Pencil,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import SuccessMessage from "@/components/ui/success-message"
 
 import {
   Dialog,
@@ -37,6 +39,7 @@ import ComposeComunicadoFamilia from "../mensajes/_compose-comunicado-familia"
 const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores"]
 const PREVIEW_KEY = "preview_role"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
+const LAST_HIJO_KEY = "mis_hijos_last_alumno"
 
 function hoyISO() {
   const d = new Date()
@@ -93,6 +96,32 @@ function setStoredCurso(value) {
   } catch {}
 }
 
+function getStoredHijo() {
+  try {
+    return localStorage.getItem(LAST_HIJO_KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
+function setStoredHijo(value) {
+  try {
+    if (value) localStorage.setItem(LAST_HIJO_KEY, value)
+  } catch {}
+}
+
+function hijoRouteId(h) {
+  return h?.id_alumno ?? h?.alumno_id ?? h?.legajo ?? h?.id ?? h?.pk ?? null
+}
+
+function hijoDisplayName(h) {
+  const nombre = String(h?.nombre || "").trim()
+  const apellido = String(h?.apellido || "").trim()
+  const full = [apellido, nombre].filter(Boolean).join(" ")
+  if (full) return full
+  return nombre || String(h?.id_alumno ?? h?.alumno_id ?? h?.legajo ?? "").trim()
+}
+
 function asistenciaTipoFromAny(a) {
   const candidates = [
     a?.tipo_asistencia,
@@ -119,6 +148,20 @@ function normalizeAsistenciaTipo(raw) {
   if (s.includes("cateq")) return "catequesis"
   if (s.includes("clase")) return "clases"
   return s
+}
+
+function esNoLeido(m, myId) {
+  const hasLeido = Object.prototype.hasOwnProperty.call(m, "leido")
+  const hasLeidoEn = Object.prototype.hasOwnProperty.call(m, "leido_en")
+  if (!hasLeido && !hasLeidoEn) return false
+
+  const isUnread =
+    (hasLeido && m.leido === false) ||
+    (hasLeidoEn && (m.leido_en === null || m.leido_en === undefined))
+
+  if (m?.receptor_id && myId) return isUnread && m.receptor_id === myId
+  if (m?.receptor && myId) return isUnread && m.receptor === myId
+  return isUnread
 }
 
 function estadoTexto(v) {
@@ -334,6 +377,14 @@ const [mensajeSan, setMensajeSan] = useState("")
   const [profesorCursoLoaded, setProfesorCursoLoaded] = useState(false)
   const [eventosProfesor, setEventosProfesor] = useState([])
   const [eventosProfesorLoading, setEventosProfesorLoading] = useState(false)
+  const [padreKidId, setPadreKidId] = useState("")
+  const [padreKidLabel, setPadreKidLabel] = useState("")
+  const [padreHijosCount, setPadreHijosCount] = useState(0)
+  const [padreHijosLoaded, setPadreHijosLoaded] = useState(false)
+  const [eventosPadre, setEventosPadre] = useState([])
+  const [eventosPadreLoading, setEventosPadreLoading] = useState(false)
+  const [mensajesHome, setMensajesHome] = useState([])
+  const [mensajesHomeLoading, setMensajesHomeLoading] = useState(false)
 
   const [openAlumnoMsg, setOpenAlumnoMsg] = useState(false)
   const [loadingAlumnoMsg, setLoadingAlumnoMsg] = useState(false)
@@ -461,21 +512,39 @@ const [mensajeSan, setMensajeSan] = useState("")
   }, [previewRole])
 
   async function submitIndividual(ev) {
-    ev.preventDefault()
-    setMsgIndErr("")
-    setMsgIndOk("")
-    setLoadingInd(true)
-    try {
-      const res = await pfetch("/mensajes/enviar/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          alumno_id: Number(alumnoInd),
-          asunto: asuntoInd.trim(),
-          contenido: cuerpoInd.trim(),
-        }),
-      })
-      const j = await res.json().catch(() => ({}))
+      ev.preventDefault()
+      setMsgIndErr("")
+      setMsgIndOk("")
+      setLoadingInd(true)
+      try {
+        const selectedAlumno =
+          alumnosInd.find((a) => {
+            const key =
+              a?.id ?? a?.pk ?? a?.id_alumno ?? a?.codigo ?? a?.legajo
+            return String(key ?? "") === String(alumnoInd)
+          }) || {}
+        const alumnoPk = selectedAlumno?.id ?? selectedAlumno?.pk
+        const alumnoCode =
+          selectedAlumno?.id_alumno ??
+          selectedAlumno?.codigo ??
+          selectedAlumno?.legajo ??
+          alumnoInd
+        const alumnoIdNum =
+          alumnoPk != null && !Number.isNaN(Number(alumnoPk))
+            ? Number(alumnoPk)
+            : null
+
+        const res = await pfetch("/mensajes/enviar/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(alumnoIdNum != null ? { alumno_id: alumnoIdNum } : {}),
+            ...(alumnoCode ? { id_alumno: String(alumnoCode) } : {}),
+            asunto: asuntoInd.trim(),
+            contenido: cuerpoInd.trim(),
+          }),
+        })
+        const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
       setMsgIndOk("✅ Mensaje enviado.")
       setTimeout(() => {
@@ -702,6 +771,7 @@ setMensajeSan("")
 
   const baseGroups = Array.isArray(me?.groups) ? me.groups : []
   const isSuper = !!me?.is_superuser
+  const myId = me?.id ?? me?.user?.id ?? null
 
   const effectiveGroups = isSuper && previewRole ? [previewRole] : baseGroups
   const showAll = isSuper && !previewRole
@@ -710,11 +780,12 @@ setMensajeSan("")
   const showAlumno = showAll || effectiveGroups.includes("Alumnos")
   const showPadre = showAll || effectiveGroups.includes("Padres")
   const showPreceptor = showAll || effectiveGroups.includes("Preceptores")
+  const showDocenteCursos = showProfesor || showPreceptor
   const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor
   const showLegacyDashboardCards = false
 
   useEffect(() => {
-    if (!showProfesor) return
+    if (!showDocenteCursos) return
     let alive = true
     setProfesorCursoLoaded(false)
     const stored = typeof window !== "undefined" ? getStoredCurso() : ""
@@ -723,23 +794,23 @@ setMensajeSan("")
     return () => {
       alive = false
     }
-  }, [showProfesor, previewRole])
+  }, [showDocenteCursos, previewRole])
 
   useEffect(() => {
-    if (!showProfesor) return
+    if (!showDocenteCursos) return
     if (profesorCursoSel) return
     const first = Array.isArray(cursos) && cursos.length > 0 ? getCursoId(cursos[0]) : ""
     if (first) setProfesorCursoSel(String(first))
-  }, [showProfesor, profesorCursoSel, cursos])
+  }, [showDocenteCursos, profesorCursoSel, cursos])
 
   useEffect(() => {
-    if (!showProfesor) return
+    if (!showDocenteCursos) return
     if (!profesorCursoSel) return
     setStoredCurso(String(profesorCursoSel))
-  }, [showProfesor, profesorCursoSel])
+  }, [showDocenteCursos, profesorCursoSel])
 
   useEffect(() => {
-    if (!showProfesor) return
+    if (!showDocenteCursos) return
     if (!profesorCursoSel) {
       setEventosProfesor([])
       return
@@ -769,7 +840,7 @@ setMensajeSan("")
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showProfesor, profesorCursoSel, previewRole])
+  }, [showDocenteCursos, profesorCursoSel, previewRole])
 
   useEffect(() => {
     if (!showAlumno) return
@@ -793,6 +864,137 @@ setMensajeSan("")
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAlumno, previewRole])
+
+  useEffect(() => {
+    if (!showPadre) return
+    let alive = true
+
+    ;(async () => {
+      setPadreHijosLoaded(false)
+      try {
+        const tries = ["/padres/mis-hijos/", "/api/padres/mis-hijos/"]
+        let data = null
+        for (const url of tries) {
+          try {
+            const r = await pfetch(url)
+            if (!r.ok) continue
+            data = await r.json().catch(() => ({}))
+            break
+          } catch {}
+        }
+
+        const arr = Array.isArray(data)
+          ? data
+          : data?.results || data?.hijos || []
+        const hijos = Array.isArray(arr) ? arr : []
+        const ids = hijos
+          .map((h) => hijoRouteId(h))
+          .filter((x) => x != null && String(x) !== "")
+          .map((x) => String(x))
+
+        if (!alive) return
+
+        if (ids.length === 0) {
+          setPadreKidId("")
+          setPadreKidLabel("")
+          setPadreHijosCount(0)
+          return
+        }
+
+        const stored = getStoredHijo()
+        const chosen = stored && ids.includes(stored) ? stored : ids[0]
+        const chosenKid = hijos.find((h) => String(hijoRouteId(h)) === String(chosen)) || null
+        setPadreKidId(chosen)
+        setPadreKidLabel(chosenKid ? hijoDisplayName(chosenKid) : "")
+        setPadreHijosCount(ids.length)
+        setStoredHijo(chosen)
+      } finally {
+        if (alive) setPadreHijosLoaded(true)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [showPadre, previewRole])
+
+  useEffect(() => {
+    if (!showPadre) return
+    if (!padreKidId) {
+      setEventosPadre([])
+      return
+    }
+    let alive = true
+    ;(async () => {
+      setEventosPadreLoading(true)
+      try {
+        const desde = hoyISO()
+        const hasta = addDaysISO(desde, 5)
+        const res = await pfetch(
+          `/padres/hijos/${encodeURIComponent(padreKidId)}/eventos/?desde=${desde}&hasta=${hasta}`
+        )
+        if (!res.ok) {
+          if (alive) setEventosPadre([])
+          return
+        }
+        const raw = await res.json().catch(() => ({}))
+        if (alive) setEventosPadre(parseEventosPayload(raw))
+      } catch {
+        if (alive) setEventosPadre([])
+      } finally {
+        if (alive) setEventosPadreLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [showPadre, padreKidId, previewRole])
+
+  useEffect(() => {
+    if (!showPadre && !showAlumno && !showPreceptor && !showProfesor) return
+    let alive = true
+    ;(async () => {
+      setMensajesHomeLoading(true)
+      try {
+        const candidates = ["/mensajes/recibidos/", "/mensajes/listar/"]
+        let list = null
+        for (const url of candidates) {
+          try {
+            const r = await pfetch(url)
+            if (!r.ok) continue
+            const data = await r.json().catch(() => ({}))
+            const arr = Array.isArray(data)
+              ? data
+              : Array.isArray(data?.results)
+              ? data.results
+              : Array.isArray(data?.mensajes)
+              ? data.mensajes
+              : null
+            if (arr) {
+              list = arr
+              break
+            }
+          } catch {}
+        }
+
+        const normalized = Array.isArray(list) ? list : []
+        normalized.sort((a, b) => {
+          const da = new Date(a?.fecha || a?.fecha_envio || 0).getTime()
+          const db = new Date(b?.fecha || b?.fecha_envio || 0).getTime()
+          return db - da
+        })
+
+        if (alive) setMensajesHome(normalized.slice(0, 5))
+      } catch {
+        if (alive) setMensajesHome([])
+      } finally {
+        if (alive) setMensajesHomeLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [showPadre, showAlumno, showPreceptor, showProfesor, previewRole])
 
   useEffect(() => {
     if (!isAlumnoOnly) return
@@ -832,13 +1034,18 @@ setMensajeSan("")
       setInasistenciasLoading(true)
       try {
         const encoded = encodeURIComponent(alumnoIdSelf)
+        const isNumericId = /^\d+$/.test(String(alumnoIdSelf || ""))
         const tries = [
           `/asistencias/?alumno=${encoded}`,
           `/api/asistencias/?alumno=${encoded}`,
           `/asistencias/alumno/${encoded}/`,
-          `/asistencias/?id_alumno=${encoded}`,
-          `/api/asistencias/?id_alumno=${encoded}`,
-          `/asistencias/alumno_codigo/${encoded}/`,
+          ...(isNumericId
+            ? []
+            : [
+                `/asistencias/?id_alumno=${encoded}`,
+                `/api/asistencias/?id_alumno=${encoded}`,
+                `/asistencias/alumno_codigo/${encoded}/`,
+              ]),
         ]
         let asistencias = []
         for (const url of tries) {
@@ -898,13 +1105,36 @@ setMensajeSan("")
             eventosLoading={eventosLoading || !alumnoCursoLoaded}
             inasistenciasCount={inasistenciasCount}
             inasistenciasLoading={inasistenciasLoading}
+            mensajes={mensajesHome}
+            mensajesLoading={mensajesHomeLoading}
+            myId={myId}
           />
         ) : showProfesor ? (
-          <ProfesorInicio
-            eventos={eventosProfesor}
-            eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
-            hasCurso={!!profesorCursoSel}
-          />
+            <ProfesorInicio
+              mensajes={mensajesHome}
+              mensajesLoading={mensajesHomeLoading}
+              myId={myId}
+            />
+        ) : showPreceptor ? (
+            <PreceptorInicio
+              eventos={eventosProfesor}
+              eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
+              hasCurso={!!profesorCursoSel}
+              mensajes={mensajesHome}
+              mensajesLoading={mensajesHomeLoading}
+              myId={myId}
+            />
+        ) : showPadre ? (
+            <PadreInicio
+              eventos={eventosPadre}
+              eventosLoading={eventosPadreLoading || !padreHijosLoaded}
+              hasHijo={!!padreKidId}
+              hijoLabel={padreKidLabel}
+              showHijoLabel={padreHijosCount > 1}
+              mensajes={mensajesHome}
+              mensajesLoading={mensajesHomeLoading}
+              myId={myId}
+            />
         ) : null}
       </div>
 
@@ -959,7 +1189,7 @@ setMensajeSan("")
 
           <form onSubmit={submitIndividual} className="space-y-4">
             {msgIndErr && <div className="text-red-600 text-sm">{msgIndErr}</div>}
-            {msgIndOk && <div className="text-green-700 text-sm">{msgIndOk}</div>}
+            {msgIndOk && <SuccessMessage className="mt-1">{msgIndOk}</SuccessMessage>}
 
             <div>
               <Label htmlFor="cursoInd">Curso</Label>
@@ -992,11 +1222,28 @@ setMensajeSan("")
                 <option value="">
                   {cursoInd ? "Seleccioná un alumno…" : "Elegí curso primero"}
                 </option>
-                {alumnosInd.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.nombre} ({a.id_alumno})
-                  </option>
-                ))}
+                  {alumnosInd.map((a) => {
+                    const key =
+                      a?.id ?? a?.pk ?? a?.id_alumno ?? a?.codigo ?? a?.legajo
+                    const label =
+                      a?.nombre ??
+                      [a?.apellido, a?.nombre].filter(Boolean).join(" ") ??
+                      a?.full_name ??
+                      a?.nombre_completo ??
+                      String(key ?? "")
+                    const sub =
+                      a?.id_alumno ??
+                      a?.codigo ??
+                      a?.legajo ??
+                      a?.curso ??
+                      ""
+                    return (
+                      <option key={String(key)} value={String(key)}>
+                        {label}
+                        {sub ? ` (${sub})` : ""}
+                      </option>
+                    )
+                  })}
               </select>
             </div>
 
@@ -1047,7 +1294,7 @@ setMensajeSan("")
 
           <form onSubmit={submitGrupal} className="space-y-4">
             {msgGrpErr && <div className="text-red-600 text-sm">{msgGrpErr}</div>}
-            {msgGrpOk && <div className="text-green-700 text-sm">{msgGrpOk}</div>}
+            {msgGrpOk && <SuccessMessage className="mt-1">{msgGrpOk}</SuccessMessage>}
 
             <div>
               <Label htmlFor="cursoGrp">Curso</Label>
@@ -1111,7 +1358,7 @@ setMensajeSan("")
 
           <form onSubmit={submitSancion} className="space-y-4">
             {msgSanErr && <div className="text-red-600 text-sm">{msgSanErr}</div>}
-            {msgSanOk && <div className="text-green-700 text-sm">{msgSanOk}</div>}
+            {msgSanOk && <SuccessMessage className="mt-1">{msgSanOk}</SuccessMessage>}
 
             <div>
               <Label htmlFor="cursoSan">Curso</Label>
@@ -1194,7 +1441,7 @@ setMensajeSan("")
           </DialogHeader>
 
           {alumnoMsgErr && <div className="text-sm text-red-600">{alumnoMsgErr}</div>}
-          {alumnoMsgOk && <div className="text-sm text-green-700">{alumnoMsgOk}</div>}
+          {alumnoMsgOk && <SuccessMessage className="mt-1">{alumnoMsgOk}</SuccessMessage>}
 
           <div className="space-y-3">
             <div>
@@ -1271,7 +1518,15 @@ setMensajeSan("")
 
 /* ======================== Subcomponentes ======================== */
 
-function ProximosEventosCard({ eventos, eventosLoading, hasCurso }) {
+function ProximosEventosCard({
+  eventos,
+  eventosLoading,
+  hasCurso,
+  noCursoText,
+  countLabel,
+  titleText,
+  subtitleText,
+}) {
   return (
     <Card className="surface-card">
       <CardContent className="surface-card-pad flex flex-col gap-4">
@@ -1281,19 +1536,18 @@ function ProximosEventosCard({ eventos, eventosLoading, hasCurso }) {
               <Calendar className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-              <h3 className="tile-title">Proximos eventos</h3>
-              <p className="tile-subtitle">En los proximos 5 dias</p>
+              <h3 className="tile-title">{titleText || "Proximos eventos"}</h3>
+              <p className="tile-subtitle">
+                {subtitleText || "En los proximos 5 dias"}
+              </p>
             </div>
-          </div>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
-            {eventosLoading ? "Cargando…" : `${eventos.length} eventos`}
           </div>
         </div>
 
         <div>
           {!hasCurso ? (
             <p className="text-sm text-slate-500">
-              Selecciona un curso para ver eventos.
+              {noCursoText || "Selecciona un curso para ver eventos."}
             </p>
           ) : eventosLoading ? (
             <p className="text-sm text-slate-500">Cargando eventos...</p>
@@ -1309,7 +1563,7 @@ function ProximosEventosCard({ eventos, eventosLoading, hasCurso }) {
                   href="/calendario"
                   className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 bg-white/80 hover:bg-white hover:shadow-md transition"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 pl-3">
                     <p className="text-sm font-semibold text-slate-900 truncate">
                       {ev.title}
                     </p>
@@ -1333,9 +1587,12 @@ function AlumnoInicio({
   eventosLoading,
   inasistenciasCount,
   inasistenciasLoading,
+  mensajes,
+  mensajesLoading,
+  myId,
 }) {
   return (
-    <section className="min-h-[60vh] flex items-center">
+    <section>
       <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ProximosEventosCard eventos={eventos} eventosLoading={eventosLoading} hasCurso />
 
@@ -1358,23 +1615,21 @@ function AlumnoInicio({
             </div>
           </CardContent>
         </Card>
+
+        <div className="lg:col-span-2">
+          <MensajesRecientesCard mensajes={mensajes} loading={mensajesLoading} myId={myId} />
+        </div>
       </div>
     </section>
   )
 }
 
-function ProfesorInicio({ eventos, eventosLoading, hasCurso }) {
+function ProfesorInicio({ mensajes, mensajesLoading, myId }) {
   return (
-    <section className="min-h-[60vh] flex items-center">
-      <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ProximosEventosCard
-          eventos={eventos}
-          eventosLoading={eventosLoading}
-          hasCurso={hasCurso}
-        />
-
+    <section>
+      <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <Card className="surface-card">
-          <CardContent className="surface-card-pad flex flex-col gap-4 min-h-[240px] md:min-h-[280px]">
+          <CardContent className="surface-card-pad flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
                 <Plus className="h-6 w-6 text-blue-600" />
@@ -1385,40 +1640,180 @@ function ProfesorInicio({ eventos, eventosLoading, hasCurso }) {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Link href="/agregar_nota" className="block">
-                <Button className="w-full justify-start">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nueva nota
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Link href="/agregar_nota" className="block">
+                  <Button className="w-full justify-start">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nueva nota
+                  </Button>
+                </Link>
+                <Button
+                  className="w-full justify-start"
+                  onClick={() => {
+                    try {
+                      window.dispatchEvent(new Event("open-sancion"))
+                    } catch {}
+                  }}
+                >
+                  <Gavel className="h-4 w-4 mr-2" />
+                  Nueva sancion
                 </Button>
-              </Link>
-              <Button
-                className="w-full justify-start"
-                onClick={() => {
-                  try {
-                    window.dispatchEvent(new Event("open-sancion"))
-                  } catch {}
-                }}
-              >
-                <Gavel className="h-4 w-4 mr-2" />
-                Nueva sancion
-              </Button>
-              <Button
-                className="w-full justify-start sm:col-span-2"
-                onClick={() => {
-                  try {
-                    window.dispatchEvent(new Event("open-send-picker"))
-                  } catch {}
-                }}
-              >
-                <Inbox className="h-4 w-4 mr-2" />
-                Enviar mensaje a alumnos o familia
-              </Button>
-            </div>
-          </CardContent>
+              </div>
+            </CardContent>
         </Card>
+
+        <MensajesRecientesCard
+          mensajes={mensajes}
+          loading={mensajesLoading}
+          myId={myId}
+        />
       </div>
     </section>
+  )
+}
+
+function PreceptorInicio({
+  mensajes,
+  mensajesLoading,
+  myId,
+}) {
+  return (
+    <section className="min-h-[60vh] flex items-center">
+      <div className="w-full max-w-5xl mx-auto">
+          <MensajesRecientesCard
+            mensajes={mensajes}
+            loading={mensajesLoading}
+            myId={myId}
+          />
+      </div>
+    </section>
+  )
+}
+
+function PadreInicio({
+  eventos,
+  eventosLoading,
+  hasHijo,
+  hijoLabel,
+  showHijoLabel,
+  mensajes,
+  mensajesLoading,
+  myId,
+}) {
+  return (
+    <section className="min-h-[60vh] flex items-center">
+      <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ProximosEventosCard
+          eventos={eventos}
+          eventosLoading={eventosLoading}
+          hasCurso={hasHijo}
+          noCursoText="No hay hijos vinculados."
+          subtitleText={
+            showHijoLabel && hijoLabel
+              ? (
+                <span>
+                  En los proximos 5 dias · <strong>{hijoLabel}</strong>
+                </span>
+              )
+              : "En los proximos 5 dias"
+          }
+          countLabel="eventos"
+        />
+        <MensajesRecientesCard
+          mensajes={mensajes}
+          loading={mensajesLoading}
+          myId={myId}
+        />
+      </div>
+    </section>
+  )
+}
+
+function MensajesRecientesCard({ mensajes, loading, myId }) {
+  return (
+    <Card className="surface-card">
+      <CardContent className="surface-card-pad flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Inbox className="h-6 w-6 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="tile-title">Ultimos mensajes</h3>
+              <p className="tile-subtitle">Bandeja de entrada</p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            size="icon"
+            className="h-9 w-9"
+            onClick={() => {
+              try {
+                window.dispatchEvent(new Event("open-send-picker"))
+              } catch {}
+            }}
+            aria-label="Nuevo mensaje"
+          >
+            <Pencil className="h-4 w-4 text-white" />
+          </Button>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-slate-500">Cargando mensajes...</p>
+        ) : mensajes?.length ? (
+          <div className="space-y-3">
+            {mensajes.map((m) => {
+              const id = m?.thread_id ?? m?.id
+              const href = id ? `/mensajes/hilo/${encodeURIComponent(String(id))}` : "/mensajes"
+              const asunto = String(m?.asunto || m?.titulo || "Mensaje").trim()
+              const emisor = String(m?.emisor || m?.remitente || "").trim()
+              const fecha = m?.fecha || m?.fecha_envio || ""
+              const unread = esNoLeido(m, myId)
+              return (
+                <Link
+                  key={`msg-${m?.id}-${m?.fecha}`}
+                  href={href}
+                  className={
+                    "relative flex items-center justify-between gap-4 rounded-xl border px-4 py-3 transition " +
+                    (unread
+                      ? "border-blue-200 bg-blue-50 hover:bg-blue-50/80 shadow-sm"
+                      : "border-slate-200 bg-white/80 hover:bg-white hover:shadow-md")
+                  }
+                >
+                  <span
+                    className={
+                      "absolute left-4 top-1/2 -translate-y-1/2 h-2.5 w-2.5 rounded-full " +
+                      (unread ? "bg-blue-600" : "bg-transparent")
+                    }
+                  />
+                  <div className="min-w-0 pl-6">
+                    <p
+                      className={
+                        "text-sm truncate " +
+                        (unread ? "font-semibold text-slate-900" : "font-medium text-slate-900")
+                      }
+                    >
+                      {asunto}
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {emisor || "Remitente"}
+                    </p>
+                  </div>
+                  {fecha ? (
+                    <span className="text-[11px] px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                      {formatFechaCorta(fecha)}
+                    </span>
+                  ) : null}
+                </Link>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">No tenes mensajes recientes.</p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
