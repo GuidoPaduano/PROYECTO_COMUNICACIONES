@@ -8,6 +8,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import SuccessMessage from "@/components/ui/success-message"
 
 import { authFetch } from "../../_lib/auth"
 
@@ -111,7 +112,7 @@ export default function ComposeMensajeAlumno({
     <>
       <Button
         onClick={() => setOpen(true)}
-        className="gap-2"
+        className="gap-2 primary-button"
       >
         <Mail className="w-4 h-4" />
         Enviar mensaje
@@ -165,14 +166,10 @@ export default function ComposeMensajeAlumno({
                 {error}
               </div>
             )}
-            {okMsg && (
-              <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md p-3">
-                {okMsg}
-              </div>
-            )}
+            {okMsg && <SuccessMessage className="mt-1">{okMsg}</SuccessMessage>}
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOpen(false)}>
+              <Button onClick={() => setOpen(false)}>
                 Cancelar
               </Button>
               <Button
@@ -190,4 +187,5 @@ export default function ComposeMensajeAlumno({
     </>
   )
 }
+
 

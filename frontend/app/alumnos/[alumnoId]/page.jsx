@@ -1,7 +1,15 @@
 "use client"
 
 import Link from "next/link"
-import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
 import { useAuthGuard, authFetch } from "../../_lib/auth"
 import { INBOX_EVENT } from "../../_lib/inbox" // ✅ NUEVO: evento unificado inbox
@@ -15,6 +23,7 @@ import {
   Gavel,
   CalendarDays,
   Pencil,
+  Download,
 } from "lucide-react"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -55,6 +64,10 @@ const VALID_TABS = new Set(["notas", "sanciones", "asistencias"])
 const ALUMNO_DETAIL_CACHE_PREFIX = "alumno_detail_cache:"
 const ALUMNO_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000
 const ALUMNO_DETAIL_ENDPOINT_KEY = "alumno_detail_endpoint"
+const ALUMNO_DATA_CACHE_TTL_MS = 5 * 60 * 1000
+const NOTAS_CACHE_PREFIX = "alumno_notas_cache:"
+const SANCIONES_CACHE_PREFIX = "alumno_sanciones_cache:"
+const ASISTENCIAS_CACHE_PREFIX = "alumno_asistencias_cache:"
 
 function safeGetLS(key) {
   try {
@@ -102,6 +115,40 @@ function setCachedAlumnoDetail(idParam, data) {
     ts: Date.now(),
     data,
   })
+}
+
+function getCachedList(prefix, idParam) {
+  if (!idParam) return { data: null, fresh: false }
+  const cached = safeGetLSJson(`${prefix}${idParam}`)
+  if (!cached?.data) return { data: null, fresh: false }
+  if (cached.ts && Date.now() - cached.ts > ALUMNO_DATA_CACHE_TTL_MS) {
+    return { data: cached.data, fresh: false }
+  }
+  return { data: cached.data, fresh: true }
+}
+
+function setCachedList(prefix, idParam, data) {
+  if (!idParam || !data) return
+  safeSetLSJson(`${prefix}${idParam}`, {
+    ts: Date.now(),
+    data,
+  })
+}
+
+function runIdle(cb, timeout = 800) {
+  if (typeof window === "undefined") return setTimeout(cb, timeout)
+  if ("requestIdleCallback" in window) {
+    return window.requestIdleCallback(cb, { timeout })
+  }
+  return setTimeout(cb, timeout)
+}
+
+function cancelIdle(id) {
+  if (typeof window === "undefined") return clearTimeout(id)
+  if ("cancelIdleCallback" in window) {
+    return window.cancelIdleCallback(id)
+  }
+  return clearTimeout(id)
 }
 
 function kidLegajo(h) {
@@ -633,6 +680,7 @@ function AlumnoPerfilPageInner() {
   const [notas, setNotas] = useState([])
   const [sanciones, setSanciones] = useState([])
   const [asistencias, setAsistencias] = useState([])
+  const asistenciasRef = useRef([])
 
   const [materiasCat, setMateriasCat] = useState([])
 
@@ -659,6 +707,12 @@ function AlumnoPerfilPageInner() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [downloadingSancionesPdf, setDownloadingSancionesPdf] = useState(false)
+  const [downloadingAsistenciasPdf, setDownloadingAsistenciasPdf] = useState(false)
+  const [loadingNotas, setLoadingNotas] = useState(false)
+  const [loadingSanciones, setLoadingSanciones] = useState(false)
+  const [loadingAsistencias, setLoadingAsistencias] = useState(false)
 
   // sección activa (tarjeta clickeada)
   const [activeSection, setActiveSection] = useState(null)
@@ -727,6 +781,12 @@ function AlumnoPerfilPageInner() {
     let alive = true
     setLoading(true)
     setError("")
+    setNotas([])
+    setSanciones([])
+    setAsistencias([])
+    setLoadingNotas(false)
+    setLoadingSanciones(false)
+    setLoadingAsistencias(false)
     // ✅ reset filtros asistencia al cambiar de alumno
     setFilAsisMes("ALL")
     setFilAsisTipo("ALL")
@@ -759,15 +819,6 @@ function AlumnoPerfilPageInner() {
         setCode(code || alumnoid)
         setCachedAlumnoDetail(alumnoid, detail)
 
-        const [n, s, a] = await Promise.all([
-          getNotasByPkOrCode(pk, code),
-          getSancionesByPkOrCode(pk, code),
-          getAsistenciasByPkOrCode(pk, code),
-        ])
-        if (!alive) return
-        setNotas(Array.isArray(n) ? n : [])
-        setSanciones(Array.isArray(s) ? s : [])
-        setAsistencias(Array.isArray(a) ? a : [])
       } catch (e) {
         if (alive)
           setError(e?.message || "No se pudieron cargar los datos del alumno.")
@@ -939,6 +990,10 @@ function AlumnoPerfilPageInner() {
   function onChangeKid(v) {
     const next = String(v || "").trim()
     if (!next) return
+    if (next === String(selectedKid || "").trim()) return
+    const currentId = String(alumnoid || "").trim()
+    const currentCode = String(code || "").trim()
+    if (next === currentId || next === currentCode) return
 
     setSelectedKid(next)
     safeSetLS(MIS_HIJOS_LAST_ALUMNO_KEY, next)
@@ -955,7 +1010,14 @@ function AlumnoPerfilPageInner() {
       if (storedTab && VALID_TABS.has(storedTab)) qs.set("tab", storedTab)
     }
 
-    router.push(`/alumnos/${encodeURIComponent(next)}?${qs.toString()}`)
+    const target = `/alumnos/${encodeURIComponent(next)}?${qs.toString()}`
+    try {
+      if (typeof window !== "undefined") {
+        const current = `${window.location.pathname}${window.location.search}`
+        if (current === target) return
+      }
+    } catch {}
+    router.push(target)
   }
 
   const cursoSugerido = useMemo(() => {
@@ -1271,6 +1333,571 @@ function AlumnoPerfilPageInner() {
     return a.id_alumno || a.legajo || a.codigo || String(code || "")
   }, [alumnoDetail, code])
 
+  const alumnoCacheId = useMemo(
+    () => String(pk || code || alumnoid || "").trim(),
+    [pk, code, alumnoid]
+  )
+  const lastLoadedRef = useRef({ notas: "", sanciones: "", asistencias: "" })
+
+  useEffect(() => {
+    if (!alumnoCacheId) return
+    lastLoadedRef.current = { notas: "", sanciones: "", asistencias: "" }
+    const cachedNotas = getCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId)
+    if (cachedNotas.data) {
+      setNotas(Array.isArray(cachedNotas.data) ? cachedNotas.data : [])
+    }
+
+    const cachedSanciones = getCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId)
+    if (cachedSanciones.data) {
+      setSanciones(Array.isArray(cachedSanciones.data) ? cachedSanciones.data : [])
+    }
+
+    const cachedAsistencias = getCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId)
+    if (cachedAsistencias.data) {
+      setAsistencias(
+        Array.isArray(cachedAsistencias.data) ? cachedAsistencias.data : []
+      )
+    }
+  }, [alumnoCacheId])
+
+  const fetchNotas = useCallback(async () => {
+    if (!pk && !code) return
+    const key = `${pk || ""}:${code || ""}`
+    if (lastLoadedRef.current.notas === key) return
+
+    const cached = getCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId)
+    if (cached.fresh) {
+      setNotas(Array.isArray(cached.data) ? cached.data : [])
+      lastLoadedRef.current.notas = key
+      return
+    }
+
+    if (cached.data && (!Array.isArray(notas) || notas.length === 0)) {
+      setNotas(Array.isArray(cached.data) ? cached.data : [])
+    }
+
+    setLoadingNotas(true)
+    try {
+      const n = await getNotasByPkOrCode(pk, code)
+      setNotas(Array.isArray(n) ? n : [])
+      setCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId, Array.isArray(n) ? n : [])
+      lastLoadedRef.current.notas = key
+    } finally {
+      setLoadingNotas(false)
+    }
+  }, [pk, code, alumnoCacheId, notas])
+
+  const fetchSanciones = useCallback(async () => {
+    if (!pk && !code) return
+    const key = `${pk || ""}:${code || ""}`
+    if (lastLoadedRef.current.sanciones === key) return
+
+    const cached = getCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId)
+    if (cached.fresh) {
+      setSanciones(Array.isArray(cached.data) ? cached.data : [])
+      lastLoadedRef.current.sanciones = key
+      return
+    }
+
+    if (cached.data && (!Array.isArray(sanciones) || sanciones.length === 0)) {
+      setSanciones(Array.isArray(cached.data) ? cached.data : [])
+    }
+
+    setLoadingSanciones(true)
+    try {
+      const s = await getSancionesByPkOrCode(pk, code)
+      setSanciones(Array.isArray(s) ? s : [])
+      setCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId, Array.isArray(s) ? s : [])
+      lastLoadedRef.current.sanciones = key
+    } finally {
+      setLoadingSanciones(false)
+    }
+  }, [pk, code, alumnoCacheId, sanciones])
+
+  const fetchAsistencias = useCallback(async () => {
+    if (!pk && !code) return
+    const codeStr = String(code || "").trim()
+    // Evita 404 ruidosos cuando todavía no resolvimos pk y el "code" es numérico.
+    if (!pk && codeStr && /^\d+$/.test(codeStr)) {
+      return
+    }
+    const key = `${pk || ""}:${code || ""}`
+    const currentAsistencias = asistenciasRef.current
+    if (
+      lastLoadedRef.current.asistencias === key &&
+      Array.isArray(currentAsistencias) &&
+      currentAsistencias.length > 0
+    )
+      return
+
+    const cached = getCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId)
+    if (cached.fresh) {
+      setAsistencias((prev) => {
+        if (Array.isArray(prev) && prev.length > 0) return prev
+        return Array.isArray(cached.data) ? cached.data : []
+      })
+      // Revalidamos en background para no quedar desactualizado.
+    }
+
+    if (cached.data && (!Array.isArray(asistencias) || asistencias.length === 0)) {
+      setAsistencias(Array.isArray(cached.data) ? cached.data : [])
+    }
+
+    setLoadingAsistencias(true)
+    try {
+      const a = await getAsistenciasByPkOrCode(pk, code)
+      setAsistencias(Array.isArray(a) ? a : [])
+      setCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId, Array.isArray(a) ? a : [])
+      lastLoadedRef.current.asistencias = key
+    } finally {
+      setLoadingAsistencias(false)
+    }
+  }, [pk, code, alumnoCacheId])
+
+  useEffect(() => {
+    asistenciasRef.current = Array.isArray(asistencias) ? asistencias : []
+  }, [asistencias])
+
+  useEffect(() => {
+    if (shouldHideAlumnoContent) return
+    const target = activeSectionLower || (isAlumno ? "notas" : "")
+    if (!target) return
+    if (target === "notas") fetchNotas()
+    if (target === "sanciones") fetchSanciones()
+    if (target === "asistencias") fetchAsistencias()
+  }, [
+    activeSectionLower,
+    isAlumno,
+    shouldHideAlumnoContent,
+    fetchNotas,
+    fetchSanciones,
+    fetchAsistencias,
+  ])
+
+  useEffect(() => {
+    if (shouldHideAlumnoContent) return
+    if (!pk && !code) return
+
+    if (isAlumno) {
+      Promise.allSettled([fetchNotas(), fetchSanciones(), fetchAsistencias()])
+      return
+    }
+
+    const idleId = runIdle(() => {
+      const tasks = []
+      if (activeSectionLower !== "notas") tasks.push(fetchNotas())
+      if (activeSectionLower !== "sanciones") tasks.push(fetchSanciones())
+      if (activeSectionLower !== "asistencias") tasks.push(fetchAsistencias())
+      if (tasks.length) Promise.allSettled(tasks)
+    })
+
+    return () => cancelIdle(idleId)
+  }, [
+    pk,
+    code,
+    isAlumno,
+    shouldHideAlumnoContent,
+    activeSectionLower,
+    fetchNotas,
+    fetchSanciones,
+    fetchAsistencias,
+  ])
+
+
+  const handleDownloadNotasPdf = async () => {
+    if (downloadingPdf) return
+    setDownloadingPdf(true)
+
+    try {
+      const { jsPDF } = await import("jspdf")
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" })
+      const margin = 40
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const contentWidth = pageWidth - margin * 2
+      const fixedWidth = 80 + 140 + 60 + 120 + 80
+      const commentsWidth = Math.max(140, contentWidth - fixedWidth)
+      const columns = [
+        { key: "fecha", label: "Fecha", width: 80 },
+        { key: "materia", label: "Materia", width: 140 },
+        { key: "cuatr", label: "Cuatr.", width: 60 },
+        { key: "tipo", label: "Tipo", width: 120 },
+        { key: "calificacion", label: "Calificacion", width: 80 },
+        { key: "comentarios", label: "Comentarios", width: commentsWidth },
+      ]
+      const lineHeight = 12
+      const now = new Date()
+      let y = margin
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(16)
+      doc.text("Notas del alumno", margin, y)
+      y += 20
+
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(11)
+      doc.text(`Alumno: ${nombreAlumno || "Alumno"}`, margin, y)
+      y += 14
+      doc.text(`Curso: ${cursoAlumno || "-"}`, margin, y)
+      y += 14
+      doc.text(`Legajo/ID: ${legajoAlumno || "-"}`, margin, y)
+      y += 14
+      doc.text(`Generado: ${now.toLocaleString("es-AR")}`, margin, y)
+      y += 18
+
+      const filtros = [
+        `Materia: ${filMateria === "ALL" ? "Todas" : filMateria}`,
+        `Cuatrimestre: ${filCuatr === "ALL" ? "Todos" : filCuatr}`,
+        `Tipo: ${filTipo === "ALL" ? "Todos" : filTipo}`,
+        `Buscar: ${buscar ? buscar : "Sin filtro"}`,
+      ]
+      doc.text(filtros.join(" | "), margin, y)
+      y += 18
+
+      const drawTableHeader = () => {
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(10)
+        let x = margin
+        columns.forEach((col) => {
+          doc.text(col.label, x + 2, y)
+          x += col.width
+        })
+        y += 10
+        doc.setDrawColor(220)
+        doc.line(margin, y, pageWidth - margin, y)
+        y += 8
+      }
+
+      drawTableHeader()
+
+      if (notasFiltradas.length === 0) {
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(11)
+        doc.text("No hay notas para los filtros actuales.", margin, y)
+      } else {
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(10)
+
+        for (const nota of notasFiltradas) {
+          const cuatr = notaCuatr(nota)
+          const row = {
+            fecha: fmtFecha(nota.fecha || nota.created_at),
+            materia: nota.materia || "",
+            cuatr: cuatr ?? "",
+            tipo: nota.tipo || "",
+            calificacion: String(toNumberOrText(nota.calificacion) ?? ""),
+            comentarios: nota.observaciones || nota.comentarios || "",
+          }
+
+          const cellLines = columns.map((col) =>
+            doc.splitTextToSize(String(row[col.key] || ""), col.width - 6)
+          )
+          const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length))
+          const rowHeight = maxLines * lineHeight + 6
+
+          if (y + rowHeight > pageHeight - margin) {
+            doc.addPage()
+            y = margin
+            drawTableHeader()
+          }
+
+          let x = margin
+          cellLines.forEach((lines, idx) => {
+            const col = columns[idx]
+            lines.forEach((line, i) => {
+              doc.text(String(line), x + 2, y + i * lineHeight)
+            })
+            x += col.width
+          })
+
+          y += rowHeight
+          doc.setDrawColor(235)
+          doc.line(margin, y - 2, pageWidth - margin, y - 2)
+        }
+      }
+
+      const safeName = String(nombreAlumno || "alumno")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .toLowerCase()
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(now.getDate()).padStart(2, "0")}`
+      const fileName = `notas_${safeName || "alumno"}_${stamp}.pdf`
+      doc.save(fileName)
+    } catch (err) {
+      console.error("No se pudo generar el PDF de notas:", err)
+      alert("No se pudo generar el PDF. Probá nuevamente.")
+  } finally {
+      setDownloadingPdf(false)
+    }
+  }
+
+  const handleDownloadSancionesPdf = async () => {
+    if (downloadingSancionesPdf) return
+    setDownloadingSancionesPdf(true)
+
+    try {
+      const { jsPDF } = await import("jspdf")
+      const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" })
+      const margin = 40
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const contentWidth = pageWidth - margin * 2
+      const fixedWidth = 90 + 120
+      const motivoWidth = Math.max(220, contentWidth - fixedWidth)
+      const columns = [
+        { key: "fecha", label: "Fecha", width: 90 },
+        { key: "motivo", label: "Motivo", width: motivoWidth },
+        { key: "docente", label: "Docente", width: 120 },
+      ]
+      const lineHeight = 12
+      const now = new Date()
+      let y = margin
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(16)
+      doc.text("Sanciones del alumno", margin, y)
+      y += 20
+
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(11)
+      doc.text(`Alumno: ${nombreAlumno || "Alumno"}`, margin, y)
+      y += 14
+      doc.text(`Curso: ${cursoAlumno || "-"}`, margin, y)
+      y += 14
+      doc.text(`Legajo/ID: ${legajoAlumno || "-"}`, margin, y)
+      y += 14
+      doc.text(`Generado: ${now.toLocaleString("es-AR")}`, margin, y)
+      y += 18
+
+      const filtros = [
+        `Mes: ${filSancionMes === "ALL" ? "Todos" : filSancionMes}`,
+        `Docente: ${filSancionDocente === "ALL" ? "Todos" : filSancionDocente}`,
+        `Buscar: ${buscarSanc ? buscarSanc : "Sin filtro"}`,
+      ]
+      doc.text(filtros.join(" | "), margin, y)
+      y += 18
+
+      const drawTableHeader = () => {
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(10)
+        let x = margin
+        columns.forEach((col) => {
+          doc.text(col.label, x + 2, y)
+          x += col.width
+        })
+        y += 10
+        doc.setDrawColor(220)
+        doc.line(margin, y, pageWidth - margin, y)
+        y += 8
+      }
+
+      drawTableHeader()
+
+      if (sancionesFiltradas.length === 0) {
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(11)
+        doc.text("No hay sanciones para los filtros actuales.", margin, y)
+      } else {
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(10)
+
+        for (const sancion of sancionesFiltradas) {
+          const row = {
+            fecha: fmtFecha(sancion.fecha || sancion.created_at),
+            motivo: sancion.motivo || sancion.detalle || sancion.descripcion || "",
+            docente: sancion.docente || sancion.creado_por || "",
+          }
+
+          const cellLines = columns.map((col) =>
+            doc.splitTextToSize(String(row[col.key] || ""), col.width - 6)
+          )
+          const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length))
+          const rowHeight = maxLines * lineHeight + 6
+
+          if (y + rowHeight > pageHeight - margin) {
+            doc.addPage()
+            y = margin
+            drawTableHeader()
+          }
+
+          let x = margin
+          cellLines.forEach((lines, idx) => {
+            const col = columns[idx]
+            lines.forEach((line, i) => {
+              doc.text(String(line), x + 2, y + i * lineHeight)
+            })
+            x += col.width
+          })
+
+          y += rowHeight
+          doc.setDrawColor(235)
+          doc.line(margin, y - 2, pageWidth - margin, y - 2)
+        }
+      }
+
+      const safeName = String(nombreAlumno || "alumno")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .toLowerCase()
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(now.getDate()).padStart(2, "0")}`
+      const fileName = `sanciones_${safeName || "alumno"}_${stamp}.pdf`
+      doc.save(fileName)
+    } catch (err) {
+      console.error("No se pudo generar el PDF de sanciones:", err)
+      alert("No se pudo generar el PDF. Proba nuevamente.")
+    } finally {
+      setDownloadingSancionesPdf(false)
+    }
+  }
+
+  const handleDownloadAsistenciasPdf = async () => {
+    if (downloadingAsistenciasPdf) return
+    setDownloadingAsistenciasPdf(true)
+
+    try {
+      const { jsPDF } = await import("jspdf")
+      const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" })
+      const margin = 40
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const contentWidth = pageWidth - margin * 2
+      const fixedWidth = 90 + 120 + 90 + 90
+      const detalleWidth = Math.max(180, contentWidth - fixedWidth)
+      const columns = [
+        { key: "fecha", label: "Fecha", width: 90 },
+        { key: "asistencia", label: "Asistencia", width: 120 },
+        { key: "estado", label: "Estado", width: 90 },
+        { key: "justificada", label: "Justificada", width: 90 },
+        { key: "detalle", label: "Detalle", width: detalleWidth },
+      ]
+      const lineHeight = 12
+      const now = new Date()
+      let y = margin
+
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(16)
+      doc.text("Inasistencias del alumno", margin, y)
+      y += 20
+
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(11)
+      doc.text(`Alumno: ${nombreAlumno || "Alumno"}`, margin, y)
+      y += 14
+      doc.text(`Curso: ${cursoAlumno || "-"}`, margin, y)
+      y += 14
+      doc.text(`Legajo/ID: ${legajoAlumno || "-"}`, margin, y)
+      y += 14
+      doc.text(`Generado: ${now.toLocaleString("es-AR")}`, margin, y)
+      y += 18
+
+      const mesLabel =
+        filAsisMes === "ALL" ? "Todos" : monthLabelFromKey(filAsisMes)
+      const tipoLabel =
+        filAsisTipo === "ALL" ? "Todas" : asistenciaTipoLabel(filAsisTipo)
+      const filtros = [`Mes: ${mesLabel}`, `Asistencia: ${tipoLabel}`]
+      doc.text(filtros.join(" | "), margin, y)
+      y += 18
+
+      const drawTableHeader = () => {
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(10)
+        let x = margin
+        columns.forEach((col) => {
+          doc.text(col.label, x + 2, y)
+          x += col.width
+        })
+        y += 10
+        doc.setDrawColor(220)
+        doc.line(margin, y, pageWidth - margin, y)
+        y += 8
+      }
+
+      drawTableHeader()
+
+      if (asistenciasFiltradas.length === 0) {
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(11)
+        doc.text("No hay asistencias para los filtros actuales.", margin, y)
+      } else {
+        doc.setFont("helvetica", "normal")
+        doc.setFontSize(10)
+
+        for (const asistencia of asistenciasFiltradas) {
+          const tipoRaw = asistenciaTipoFromAny(asistencia)
+          const tipoNorm = normalizeAsistenciaTipo(tipoRaw) || "clases"
+          const est = estadoTexto(asistenciaEstadoFromAny(asistencia))
+          const just = isJustificadaFromAny(asistencia) ? "Si" : "No"
+          const detalle =
+            asistencia.detalle ||
+            asistencia.observaciones ||
+            asistencia.observacion ||
+            ""
+
+          const row = {
+            fecha: fmtFecha(asistencia.fecha || asistencia.created_at),
+            asistencia: asistenciaTipoLabel(tipoNorm),
+            estado: est,
+            justificada: just,
+            detalle,
+          }
+
+          const cellLines = columns.map((col) =>
+            doc.splitTextToSize(String(row[col.key] || ""), col.width - 6)
+          )
+          const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length))
+          const rowHeight = maxLines * lineHeight + 6
+
+          if (y + rowHeight > pageHeight - margin) {
+            doc.addPage()
+            y = margin
+            drawTableHeader()
+          }
+
+          let x = margin
+          cellLines.forEach((lines, idx) => {
+            const col = columns[idx]
+            lines.forEach((line, i) => {
+              doc.text(String(line), x + 2, y + i * lineHeight)
+            })
+            x += col.width
+          })
+
+          y += rowHeight
+          doc.setDrawColor(235)
+          doc.line(margin, y - 2, pageWidth - margin, y - 2)
+        }
+      }
+
+      const safeName = String(nombreAlumno || "alumno")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .toLowerCase()
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(now.getDate()).padStart(2, "0")}`
+      const fileName = `inasistencias_${safeName || "alumno"}_${stamp}.pdf`
+      doc.save(fileName)
+    } catch (err) {
+      console.error("No se pudo generar el PDF de asistencias:", err)
+      alert("No se pudo generar el PDF. Proba nuevamente.")
+    } finally {
+      setDownloadingAsistenciasPdf(false)
+    }
+  }
+
   const renderNotasPanel = ({
     title,
     subtitle,
@@ -1504,6 +2131,9 @@ function AlumnoPerfilPageInner() {
 
             {meLoaded && !hidePadreNavAndMessage && !isAlumno && (
               <div className="flex items-center gap-2">
+                <Button type="button" variant="primary" onClick={handleBackToAlumnos} className="primary-button">
+                  &lt; Volver a alumnos
+                </Button>
                 {canTransferAlumno && (
                   <TransferAlumno
                     alumnoPk={pk}
@@ -1516,9 +2146,6 @@ function AlumnoPerfilPageInner() {
                     }}
                   />
                 )}
-                <Button type="button" variant="primary" onClick={handleBackToAlumnos}>
-                  &lt; Volver a alumnos
-                </Button>
                 <ComposeMensajeAlumno
                   cursoSugerido={searchParams.get("curso") || cursoAlumno || ""}
                   // ✅ NUEVO: identificadores y nombre para preseleccionar destinatario
@@ -1640,6 +2267,17 @@ function AlumnoPerfilPageInner() {
                         </p>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={handleDownloadNotasPdf}
+                        disabled={downloadingPdf}
+                        className="h-9 gap-2 primary-button"
+                      >
+                        <Download className="h-4 w-4" />
+                        {downloadingPdf ? "Generando..." : "Descargar en PDF"}
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Filtros de notas */}
@@ -1712,7 +2350,9 @@ function AlumnoPerfilPageInner() {
                   </div>
 
                   {/* Tabla de notas */}
-                  {notasFiltradas.length === 0 ? (
+                  {loadingNotas && notas.length === 0 ? (
+                    <div className="text-sm text-gray-600">Cargando notas...</div>
+                  ) : notasFiltradas.length === 0 ? (
                     <div className="text-sm text-gray-600">
                       No se encontraron notas con los filtros actuales.
                     </div>
@@ -1763,13 +2403,28 @@ function AlumnoPerfilPageInner() {
             {activeSection === "sanciones" && (
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                 <CardContent className="p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                      <Gavel className="h-6 w-6 text-amber-700" />
+                  <div className="flex items-center justify-between gap-4 mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                        <Gavel className="h-6 w-6 text-amber-700" />
+                      </div>
+                      <div>
+                        <h3 className="tile-title">Sanciones</h3>
+                        <p className="tile-subtitle">
+                          Historial disciplinario del alumno
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="tile-title">Sanciones</h3>
-                      <p className="tile-subtitle">Historial disciplinario del alumno</p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={handleDownloadSancionesPdf}
+                        disabled={downloadingSancionesPdf}
+                        className="h-9 gap-2 primary-button"
+                      >
+                        <Download className="h-4 w-4" />
+                        {downloadingSancionesPdf ? "Generando..." : "Descargar en PDF"}
+                      </Button>
                     </div>
                   </div>
 
@@ -1815,7 +2470,9 @@ function AlumnoPerfilPageInner() {
                       />
                     </div>
                   </div>
-                  {sancionesFiltradas.length === 0 ? (
+                  {loadingSanciones && sanciones.length === 0 ? (
+                    <div className="text-sm text-gray-600">Cargando sanciones...</div>
+                  ) : sancionesFiltradas.length === 0 ? (
                     <div className="text-sm text-gray-600">
                       No hay sanciones registradas.
                     </div>
@@ -1875,42 +2532,62 @@ function AlumnoPerfilPageInner() {
                     </div>
 
                     {/* ✅ NUEVO: filtros mes + tipo */}
-                    {asistencias.length > 0 && (
-                      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
-                        <div className="min-w-[180px]">
-                          <Label className="text-xs text-gray-600">Mes</Label>
-                          <select
-                            className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
-                            value={filAsisMes}
-                            onChange={(e) => setFilAsisMes(e.target.value)}
-                          >
-                            <option value="ALL">Todos</option>
-                            {mesesDisponibles.map((m) => (
-                              <option key={m.key} value={m.key}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="min-w-[200px]">
-                          <Label className="text-xs text-gray-600">Asistencia</Label>
-                          <select
-                            className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
-                            value={filAsisTipo}
-                            onChange={(e) => setFilAsisTipo(e.target.value)}
-                          >
-                            <option value="ALL">Todas</option>
-                            <option value="clases">Clases</option>
-                            <option value="informatica">Informática</option>
-                            <option value="catequesis">Catequesis</option>
-                          </select>
-                        </div>
+                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          onClick={handleDownloadAsistenciasPdf}
+                          disabled={downloadingAsistenciasPdf}
+                          className="h-9 gap-2 primary-button"
+                        >
+                          <Download className="h-4 w-4" />
+                          {downloadingAsistenciasPdf
+                            ? "Generando..."
+                            : "Descargar en PDF"}
+                        </Button>
                       </div>
-                    )}
+
+                      {asistencias.length > 0 && (
+                        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                          <div className="min-w-[180px]">
+                            <Label className="text-xs text-gray-600">Mes</Label>
+                            <select
+                              className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                              value={filAsisMes}
+                              onChange={(e) => setFilAsisMes(e.target.value)}
+                            >
+                              <option value="ALL">Todos</option>
+                              {mesesDisponibles.map((m) => (
+                                <option key={m.key} value={m.key}>
+                                  {m.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="min-w-[200px]">
+                            <Label className="text-xs text-gray-600">Asistencia</Label>
+                            <select
+                              className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                              value={filAsisTipo}
+                              onChange={(e) => setFilAsisTipo(e.target.value)}
+                            >
+                              <option value="ALL">Todas</option>
+                              <option value="clases">Clases</option>
+                              <option value="informatica">Informática</option>
+                              <option value="catequesis">Catequesis</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {asistencias.length === 0 ? (
+                  {loadingAsistencias && asistencias.length === 0 ? (
+                    <div className="text-sm text-gray-600">
+                      Cargando asistencias...
+                    </div>
+                  ) : asistencias.length === 0 ? (
                     <div className="text-sm text-gray-600">
                       Aún no hay asistencias cargadas para este alumno o la API de
                       asistencias no está habilitada.
@@ -2090,7 +2767,7 @@ function AlumnoPerfilPageInner() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDetalleModal}>
+            <Button onClick={closeDetalleModal}>
               Cancelar
             </Button>
             <Button onClick={handleGuardarDetalle} disabled={detalleModal.saving}>
@@ -2214,3 +2891,4 @@ function Topbar({
     </div>
   )
 }
+

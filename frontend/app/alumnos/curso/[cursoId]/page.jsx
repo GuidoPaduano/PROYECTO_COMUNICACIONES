@@ -142,13 +142,12 @@ export default function CursoAlumnosPage({ params }) {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <Link href="/alumnos">
-              <Button variant="outline" className="gap-2">
+              <Button className="gap-2">
                 <ChevronLeft className="h-4 w-4" /> Volver a Alumnos
               </Button>
             </Link>
 
             <Button
-              variant="outline"
               onClick={() => setOpenAdd(true)}
               className="gap-2 text-indigo-600 border-indigo-200 hover:border-indigo-300"
             >
@@ -271,7 +270,7 @@ export default function CursoAlumnosPage({ params }) {
             {formError && <div className="text-sm text-red-600">{formError}</div>}
 
             <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => setOpenAdd(false)}>
+              <Button type="button" onClick={() => setOpenAdd(false)}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={saving}>
@@ -284,3 +283,4 @@ export default function CursoAlumnosPage({ params }) {
     </div>
   )
 }
+

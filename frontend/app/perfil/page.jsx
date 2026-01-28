@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SuccessMessage from "@/components/ui/success-message";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -465,9 +466,7 @@ export default function Profile() {
                           {linkError && (
                             <div className="text-sm text-red-600">{linkError}</div>
                           )}
-                          {linkOk && (
-                            <div className="text-sm text-green-700">{linkOk}</div>
-                          )}
+                            {linkOk && <SuccessMessage className="mt-1">{linkOk}</SuccessMessage>}
 
                           <Button
                             type="submit"
@@ -506,7 +505,6 @@ export default function Profile() {
                           </Button>
                           <Button
                             size="sm"
-                            variant="outline"
                             onClick={handleCancel}
                           >
                             <X className="h-4 w-4 mr-2" />
@@ -516,7 +514,6 @@ export default function Profile() {
                       ) : (
                         <Button
                           size="sm"
-                          variant="outline"
                           onClick={() => setIsEditing(true)}
                         >
                           <Edit3 className="h-4 w-4 mr-2" />
@@ -633,5 +630,6 @@ export default function Profile() {
     </div>
   );
 }
+
 
 

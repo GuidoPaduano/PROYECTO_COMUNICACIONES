@@ -6,6 +6,7 @@ import { Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import SuccessMessage from "@/components/ui/success-message"
 
 async function fetchApi(url, opts = {}, timeoutMs = 60000) {
   const controller = new AbortController()
@@ -86,6 +87,10 @@ export default function PasarAsistenciaPage() {
     ;(async () => {
       try {
         const tries = [
+          "/notas/catalogos/",
+          "/api/notas/catalogos/",
+          "/cursos/",
+          "/api/cursos/",
           "/preceptores/mis-cursos/",
           "/api/preceptores/mis-cursos/",
           "/cursos/mis-cursos/",
@@ -103,7 +108,9 @@ export default function PasarAsistenciaPage() {
           }
         }
 
-        const arr = Array.isArray(data) ? data : data?.results || data?.cursos || []
+        const arr = Array.isArray(data)
+          ? data
+          : data?.cursos || data?.results || []
         const list = Array.isArray(arr) ? arr : []
         if (!alive) return
 
@@ -249,8 +256,10 @@ export default function PasarAsistenciaPage() {
     setOkMsg("")
 
     try {
-      const asistenciasPayload = {}
       const presentes = []
+      const tardes = []
+      const asistenciasPayload = {}
+      let needsMap = false
 
       for (const a of alumnos) {
         const pk = a?.id ?? a?.pk
@@ -260,11 +269,14 @@ export default function PasarAsistenciaPage() {
         const isPresente = estado !== "ausente"
 
         if (pk != null) {
-          asistenciasPayload[String(pk)] = estado
           if (isPresente) presentes.push(Number(pk))
+          if (estado === "tarde") tardes.push(Number(pk))
         } else if (code != null) {
-          asistenciasPayload[String(code)] = estado
+          // sin PK no podemos usar formato A
+          needsMap = true
         }
+
+        asistenciasPayload[String(key)] = estado
       }
 
       const r = await fetchApi(
@@ -277,8 +289,9 @@ export default function PasarAsistenciaPage() {
             fecha,
             tipo_asistencia: tipoAsistencia,
             tipo: tipoAsistencia,
-            presentes,
-            asistencias: asistenciasPayload,
+            ...(needsMap
+              ? { asistencias: asistenciasPayload }
+              : { presentes, tardes }),
           }),
         },
         60000
@@ -385,7 +398,6 @@ export default function PasarAsistenciaPage() {
 
               <div className="ml-auto flex gap-2 self-end">
                 <Button
-                  variant="outline"
                   className="h-10"
                   onClick={() => marcarTodos("presente")}
                   disabled={!alumnos.length || saving}
@@ -393,7 +405,6 @@ export default function PasarAsistenciaPage() {
                   Marcar todos PRESENTES
                 </Button>
                 <Button
-                  variant="outline"
                   className="h-10"
                   onClick={() => marcarTodos("ausente")}
                   disabled={!alumnos.length || saving}
@@ -410,7 +421,7 @@ export default function PasarAsistenciaPage() {
 
           <div>
             {errMsg && <p className="mb-2 text-sm text-red-600">{errMsg}</p>}
-            {okMsg && <p className="mb-2 text-sm text-green-700">{okMsg}</p>}
+            {okMsg && <SuccessMessage className="mb-3">{okMsg}</SuccessMessage>}
             {!loadingCursos && cursos.length === 0 && (
               <p className="text-gray-600">No tenes cursos asignados.</p>
             )}
@@ -502,3 +513,4 @@ export default function PasarAsistenciaPage() {
     </div>
   )
 }
+

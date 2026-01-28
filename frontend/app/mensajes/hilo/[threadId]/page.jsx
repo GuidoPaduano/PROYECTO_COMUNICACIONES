@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import SuccessMessage from "@/components/ui/success-message"
 
 async function fetchJSON(url, opts) {
   const res = await authFetch(url, {
@@ -37,6 +38,17 @@ function fmtFecha(input) {
 
 function isUUID(v) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || ""))
+}
+
+function stripRePrefix(s) {
+  return String(s || "").replace(/^(\s*re\s*:\s*)+/i, "").trim()
+}
+
+function collapseRePrefix(s) {
+  const base = stripRePrefix(s)
+  if (!base) return ""
+  const hasRe = /^\s*re\s*:/i.test(String(s || ""))
+  return hasRe ? `Re: ${base}` : base
 }
 
 /* === Helper local para notificar cambios en la bandeja (badge/contador) === */
@@ -123,7 +135,7 @@ export default function HiloMensajesPage() {
         if (alive) {
           setMensajes(msgs)
           setReplyToId(base?.id ?? null)
-          setReplyAsunto(base?.asunto ? `Re: ${base.asunto}` : "Re:")
+          setReplyAsunto(base?.asunto ? `Re: ${stripRePrefix(base.asunto)}` : "Re:")
         }
 
         // Auto-marcado: SOLO si el backend expone flags y SOLO una vez por hilo.
@@ -218,7 +230,7 @@ export default function HiloMensajesPage() {
     <div className="space-y-6">
       <div className="space-y-4">
         <div className="flex items-center gap-3 mb-4">
-          <Button variant="outline" onClick={() => router.back()} className="gap-2">
+          <Button onClick={() => router.back()} className="gap-2">
             <ArrowLeft className="h-4 w-4" /> Volver
           </Button>
           <div className="text-sm text-gray-600">Hilo</div>
@@ -254,7 +266,7 @@ export default function HiloMensajesPage() {
                           <span className="truncate">{mine ? "Vos" : (m.emisor || "—")}</span>
                           <span className="truncate">{fmtFecha(m.fecha || m.fecha_envio)}</span>
                         </div>
-                        <div className="font-medium break-words">{m.asunto || "Sin asunto"}</div>
+                        <div className="font-medium break-words">{collapseRePrefix(m.asunto) || "Sin asunto"}</div>
                         <div className="mt-1 whitespace-pre-wrap break-words">{m.contenido || m.body || ""}</div>
 
                         {canReplyToThis && (
@@ -263,7 +275,7 @@ export default function HiloMensajesPage() {
                               className={"underline hover:opacity-80 " + (isReplyTarget ? "font-semibold" : "")}
                               onClick={() => {
                                 setReplyToId(m.id)
-                                setReplyAsunto(m.asunto ? `Re: ${m.asunto}` : "Re:")
+                                setReplyAsunto(m.asunto ? `Re: ${stripRePrefix(m.asunto)}` : "Re:")
                               }}
                             >
                               {isReplyTarget ? "Respondiendo a este" : "Responder a este"}
@@ -309,11 +321,11 @@ export default function HiloMensajesPage() {
               />
               <div className="text-[11px] text-gray-500 mt-1">Tip: Ctrl/⌘ + Enter para enviar</div>
             </div>
-            {sendMsg && (
-              <div className={"text-sm " + (sendMsg.startsWith("✅") ? "text-green-700" : "text-red-600")}>
-                {sendMsg}
-              </div>
-            )}
+            {sendMsg && sendMsg.startsWith("✅") ? (
+              <SuccessMessage className="mt-1">{sendMsg}</SuccessMessage>
+            ) : sendMsg ? (
+              <div className="text-sm text-red-600">{sendMsg}</div>
+            ) : null}
             <div className="flex items-center justify-end">
               <Button onClick={enviarRespuesta} disabled={sending || !replyToId} className="gap-2">
                 <Send className="h-4 w-4" />

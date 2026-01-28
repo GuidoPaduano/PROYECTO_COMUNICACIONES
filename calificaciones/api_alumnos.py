@@ -16,6 +16,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno
+from .utils_cursos import filtrar_cursos_validos, is_curso_valido
 
 try:
     from .models_preceptores import PreceptorCurso  # type: ignore
@@ -24,8 +25,7 @@ except Exception:
 
 
 def _is_valid_curso(curso: str) -> bool:
-    cursos_validos = {c[0] for c in Alumno.CURSOS}
-    return str(curso).strip() in cursos_validos
+    return is_curso_valido(curso)
 
 
 def _alumno_to_dict(a: Alumno) -> dict:
@@ -280,7 +280,8 @@ def cursos_disponibles(request):
     GET /alumnos/cursos/
     Devuelve todos los cursos disponibles (catalogo Alumno.CURSOS).
     """
-    cursos = [{"id": c[0], "nombre": c[1]} for c in Alumno.CURSOS]
+    base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
+    cursos = [{"id": c[0], "nombre": c[1]} for c in base]
     return Response({"cursos": cursos}, status=200)
 
 
