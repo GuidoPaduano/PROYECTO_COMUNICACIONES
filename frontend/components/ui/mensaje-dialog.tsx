@@ -176,7 +176,7 @@ export default function MensajeDialog({
               </Button>
             ) : null}
 
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button onClick={() => onOpenChange(false)}>
               Cerrar
             </Button>
 
@@ -195,3 +195,4 @@ export default function MensajeDialog({
     </Dialog>
   )
 }
+

@@ -44,19 +44,19 @@ export default function EnviarMensajesCard({ href = "#", onClick }: Props) {
   let actionEl: ReactNode = null
   if (onClick) {
     actionEl = (
-      <Button variant="outline" onClick={onClick}>
+      <Button onClick={onClick}>
         Crear
       </Button>
     )
   } else if (href && href !== "#") {
     actionEl = (
       <Link href={href}>
-        <Button variant="outline">Crear</Button>
+        <Button >Crear</Button>
       </Link>
     )
   } else {
     actionEl = (
-      <Button variant="outline" disabled>
+      <Button disabled>
         Crear
       </Button>
     )
@@ -87,3 +87,4 @@ export default function EnviarMensajesCard({ href = "#", onClick }: Props) {
     </Card>
   )
 }
+

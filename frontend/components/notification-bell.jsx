@@ -34,6 +34,7 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
   const [loading, setLoading] = useState(false)
   const [notifCount, setNotifCount] = useState(0)
   const [markAllLoading, setMarkAllLoading] = useState(false)
+  const [open, setOpen] = useState(false)
 
   const shownItems = useMemo(() => {
     return Array.isArray(items) ? items : autoItems
@@ -45,6 +46,11 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
     return String(s || "")
       .replace(/\s+/g, " ")
       .trim()
+  }
+
+  function normalizeRePrefix(s) {
+    // Colapsa prefijos repetidos "Re:" (case-insensitive)
+    return String(s || "").replace(/\b(?:re:\s*)+/gi, "Re: ").replace(/\s+/g, " ").trim()
   }
 
   function removeISODateSuffix(s) {
@@ -64,7 +70,8 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
   }
 
   function buildTitle(obj) {
-    const a = removeISODateSuffix(normalizeText((obj?.titulo || obj?.asunto) || ""))
+    const raw = removeISODateSuffix(normalizeText((obj?.titulo || obj?.asunto) || ""))
+    const a = normalizeRePrefix(raw)
 
     if (a.toLowerCase().startsWith("nueva sanción para ")) {
       const nombre = a.slice("nueva sanción para ".length).trim()
@@ -131,9 +138,12 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
       return `/alumnos/${alumnoId}/?tab=${tab}`
     }
 
-    // 3) Mensajes: ir al hilo
-    const tid = obj?.thread_id
+    // 3) Mensajes: ir al hilo (preferimos thread_id o mensaje_id en meta)
+    const metaTid = obj?.meta?.thread_id
+    const metaMid = obj?.meta?.mensaje_id
+    const tid = obj?.thread_id || metaTid
     if (tid) return `/mensajes/hilo/${tid}`
+    if (metaMid != null) return `/mensajes/hilo/${metaMid}`
     const id = obj?.id
     if (id != null) return `/mensajes/hilo/${id}`
     return "/mensajes"
@@ -293,6 +303,7 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
 
   async function handleOpen(item) {
     const href = item?.href || "/mensajes"
+    setOpen(false)
 
     // Marcamos como leído ANTES de navegar (best-effort) para que el contador baje al toque.
     try {
@@ -431,12 +442,25 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
   }, [items, maxPreview])
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) {
+          loadNotifCount()
+          loadPreview()
+        }
+      }}
+    >
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative text-white hover:bg-white/15">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative text-white hover:bg-white/15 data-[state=open]:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none focus-visible:outline-none outline-none ring-0"
+        >
           <Bell className="h-5 w-5" />
           {badgeCount > 0 && (
-            <span className="absolute -top-1 -right-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-600 text-white border border-white">
+            <span className="absolute -top-1 -right-1 sidebar-pill">
               {badgeCount > 99 ? "99+" : badgeCount}
             </span>
           )}
@@ -446,8 +470,8 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
       <DropdownMenuContent
         side="right"
         align="start"
-        sideOffset={12}
-        className="w-96 p-2"
+        sideOffset={24}
+        className="w-96 p-2 max-h-[70vh] overflow-y-auto"
       >
         <DropdownMenuLabel className="px-2">Notificaciones</DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -505,7 +529,6 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
 
           <Button
             type="button"
-            variant="outline"
             size="sm"
             onClick={markAllNotifsRead}
             disabled={markAllLoading || badgeCount === 0}
@@ -518,3 +541,4 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
     </DropdownMenu>
   )
 }
+

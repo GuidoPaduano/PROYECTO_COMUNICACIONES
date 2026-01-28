@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import SuccessMessage from "@/components/ui/success-message"
 
 /** Utilidad para tomar la primera key existente */
 function pick(a, ...keys) {
@@ -66,6 +67,8 @@ export default function ComposeComunicadoFamilia({
   onOpenChange,
   defaultCurso = "",
   cursosEndpoint = "/preceptor/cursos/",
+  defaultMode = "familia",
+  showModeSelect = true,
 }) {
   // Datos base
   const [cursos, setCursos] = useState([])
@@ -98,6 +101,7 @@ export default function ComposeComunicadoFamilia({
     if (open) {
       setErrMsg("")
       setOkMsg("")
+      if (defaultMode) setModo(defaultMode)
       // defaultCurso puede venir como "id" o como "label" (ej: "1A").
       // La normalización final (a id real) se hace cuando cargan los cursos.
       if (defaultCurso) setCursoSel(String(defaultCurso))
@@ -355,44 +359,26 @@ export default function ComposeComunicadoFamilia({
             {modo === "familia" ? "Comunicado a familias" : (modo === "alumno" ? "Mensaje a alumno" : "Mensaje a curso (alumnos)")}
           </DialogTitle>
           {errMsg && <p className="text-sm text-red-600 mt-1">{errMsg}</p>}
-          {okMsg && (
-            <p className="text-sm text-green-700 mt-1 inline-flex items-center gap-2">
-              <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-green-600">
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  aria-hidden="true"
-                  className="h-3 w-3 text-white"
-                >
-                  <path
-                    d="M5 10.5l3.2 3.2L15 6.9"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              {okMsg}
-            </p>
-          )}
+            {okMsg && <SuccessMessage className="mt-1">{okMsg}</SuccessMessage>}
         </DialogHeader>
 
         {/* Modo */}
-        <div className="grid gap-1.5">
-          <Label htmlFor="modo">Enviar a</Label>
-          <select
-            id="modo"
-            className="border rounded-md px-3 py-2"
-            value={modo}
-            onChange={(e) => setModo(e.target.value)}
-            disabled={sending}
-          >
-            <option value="familia">Familia (padre/madre) de un alumno</option>
-            <option value="alumno">Alumno individual</option>
-            <option value="curso_alumnos">Todos los alumnos del curso</option>
-          </select>
-        </div>
+        {showModeSelect && (
+          <div className="grid gap-1.5">
+            <Label htmlFor="modo">Enviar a</Label>
+            <select
+              id="modo"
+              className="border rounded-md px-3 py-2"
+              value={modo}
+              onChange={(e) => setModo(e.target.value)}
+              disabled={sending}
+            >
+              <option value="familia">Familia (padre/madre) de un alumno</option>
+              <option value="alumno">Alumno individual</option>
+              <option value="curso_alumnos">Todos los alumnos del curso</option>
+            </select>
+          </div>
+        )}
 
         {/* Curso */}
         <div className="grid gap-1.5">
@@ -476,7 +462,7 @@ export default function ComposeComunicadoFamilia({
         </div>
 
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange?.(false)} disabled={sending}>
+          <Button onClick={() => onOpenChange?.(false)} disabled={sending}>
             Cancelar
           </Button>
           <Button onClick={enviar} disabled={sending || !canSend}>
@@ -487,3 +473,4 @@ export default function ComposeComunicadoFamilia({
     </Dialog>
   )
 }
+

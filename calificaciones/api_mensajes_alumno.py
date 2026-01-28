@@ -14,7 +14,7 @@ from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 
-from .models import Alumno, Mensaje
+from .models import Alumno, Mensaje, Notificacion
 
 
 # =========================================================
@@ -200,6 +200,32 @@ def alumno_enviar(request):
 
     with transaction.atomic():
         msg = Mensaje.objects.create(**kwargs)
+
+    # Notificacion campanita para el docente/preceptor receptor
+    try:
+        contenido_corto = (contenido[:160] + "...") if len(contenido) > 160 else contenido
+        url = "/mensajes"
+        if hasattr(msg, "thread_id") and getattr(msg, "thread_id", None):
+            url = f"/mensajes/hilo/{getattr(msg, 'thread_id')}"
+        actor_label = (user.get_full_name() or user.username or "Usuario").strip()
+        titulo = f"{actor_label}: {asunto}" if asunto else f"Nuevo mensaje de {actor_label}"
+        Notificacion.objects.create(
+            destinatario=receptor,
+            tipo="mensaje",
+            titulo=titulo,
+            descripcion=contenido_corto.strip() or None,
+            url=url,
+            leida=False,
+            meta={
+                "mensaje_id": getattr(msg, "id", None),
+                "thread_id": str(getattr(msg, "thread_id", "")) if hasattr(msg, "thread_id") else str(getattr(msg, "id", "")),
+                "curso": curso or "",
+                "remitente_id": getattr(user, "id", None),
+                "alumno_id": getattr(alumno, "id", None) if alumno else None,
+            },
+        )
+    except Exception:
+        pass
 
     # Respuesta compatible (front suele esperar emisor/receptor)
     return Response(

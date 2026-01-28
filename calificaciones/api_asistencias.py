@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from django.utils.dateparse import parse_date
 from django.db import transaction
+from django.contrib.auth import get_user_model
 from django.db.models import Q
 
 from rest_framework.decorators import (
@@ -20,7 +21,8 @@ from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .models import Alumno, Asistencia
+from .models import Alumno, Asistencia, Notificacion
+from .utils_cursos import filtrar_cursos_validos
 
 try:
     # Si existen los modelos reales de preceptor/profesor → cursos
@@ -132,6 +134,131 @@ def _norm_bool(v: Any) -> Optional[bool]:
     if s in ("false", "0", "no", "off"):
         return False
     return None
+
+
+def _resolver_destinatarios_notif(alumno: Alumno, legajo_user_map=None):
+    """Destinatarios de notificación:
+    - Padre asignado (alumno.padre) si existe
+    - Alumno.usuario si existe
+    - Fallback: User.username == alumno.id_alumno (legajo)
+    """
+    destinatarios = []
+    seen = set()
+
+    def _add(u):
+        try:
+            if u is None:
+                return
+            uid = getattr(u, "id", None)
+            if uid is None or uid in seen:
+                return
+            seen.add(uid)
+            destinatarios.append(u)
+        except Exception:
+            pass
+
+    _add(getattr(alumno, "padre", None))
+    _add(getattr(alumno, "usuario", None))
+
+    try:
+        legajo = (getattr(alumno, "id_alumno", "") or "").strip()
+        if legajo:
+            if legajo_user_map is not None:
+                _add(legajo_user_map.get(legajo))
+            else:
+                User = get_user_model()
+                _add(User.objects.filter(username__iexact=legajo).first())
+    except Exception:
+        pass
+
+    return destinatarios
+
+
+def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia: str, actor=None):
+    if not alumno_ids:
+        return 0
+    try:
+        qs = Alumno.objects.filter(id__in=alumno_ids).select_related("padre", "usuario")
+    except Exception:
+        qs = Alumno.objects.filter(id__in=alumno_ids)
+
+    created = 0
+    notifs = []
+    fecha_str = str(fecha) if fecha else ""
+    tipo_label = _tipo_label(tipo_asistencia) if tipo_asistencia else ""
+    actor_label = ""
+    try:
+        actor_label = (actor.get_full_name() or actor.username).strip() if actor else ""
+    except Exception:
+        actor_label = ""
+
+    legajo_user_map = {}
+    try:
+        User = get_user_model()
+        legajos = [
+            (getattr(a, "id_alumno", "") or "").strip()
+            for a in qs
+            if (getattr(a, "id_alumno", "") or "").strip()
+        ]
+        if legajos:
+            users = User.objects.filter(username__in=legajos)
+            legajo_user_map = {u.username: u for u in users}
+    except Exception:
+        legajo_user_map = {}
+
+    for a in qs:
+        destinatarios = _resolver_destinatarios_notif(a, legajo_user_map=legajo_user_map)
+        if not destinatarios:
+            continue
+
+        alumno_nombre = (getattr(a, "apellido", "") + " " + getattr(a, "nombre", "")).strip()
+        if not alumno_nombre:
+            alumno_nombre = getattr(a, "nombre", "") or str(getattr(a, "id_alumno", "")) or "Alumno"
+
+        titulo = f"Inasistencia registrada: {alumno_nombre}"
+        desc_parts = [f"Alumno: {alumno_nombre}"]
+        if getattr(a, "curso", ""):
+            desc_parts.append(f"Curso: {a.curso}")
+        if tipo_label:
+            desc_parts.append(f"Tipo: {tipo_label}")
+        if fecha_str:
+            desc_parts.append(f"Fecha: {fecha_str}")
+        if actor_label:
+            desc_parts.append(f"Registrado por: {actor_label}")
+        descripcion = " · ".join([p for p in desc_parts if p]).strip()
+
+        for dest in destinatarios:
+            notifs.append(
+                Notificacion(
+                    destinatario=dest,
+                    tipo="inasistencia",
+                    titulo=titulo,
+                    descripcion=descripcion,
+                    url=f"/alumnos/{getattr(a, 'id', '')}/?tab=asistencias",
+                    leida=False,
+                    meta={
+                        "alumno_id": getattr(a, "id", None),
+                        "alumno_legajo": getattr(a, "id_alumno", None),
+                        "curso": getattr(a, "curso", ""),
+                        "fecha": fecha_str,
+                        "tipo_asistencia": tipo_asistencia,
+                    },
+                )
+            )
+
+    if notifs:
+        try:
+            Notificacion.objects.bulk_create(notifs)
+            created = len(notifs)
+        except Exception:
+            for n in notifs:
+                try:
+                    n.save()
+                    created += 1
+                except Exception:
+                    pass
+
+    return created
 
 
 
@@ -291,7 +418,8 @@ def _extract_items(payload: Any) -> List[Dict[str, Any]]:
 
 
 def _cursos_choices() -> List[tuple[str, str]]:
-    return list(getattr(Alumno, "CURSOS", []))
+    base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
+    return list(base)
 
 
 def _tipo_choices() -> List[tuple[str, str]]:
@@ -410,6 +538,7 @@ def _bulk_upsert_asistencias(
 
     to_update: List[Asistencia] = []
     to_create: List[Asistencia] = []
+    ausentes: List[int] = []
 
     for aid in alumno_ids:
         st = estado_by_alumno_id.get(aid) or {"presente": True, "tarde": False}
@@ -421,6 +550,7 @@ def _bulk_upsert_asistencias(
         obj = by_aid.get(aid)
         if obj is not None:
             changed = False
+            prev_presente = bool(obj.presente)
             if bool(obj.presente) != presente:
                 obj.presente = presente
                 changed = True
@@ -433,6 +563,8 @@ def _bulk_upsert_asistencias(
                 changed = True
             if changed:
                 to_update.append(obj)
+                if prev_presente and (not presente):
+                    ausentes.append(aid)
         else:
             to_create.append(
                 Asistencia(
@@ -443,6 +575,8 @@ def _bulk_upsert_asistencias(
                     tarde=tarde,
                 )
             )
+            if not presente:
+                ausentes.append(aid)
 
     with transaction.atomic():
         if to_update:
@@ -459,7 +593,7 @@ def _bulk_upsert_asistencias(
                         defaults={"presente": bool(obj.presente), "tarde": bool(getattr(obj, "tarde", False)), "justificada": False},
                     )
 
-    return {"guardadas": len(alumno_ids), "errores": 0}
+    return {"guardadas": len(alumno_ids), "errores": 0, "ausentes": ausentes}
 
 
 # =========================================================
@@ -585,6 +719,16 @@ def registrar_asistencias(request):
             except Exception:
                 return _err("Error guardando asistencias (bulk).", 500)
 
+            try:
+                _notify_inasistencias_bulk(
+                    alumno_ids=sorted(set(res.get("ausentes") or [])),
+                    fecha=fecha,
+                    tipo_asistencia=tipo_asistencia,
+                    actor=getattr(request, "user", None),
+                )
+            except Exception:
+                pass
+
             items_out: List[Dict[str, Any]] = []
             if return_items and alumno_ids:
                 qs = Asistencia.objects.filter(
@@ -633,9 +777,13 @@ def registrar_asistencias(request):
         fecha = parse_date(str(fecha_raw)) if fecha_raw else date_cls.today()
 
         presentes = payload.get("presentes") or payload.get("presentes_ids") or payload.get("presentesId") or []
+        tardes = payload.get("tardes") or payload.get("tardes_ids") or payload.get("tardesId") or []
         presentes = _try_parse_json(presentes)
         if not isinstance(presentes, list):
             presentes = []
+        tardes = _try_parse_json(tardes)
+        if not isinstance(tardes, list):
+            tardes = []
 
         if not curso:
             return _err("Falta curso", 400)
@@ -663,15 +811,37 @@ def registrar_asistencias(request):
                 presentes_set.add(int(x))
             except Exception:
                 pass
+        tardes_set = set()
+        for x in tardes:
+            try:
+                tardes_set.add(int(x))
+            except Exception:
+                pass
 
         presente_by_id = {aid: (aid in presentes_set) for aid in alumno_ids}
         # ✅ FIX: el bulk upsert espera {alumno_id: {presente, tarde}}
-        estado_by_id = {aid: {"presente": bool(presente_by_id[aid]), "tarde": False} for aid in alumno_ids}
+        estado_by_id = {
+            aid: {
+                "presente": bool(presente_by_id[aid]) or (aid in tardes_set),
+                "tarde": (aid in tardes_set),
+            }
+            for aid in alumno_ids
+        }
 
         try:
             res = _bulk_upsert_asistencias(alumno_ids, fecha, tipo_asistencia, estado_by_id)
         except Exception:
             return _err("Error guardando asistencias (bulk).", 500)
+
+        try:
+            _notify_inasistencias_bulk(
+                alumno_ids=sorted(set(res.get("ausentes") or [])),
+                fecha=fecha,
+                tipo_asistencia=tipo_asistencia,
+                actor=getattr(request, "user", None),
+            )
+        except Exception:
+            pass
 
         items_out: List[Dict[str, Any]] = []
         if return_items:
@@ -772,6 +942,9 @@ def registrar_asistencias(request):
             presente = bool(it.get("presente", True))
 
         try:
+            prev = Asistencia.objects.filter(
+                alumno=alumno, fecha=fecha, tipo_asistencia=tipo_asistencia
+            ).first()
             obj, _created = Asistencia.objects.update_or_create(
                 alumno=alumno,
                 fecha=fecha,
@@ -780,6 +953,16 @@ def registrar_asistencias(request):
                 defaults={"presente": bool(presente), "tarde": bool(tarde)},
             )
             guardadas += 1
+            if (prev is None and (not bool(presente))) or (prev is not None and bool(prev.presente) and (not bool(presente))):
+                try:
+                    _notify_inasistencias_bulk(
+                        alumno_ids=[alumno.id],
+                        fecha=fecha,
+                        tipo_asistencia=tipo_asistencia,
+                        actor=getattr(request, "user", None),
+                    )
+                except Exception:
+                    pass
             if return_items:
                 items_out.append({
                     "id": obj.id,

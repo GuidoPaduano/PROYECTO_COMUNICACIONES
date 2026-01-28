@@ -342,7 +342,6 @@ export default function HistorialNotasPadrePage() {
               <div className="col-span-2 flex items-end justify-start md:justify-end gap-2">
                 <Button
                   type="button"
-                  variant="outline"
                   className="gap-2"
                   onClick={() => fetchNotas(selectedId, materiaFilter, cuatriFilter)}
                   disabled={!selectedId || loadingNotas}
@@ -502,4 +501,5 @@ function Topbar({ unreadCount, me }) {
     </div>
   )
 }
+
 

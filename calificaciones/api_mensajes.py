@@ -17,10 +17,11 @@ from django.utils import timezone
 from django.db import models
 from django.contrib.auth import get_user_model
 
-from .models import Alumno, Mensaje
+from .models import Alumno, Mensaje, Notificacion
 
 from uuid import UUID, uuid4
 import json
+import re
 
 User = get_user_model()
 
@@ -82,6 +83,19 @@ def _parse_before_id(request):
     before_id: devuelve mensajes con id < before_id (útil para "cargar más hacia atrás")
     """
     return _parse_int(request.GET.get("before_id"), None)
+
+
+def _normalize_subject(subject: str) -> str:
+    """
+    Quita cadenas repetidas de "Re:" al inicio y devuelve el asunto base.
+    Ej: "Re: Re: Asunto" -> "Asunto"
+    """
+    s = (subject or "").strip()
+    if not s:
+        return ""
+    # Quita prefijos repetidos tipo "Re:" (case-insensitive)
+    s = re.sub(r"^(\\s*re\\s*:\\s*)+", "", s, flags=re.IGNORECASE)
+    return s.strip()
 
 
 def _safe_select_related(qs, *fields):
@@ -300,6 +314,53 @@ def _fallback_user_for_alumno(alumno):
     return None
 
 
+def _notif_url_for_msg(msg):
+    try:
+        if _threads_enabled() and getattr(msg, "thread_id", None):
+            return f"/mensajes/hilo/{getattr(msg, 'thread_id')}"
+    except Exception:
+        pass
+    return "/mensajes"
+
+
+def _notify_msg(*, msg, receptor, alumno=None, actor=None):
+    """
+    Crea notificación (campana) para mensajes.
+    No debe bloquear el envío si falla.
+    """
+    try:
+        asunto = (getattr(msg, "asunto", "") or "").strip()
+        actor_label = _user_label(actor).strip() if actor is not None else ""
+        if actor_label and asunto:
+            titulo = f"{actor_label}: {asunto}"
+        elif actor_label:
+            titulo = f"Nuevo mensaje de {actor_label}"
+        else:
+            titulo = asunto or "Nuevo mensaje"
+        contenido = (getattr(msg, "contenido", "") or "").strip()
+        descripcion = (contenido[:160] + "…") if len(contenido) > 160 else contenido
+        meta = {
+            "mensaje_id": getattr(msg, "id", None),
+            "thread_id": str(getattr(msg, "thread_id", "")) if _threads_enabled() else str(getattr(msg, "id", "")),
+            "curso": getattr(msg, _curso_field(), "") if _curso_field() else "",
+            "remitente_id": getattr(actor, "id", None),
+        }
+        if alumno is not None:
+            meta["alumno_id"] = getattr(alumno, "id", None)
+
+        Notificacion.objects.create(
+            destinatario=receptor,
+            tipo="mensaje",
+            titulo=titulo,
+            descripcion=descripcion or None,
+            url=_notif_url_for_msg(msg),
+            leida=False,
+            meta=meta,
+        )
+    except Exception:
+        pass
+
+
 def _apply_conversation_window(qs, request):
     """
     Devuelve (qs_ventana, has_more, next_before_id)
@@ -402,7 +463,12 @@ def enviar_mensaje(request):
         if tipo == "comunicado":
             candidatos = [getattr(alumno, "padre", None), getattr(alumno, "usuario", None)]
         else:
-            candidatos = [getattr(alumno, "usuario", None), getattr(alumno, "padre", None)]
+            alumno_user = getattr(alumno, "usuario", None)
+            if alumno_user is None:
+                fb = _fallback_user_for_alumno(alumno)
+                candidatos = [fb, getattr(alumno, "padre", None)]
+            else:
+                candidatos = [alumno_user, getattr(alumno, "padre", None)]
 
         destinatarios = _unique_users(candidatos)
 
@@ -446,6 +512,7 @@ def enviar_mensaje(request):
             kwargs["fecha_envio"] = timezone.now()
 
         msg = Mensaje.objects.create(**kwargs)
+        _notify_msg(msg=msg, receptor=receptor, alumno=alumno, actor=request.user)
         if first is None:
             first = msg
         ids.append(msg.id)
@@ -490,12 +557,18 @@ def enviar_mensaje_grupal(request):
     alumnos_ok = 0
     mensajes_creados = 0
     sin_receptor = 0
+    notifs = []
 
     for a in alumnos:
         if tipo == "comunicado":
             candidatos = [getattr(a, "padre", None), getattr(a, "usuario", None)]
         else:
-            candidatos = [getattr(a, "usuario", None), getattr(a, "padre", None)]
+            alumno_user = getattr(a, "usuario", None)
+            if alumno_user is None:
+                fb = _fallback_user_for_alumno(a)
+                candidatos = [fb, getattr(a, "padre", None)]
+            else:
+                candidatos = [alumno_user, getattr(a, "padre", None)]
 
         destinatarios = _unique_users(candidatos)
 
@@ -533,8 +606,38 @@ def enviar_mensaje_grupal(request):
             if _has_field(Mensaje, "fecha_envio"):
                 kwargs["fecha_envio"] = timezone.now()
 
-            Mensaje.objects.create(**kwargs)
+            msg = Mensaje.objects.create(**kwargs)
             mensajes_creados += 1
+            try:
+                titulo = (getattr(msg, "asunto", "") or "").strip() or "Nuevo mensaje"
+                contenido = (getattr(msg, "contenido", "") or "").strip()
+                descripcion = (contenido[:160] + "…") if len(contenido) > 160 else contenido
+                meta = {
+                    "mensaje_id": getattr(msg, "id", None),
+                    "thread_id": str(getattr(msg, "thread_id", "")) if _threads_enabled() else str(getattr(msg, "id", "")),
+                    "curso": getattr(msg, cf, "") if cf else "",
+                    "remitente_id": getattr(request.user, "id", None),
+                    "alumno_id": getattr(a, "id", None),
+                }
+                notifs.append(
+                    Notificacion(
+                        destinatario=receptor,
+                        tipo="mensaje",
+                        titulo=titulo,
+                        descripcion=descripcion or None,
+                        url=_notif_url_for_msg(msg),
+                        leida=False,
+                        meta=meta,
+                    )
+                )
+            except Exception:
+                pass
+
+    if notifs:
+        try:
+            Notificacion.objects.bulk_create(notifs, batch_size=500)
+        except Exception:
+            pass
 
     return Response(
         {
@@ -878,11 +981,12 @@ def responder_mensaje(request):
     if getattr(original, rf, None) != request.user:
         return Response({"detail": "No podés responder un mensaje que no recibiste."}, status=403)
 
-    if not asunto:
-        if getattr(original, "asunto", None):
-            asunto = f"Re: {original.asunto}"
-        else:
-            asunto = "Re:"
+    # Normalizar asunto para evitar "Re: Re: Re:"
+    asunto_normalizado = _normalize_subject(asunto) if asunto else _normalize_subject(getattr(original, "asunto", ""))
+    if asunto_normalizado:
+        asunto = f"Re: {asunto_normalizado}"
+    else:
+        asunto = "Re:"
 
     original_sender = getattr(original, sf, None)
     if not original_sender:
@@ -914,6 +1018,11 @@ def responder_mensaje(request):
         nuevo_kwargs["fecha_envio"] = timezone.now()
 
     nuevo = Mensaje.objects.create(**nuevo_kwargs)
+    try:
+        alumno_ref = getattr(original, "alumno", None) if _has_field(Mensaje, "alumno") else None
+        _notify_msg(msg=nuevo, receptor=original_sender, alumno=alumno_ref, actor=request.user)
+    except Exception:
+        pass
 
     has_leido = _has_field(Mensaje, "leido")
     has_leido_en = _has_field(Mensaje, "leido_en")

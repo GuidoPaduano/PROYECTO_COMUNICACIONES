@@ -174,7 +174,7 @@ function MisHijosPageInner() {
             <div className="text-red-600">{error}</div>
             <div className="flex gap-3">
               <Link href="/dashboard">
-                <Button variant="outline">Volver al panel</Button>
+                <Button >Volver al panel</Button>
               </Link>
               <Button onClick={() => window.location.reload()}>Reintentar</Button>
             </div>
@@ -195,3 +195,4 @@ function MisHijosPageInner() {
     </div>
   )
 }
+

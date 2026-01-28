@@ -17,6 +17,7 @@ from rest_framework.response import Response
 from .models import Alumno, Nota, Mensaje, Notificacion
 from .serializers import AlumnoSerializer, NotaCreateSerializer
 from .contexto import build_context_for_user, alumno_to_dict
+from .utils_cursos import filtrar_cursos_validos
 
 # ---------- Catálogo (con fallbacks) ----------
 try:
@@ -62,10 +63,12 @@ def get_materias_catalogo():
 def _cursos_catalogo():
     """Devuelve [{'id': '1A', 'nombre': '1° A'}, ...] desde Alumno.CURSOS si existe."""
     try:
-        return [{"id": c[0], "nombre": c[1]} for c in getattr(Alumno, "CURSOS", [])]
+        base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
+        return [{"id": c[0], "nombre": c[1]} for c in base]
     except Exception:
         # Fallback muy básico si no hay choices
         cursos = sorted(set(Alumno.objects.values_list("curso", flat=True)))
+        cursos = filtrar_cursos_validos(cursos)
         return [{"id": c, "nombre": str(c)} for c in cursos if c]
 
 
@@ -413,7 +416,7 @@ def _notify_padre_nota(remitente, nota: Nota):
         except Exception:
             docente_label = ""
 
-        alumno_nombre = _alumno_fullname(alumno)
+        alumno_nombre = _alumno_nombre(alumno)
         curso_alumno = getattr(alumno, "curso", "") or ""
 
         materia = getattr(nota, "materia", None)
