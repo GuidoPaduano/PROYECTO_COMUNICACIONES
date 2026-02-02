@@ -182,6 +182,14 @@ export default function Profile() {
     return "Usuario";
   }, [api]);
 
+  const isPreceptor = useMemo(() => {
+    const grupos = (api?.user?.grupos || api?.user?.groups || []).map((g) =>
+      String(g || "").toLowerCase()
+    );
+    const rolRaw = String(api?.user?.rol || "").toLowerCase();
+    return [rolRaw, ...grupos].some((t) => t.includes("preceptor"));
+  }, [api]);
+
   const cursoAlumnoTexto = useMemo(() => {
     if (api?.alumno?.curso) return String(api.alumno.curso);
     const raw = String(profileData.department || "");
@@ -391,12 +399,14 @@ export default function Profile() {
       {/* Main Content */}
       <div className="space-y-6">
         {/* Page Header */}
-        <div className="surface-card surface-card-pad">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Mi Perfil</h2>
-          <p className="text-gray-600">
-            Gestioná tu información personal y configuración de cuenta
-          </p>
-        </div>
+        {!isPreceptor && (
+          <div className="surface-card surface-card-pad">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Mi Perfil</h2>
+            <p className="text-gray-600">
+              Gestioná tu información personal y configuración de cuenta
+            </p>
+          </div>
+        )}
 
         {loading ? (
           <div className="text-sm text-gray-600">Cargando perfil…</div>

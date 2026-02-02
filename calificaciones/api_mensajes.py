@@ -18,6 +18,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 
 from .models import Alumno, Mensaje, Notificacion
+from .resend_email import send_message_email
 
 from uuid import UUID, uuid4
 import json
@@ -357,6 +358,17 @@ def _notify_msg(*, msg, receptor, alumno=None, actor=None):
             leida=False,
             meta=meta,
         )
+        try:
+            to_email = (getattr(receptor, "email", "") or "").strip()
+            if to_email:
+                send_message_email(
+                    to_email=to_email,
+                    subject=titulo or "Nuevo mensaje",
+                    content=descripcion or contenido or "",
+                    actor_label=actor_label,
+                )
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -608,6 +620,18 @@ def enviar_mensaje_grupal(request):
 
             msg = Mensaje.objects.create(**kwargs)
             mensajes_creados += 1
+            try:
+                to_email = (getattr(receptor, "email", "") or "").strip()
+                if to_email:
+                    actor_label = _user_label(request.user).strip()
+                    send_message_email(
+                        to_email=to_email,
+                        subject=(getattr(msg, "asunto", "") or "Nuevo mensaje").strip(),
+                        content=(getattr(msg, "contenido", "") or "").strip(),
+                        actor_label=actor_label,
+                    )
+            except Exception:
+                pass
             try:
                 titulo = (getattr(msg, "asunto", "") or "").strip() or "Nuevo mensaje"
                 contenido = (getattr(msg, "contenido", "") or "").strip()
