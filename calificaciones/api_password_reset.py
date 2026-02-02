@@ -10,10 +10,11 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.translation import gettext as _
 
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, authentication_classes, parser_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes, parser_classes, throttle_classes
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 from .resend_email import send_resend_email
 
@@ -25,10 +26,7 @@ def _frontend_base_url(request) -> str:
     env_base = (os.environ.get("FRONTEND_BASE_URL", "") or "").strip()
     if env_base:
         return env_base
-    origin = (request.headers.get("Origin") or request.headers.get("origin") or "").strip()
-    if origin:
-        return origin
-    return "http://localhost:3000"
+    return ""
 
 
 def _reset_path() -> str:
@@ -40,11 +38,22 @@ def _reset_path() -> str:
         return env_path
     return "/reset-password"
 
+def _blacklist_all_tokens(user) -> None:
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+
+        tokens = OutstandingToken.objects.filter(user=user)
+        for tok in tokens:
+            BlacklistedToken.objects.get_or_create(token=tok)
+    except Exception:
+        pass
+
 
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
+@throttle_classes([AnonRateThrottle, UserRateThrottle])
 def password_reset_request(request):
     payload = request.data or {}
     email = (payload.get("email") or payload.get("correo") or "").strip().lower()
@@ -64,6 +73,8 @@ def password_reset_request(request):
     token = default_token_generator.make_token(user)
 
     base = _frontend_base_url(request).rstrip("/")
+    if not base:
+        return Response({"detail": _("Configuración de frontend no definida.")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     path = _reset_path().strip()
     if not path.startswith("/"):
         path = f"/{path}"
@@ -90,6 +101,7 @@ def password_reset_request(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
+@throttle_classes([AnonRateThrottle, UserRateThrottle])
 def password_reset_confirm(request):
     payload = request.data or {}
     uid = (payload.get("uid") or "").strip()
@@ -111,5 +123,6 @@ def password_reset_confirm(request):
 
     user.set_password(password)
     user.save(update_fields=["password"])
+    _blacklist_all_tokens(user)
 
     return Response({"detail": _("Contraseña actualizada.")}, status=status.HTTP_200_OK)

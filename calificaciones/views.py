@@ -17,8 +17,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.decorators import (
-    action, api_view, authentication_classes, permission_classes, parser_classes
+    action, api_view, authentication_classes, permission_classes, parser_classes, throttle_classes
 )
+from rest_framework.throttling import UserRateThrottle
 from django.utils.decorators import method_decorator
 
 from reportlab.pdfgen import canvas
@@ -656,6 +657,13 @@ def perfil_api(request):
             user.last_name = last_name
             changed = True
         if email:
+            # Evitar emails duplicados
+            try:
+                User = get_user_model()
+                if User.objects.filter(email__iexact=email).exclude(pk=user.pk).exists():
+                    return JsonResponse({"detail": "Ese correo ya está en uso."}, status=400)
+            except Exception:
+                pass
             user.email = email
             changed = True
 
@@ -2053,6 +2061,7 @@ def auth_logout(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
+@throttle_classes([UserRateThrottle])
 def auth_change_password(request):
     user = request.user
     data = request.data or {}
@@ -2071,6 +2080,15 @@ def auth_change_password(request):
 
     user.set_password(new)
     user.save(update_fields=["password"])
+
+    # Revocar refresh tokens existentes si blacklist está habilitado
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+        tokens = OutstandingToken.objects.filter(user=user)
+        for tok in tokens:
+            BlacklistedToken.objects.get_or_create(token=tok)
+    except Exception:
+        pass
 
     # Mantener la sesión de Django si estuviera usando cookies
     try:
