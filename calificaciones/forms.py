@@ -16,6 +16,14 @@ class CustomUserCreationForm(UserCreationForm):
         model = User
         fields = ("username", "email")  # lo básico; ajustá si hace falta
 
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip()
+        if not email:
+            return email
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("Ya existe un usuario con ese correo.")
+        return email
+
 
 class NotaForm(forms.ModelForm):
     """

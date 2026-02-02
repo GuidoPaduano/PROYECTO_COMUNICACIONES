@@ -23,6 +23,14 @@ class CustomUserCreationForm(UserCreationForm):
         model = User
         fields = ("username", "email")
 
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip()
+        if not email:
+            return email
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("Ya existe un usuario con ese correo.")
+        return email
+
 
 class CustomUserChangeForm(UserChangeForm):
     curso = forms.ChoiceField(
@@ -64,3 +72,14 @@ class CustomUserChangeForm(UserChangeForm):
             base_qs = base_qs.filter(curso=selected_course)
         self.fields["curso"].initial = selected_course
         self.fields["alumno"].queryset = base_qs.order_by("curso", "nombre")
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip()
+        if not email:
+            return email
+        qs = User.objects.filter(email__iexact=email)
+        if self.instance and self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError("Ya existe un usuario con ese correo.")
+        return email

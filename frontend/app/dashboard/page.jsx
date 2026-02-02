@@ -390,6 +390,7 @@ const [mensajeSan, setMensajeSan] = useState("")
   const [loadingAlumnoMsg, setLoadingAlumnoMsg] = useState(false)
   const [alumnoMsgErr, setAlumnoMsgErr] = useState("")
   const [alumnoMsgOk, setAlumnoMsgOk] = useState("")
+  const [alumnoDestType, setAlumnoDestType] = useState("profesor")
   const [destSel, setDestSel] = useState("")
   const [asuntoAlu, setAsuntoAlu] = useState("")
   const [contenidoAlu, setContenidoAlu] = useState("")
@@ -757,18 +758,6 @@ setMensajeSan("")
     setTimeout(() => setOpenComFam(true), 0)
   }
 
-  useEffect(() => {
-    const handler = () => setOpenSendPicker(true)
-    if (typeof window !== "undefined") {
-      window.addEventListener("open-send-picker", handler)
-    }
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("open-send-picker", handler)
-      }
-    }
-  }, [])
-
   const baseGroups = Array.isArray(me?.groups) ? me.groups : []
   const isSuper = !!me?.is_superuser
   const myId = me?.id ?? me?.user?.id ?? null
@@ -783,6 +772,20 @@ setMensajeSan("")
   const showDocenteCursos = showProfesor || showPreceptor
   const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor
   const showLegacyDashboardCards = false
+
+  useEffect(() => {
+    const handler = () => {
+      setOpenSendPicker(true)
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("open-send-picker", handler)
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("open-send-picker", handler)
+      }
+    }
+  }, [isAlumnoOnly])
 
   useEffect(() => {
     if (!showDocenteCursos) return
@@ -1138,36 +1141,73 @@ setMensajeSan("")
         ) : null}
       </div>
 
-      {/* ✅ NUEVO: Selector “Enviar mensajes” (profesor) */}
+      {/* ✅ NUEVO: Selector “Enviar mensajes” */}
       <Dialog open={openSendPicker} onOpenChange={setOpenSendPicker}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Enviar mensajes</DialogTitle>
             <DialogDescription>
-              Elegí si querés enviar a un alumno en particular o a un curso entero.
+              {isAlumnoOnly
+                ? "Elegí si querés enviar a un profesor o preceptor."
+                : "Elegí si querés enviar a un alumno en particular o a un curso entero."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <TileButton
-              title="A un alumno"
-              desc="Mensaje individual a un alumno"
-              icon={<User className="h-4 w-4 text-blue-600" />}
-              onClick={abrirIndividualDesdePicker}
-            />
-            <TileButton
-              title="A un curso"
-              desc="Mensaje grupal a un curso"
-              icon={<Users className="h-4 w-4 text-blue-600" />}
-              onClick={abrirGrupalDesdePicker}
-            />
-            <TileButton
-              title="A la familia"
-              desc="Comunicado para padres o tutores"
-              icon={<Users className="h-4 w-4 text-blue-600" />}
-              onClick={abrirFamiliaDesdePicker}
-            />
-          </div>
+          {isAlumnoOnly ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setAlumnoDestType("profesor")
+                  setTimeout(() => setOpenAlumnoMsg(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">Profesores</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje a un profesor</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setAlumnoDestType("preceptor")
+                  setTimeout(() => setOpenAlumnoMsg(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">Preceptores</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje a un preceptor</div>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <button
+                type="button"
+                onClick={abrirIndividualDesdePicker}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">A un alumno</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje individual a un alumno</div>
+              </button>
+              <button
+                type="button"
+                onClick={abrirGrupalDesdePicker}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">A un curso</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje grupal a un curso</div>
+              </button>
+              <button
+                type="button"
+                onClick={abrirFamiliaDesdePicker}
+                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+              >
+                <div className="text-sm font-semibold text-slate-900">A la familia</div>
+                <div className="text-xs text-slate-500 mt-1">Comunicado para padres o tutores</div>
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center justify-end pt-2">
             <Button onClick={() => setOpenSendPicker(false)}>
@@ -1444,40 +1484,44 @@ setMensajeSan("")
           {alumnoMsgOk && <SuccessMessage className="mt-1">{alumnoMsgOk}</SuccessMessage>}
 
           <div className="space-y-3">
-            <div>
-              <Label>Profesor</Label>
-              <select
-                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
-                value={destSel}
-                onChange={(e) => setDestSel(e.target.value)}
-              >
-                <option value="">Elegí un profesor…</option>
-                {destinatariosProf.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nombre || d.username || `ID ${d.id}`} {d.grupo ? `(${d.grupo})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {alumnoDestType !== "preceptor" && (
+              <div>
+                <Label>Profesor</Label>
+                <select
+                  className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                  value={destSel}
+                  onChange={(e) => setDestSel(e.target.value)}
+                >
+                  <option value="">Elegí un profesor…</option>
+                  {destinatariosProf.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nombre || d.username || `ID ${d.id}`} {d.grupo ? `(${d.grupo})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            <div>
-              <Label>Preceptor</Label>
-              <select
-                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
-                value={destSel}
-                onChange={(e) => setDestSel(e.target.value)}
-              >
-                <option value="">Elegí un preceptor…</option>
-                {destinatariosPrec.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.nombre || d.username || `ID ${d.id}`} {d.grupo ? `(${d.grupo})` : ""}
-                  </option>
-                ))}
-              </select>
-              {loadingAlumnoMsg && (
-                <div className="text-xs text-gray-500 mt-1">Cargando destinatarios…</div>
-              )}
-            </div>
+            {alumnoDestType !== "profesor" && (
+              <div>
+                <Label>Preceptor</Label>
+                <select
+                  className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                  value={destSel}
+                  onChange={(e) => setDestSel(e.target.value)}
+                >
+                  <option value="">Elegí un preceptor…</option>
+                  {destinatariosPrec.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nombre || d.username || `ID ${d.id}`} {d.grupo ? `(${d.grupo})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {loadingAlumnoMsg && (
+                  <div className="text-xs text-gray-500 mt-1">Cargando destinatarios…</div>
+                )}
+              </div>
+            )}
 
             <div>
               <Label>Asunto</Label>
