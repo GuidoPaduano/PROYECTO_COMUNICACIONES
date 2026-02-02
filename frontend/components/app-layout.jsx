@@ -106,6 +106,17 @@ const ROUTE_META = [
   },
 ]
 
+function isPublicPath(raw) {
+  if (!raw) return false
+  const value = String(raw)
+  if (value === "/") return true
+  if (/^\/(login|forgot-password|reset-password)(\/|$)/.test(value)) return true
+  if (value.includes("/login")) return true
+  if (value.includes("/forgot-password")) return true
+  if (value.includes("/reset-password")) return true
+  return false
+}
+
 function resolveMeta(pathname, userLabel) {
   const found = ROUTE_META.find((entry) => entry.match(pathname))
   if (!found) {
@@ -143,7 +154,15 @@ function shouldHideHeader(roles, isSuper, pathname) {
 }
 
 function ProtectedShell({ children, pathname }) {
-  useAuthGuard()
+  const isPublic = useMemo(() => {
+    const browserPath =
+      typeof window !== "undefined" ? window.location.pathname || "" : ""
+    const browserHref =
+      typeof window !== "undefined" ? window.location.href || "" : ""
+    return [pathname, browserPath, browserHref].some(isPublicPath)
+  }, [pathname])
+
+  useAuthGuard({ enabled: !isPublic })
 
   const [userLabel, setUserLabel] = useState("")
   const [roles, setRoles] = useState([])
@@ -152,6 +171,7 @@ function ProtectedShell({ children, pathname }) {
   const [isStaff, setIsStaff] = useState(false)
 
   useEffect(() => {
+    if (isPublic) return
     let alive = true
     ;(async () => {
       try {
@@ -178,7 +198,7 @@ function ProtectedShell({ children, pathname }) {
     return () => {
       alive = false
     }
-  }, [])
+  }, [isPublic])
 
   const meta = useMemo(() => resolveMeta(pathname, userLabel), [pathname, userLabel])
   const hideHeader = useMemo(
@@ -213,6 +233,10 @@ function ProtectedShell({ children, pathname }) {
     return meta.actions
   }, [pathname, canAgregarAlumno, meta.actions])
 
+  if (isPublic) {
+    return children
+  }
+
   return (
     <AppShell
       title={meta.title}
@@ -232,9 +256,24 @@ function ProtectedShell({ children, pathname }) {
 
 export default function AppLayout({ children }) {
   const pathname = usePathname() || ""
-  const isAuthRoute = pathname === "/" || pathname.startsWith("/login")
+  const [isPublic, setIsPublic] = useState(true)
+  const [ready, setReady] = useState(false)
 
-  if (isAuthRoute) {
+  useEffect(() => {
+    const browserPath =
+      typeof window !== "undefined" ? window.location.pathname || "" : ""
+    const browserHref =
+      typeof window !== "undefined" ? window.location.href || "" : ""
+    const resolvedPath = browserPath || pathname
+    const isRoutePublic =
+      !resolvedPath ||
+      isPublicPath(resolvedPath) ||
+      isPublicPath(browserHref)
+    setIsPublic(isRoutePublic)
+    setReady(true)
+  }, [pathname])
+
+  if (!ready || isPublic) {
     return children
   }
 

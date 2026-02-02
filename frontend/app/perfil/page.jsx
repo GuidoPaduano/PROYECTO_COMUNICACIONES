@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   Mail,
@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   Inbox,
   Link2,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,7 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { INBOX_EVENT } from "../_lib/inbox";
 import { NotificationBell } from "@/components/notification-bell";
-import { authFetch, useAuthGuard } from "../_lib/auth";
+import { authFetch, logout, useAuthGuard } from "../_lib/auth";
 
 const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
 
@@ -36,6 +37,7 @@ export default function Profile() {
   useAuthGuard();
 
   const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [api, setApi] = useState(null);
@@ -56,6 +58,18 @@ export default function Profile() {
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState("");
   const [linkOk, setLinkOk] = useState("");
+
+  // ===== Cambiar contraseña =====
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwdLoading, setPwdLoading] = useState(false);
+  const [pwdError, setPwdError] = useState("");
+  const [pwdOk, setPwdOk] = useState("");
+  const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
+  const logoutTimerRef = useRef(null);
 
   // Carga y refresco del contador de no leídos (igual que otras vistas)
   useEffect(() => {
@@ -197,8 +211,37 @@ export default function Profile() {
   }, [api, profileData.department]);
 
   const handleSave = async () => {
-    // Opcional: acá podrías hacer PATCH a /perfil_api/ para persistir nombre/email
-    setIsEditing(false);
+    setSaving(true);
+    try {
+      const full = String(profileData.name || "").trim();
+      const parts = full.split(/\s+/).filter(Boolean);
+      const firstName = parts.shift() || "";
+      const lastName = parts.join(" ");
+
+      const res = await authFetch("/perfil_api/", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName,
+          email: profileData.email || "",
+        }),
+      });
+
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast("error", j?.detail || "No se pudo guardar el perfil.");
+        return;
+      }
+
+      showToast("success", "Perfil actualizado.");
+      await refreshPerfilApi();
+      setIsEditing(false);
+    } catch {
+      showToast("error", "No se pudo conectar con el servidor.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -223,6 +266,82 @@ export default function Profile() {
           ? "Responsable de alumnos"
           : "",
       }));
+    }
+  };
+
+  const handleTogglePassword = () => {
+    setShowPasswordForm((v) => !v);
+    setPwdError("");
+    setPwdOk("");
+  };
+
+  const resetPasswordForm = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPwdError("");
+    setPwdOk("");
+  };
+
+  const showToast = (type, message, ttl = 3000) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ type, message });
+    toastTimerRef.current = setTimeout(() => setToast(null), ttl);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+    };
+  }, []);
+
+  const handleChangePassword = async (e) => {
+    e?.preventDefault?.();
+    setPwdError("");
+    setPwdOk("");
+
+    if (!currentPassword || !newPassword) {
+      showToast("error", "Completá la contraseña actual y la nueva.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      showToast("error", "La contraseña nueva debe tener al menos 6 caracteres.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast("error", "Las contraseñas nuevas no coinciden.");
+      return;
+    }
+
+    setPwdLoading(true);
+    try {
+      const res = await authFetch("/auth/password-change/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast("error", j?.detail || "No se pudo cambiar la contraseña.");
+        return;
+      }
+
+      showToast("success", j?.detail || "Contraseña actualizada. Se cerrará la sesión.");
+      resetPasswordForm();
+      setShowPasswordForm(false);
+      if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+      logoutTimerRef.current = setTimeout(() => {
+        logout();
+      }, 1200);
+    } catch {
+      showToast("error", "No se pudo conectar con el servidor.");
+    } finally {
+      setPwdLoading(false);
     }
   };
 
@@ -312,6 +431,19 @@ export default function Profile() {
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50">
+          <div
+            className={`rounded-md px-4 py-3 text-sm shadow-lg border ${
+              toast.type === "success"
+                ? "bg-green-50 text-green-800 border-green-200"
+                : "bg-red-50 text-red-800 border-red-200"
+            }`}
+          >
+            {toast.message}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="bg-blue-600 text-white px-6 py-4">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
@@ -399,7 +531,7 @@ export default function Profile() {
       {/* Main Content */}
       <div className="space-y-6">
         {/* Page Header */}
-        {!isPreceptor && (
+        {!loading && !error && !isPreceptor && (
           <div className="surface-card surface-card-pad">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Mi Perfil</h2>
             <p className="text-gray-600">
@@ -503,15 +635,23 @@ export default function Profile() {
                       Información personal
                     </h4>
                     <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleTogglePassword}
+                      >
+                        <KeyRound className="h-4 w-4 mr-2" />
+                        Cambiar contraseña
+                      </Button>
                       {isEditing ? (
                         <>
                           <Button
                             size="sm"
                             onClick={handleSave}
                             className="bg-[#0c1b3f] hover:bg-[#0a1736]"
+                            disabled={saving}
                           >
                             <Save className="h-4 w-4 mr-2" />
-                            Guardar
+                            {saving ? "Guardando..." : "Guardar"}
                           </Button>
                           <Button
                             size="sm"
@@ -613,6 +753,85 @@ export default function Profile() {
                       )}
                     </div>
                   </div>
+
+                  {showPasswordForm && (
+                    <div className="mt-8 border-t pt-6">
+                      <h5 className="font-semibold text-gray-900 text-base mb-4">
+                        Cambiar contraseña
+                      </h5>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <Label
+                            htmlFor="currentPassword"
+                            className="text-sm font-medium text-gray-700"
+                          >
+                            Contraseña actual
+                          </Label>
+                          <Input
+                            id="currentPassword"
+                            type="password"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            className="mt-1"
+                            autoComplete="current-password"
+                          />
+                        </div>
+                        <div>
+                          <Label
+                            htmlFor="newPassword"
+                            className="text-sm font-medium text-gray-700"
+                          >
+                            Contraseña nueva
+                          </Label>
+                          <Input
+                            id="newPassword"
+                            type="password"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className="mt-1"
+                            autoComplete="new-password"
+                          />
+                        </div>
+                        <div>
+                          <Label
+                            htmlFor="confirmPassword"
+                            className="text-sm font-medium text-gray-700"
+                          >
+                            Repetir contraseña nueva
+                          </Label>
+                          <Input
+                            id="confirmPassword"
+                            type="password"
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            className="mt-1"
+                            autoComplete="new-password"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-[#0c1b3f] hover:bg-[#0a1736]"
+                          onClick={handleChangePassword}
+                          disabled={pwdLoading}
+                        >
+                          {pwdLoading ? "Guardando…" : "Actualizar contraseña"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setShowPasswordForm(false);
+                            resetPasswordForm();
+                          }}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

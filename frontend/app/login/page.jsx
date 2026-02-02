@@ -81,13 +81,24 @@ export default function LoginPage() {
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-[#0c1b3f] text-white py-2 rounded-md hover:bg-[#0a1736]"
-          >
-            {loading ? "Ingresando..." : "Ingresar"}
-          </button>
+          <div className="flex flex-row flex-wrap items-center justify-center gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-[#0c1b3f] text-white px-6 py-2 text-sm rounded-md hover:bg-[#0a1736] disabled:opacity-70 shrink-0"
+            >
+              {loading ? "Ingresando..." : "Ingresar"}
+            </button>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span aria-hidden="true">|</span>
+              <a
+                href="/forgot-password"
+                className="text-blue-600 hover:underline whitespace-nowrap"
+              >
+                ¿Olvidaste tu contraseña?
+              </a>
+            </div>
+          </div>
         </form>
       </div>
     </div>

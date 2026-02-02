@@ -11,9 +11,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
-RESEND_API_KEY_FALLBACK = os.getenv("RESEND_API_KEY", "")
-RESEND_API_KEY_EFFECTIVE = RESEND_API_KEY or RESEND_API_KEY_FALLBACK
+RESEND_API_KEY_EFFECTIVE = RESEND_API_KEY
 RESEND_ENABLED = bool(RESEND_API_KEY_EFFECTIVE and RESEND_FROM_EMAIL)
+
+# Frontend (para links de reset de contraseña)
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
+PASSWORD_RESET_PATH = os.environ.get("PASSWORD_RESET_PATH", "/reset-password")
 
 def _split_env_list(var_name: str, default_list: list[str]) -> list[str]:
     raw = os.environ.get(var_name, "").strip()
@@ -31,7 +34,7 @@ ALLOW_VERCEL_ORIGINS = os.environ.get("ALLOW_VERCEL_ORIGINS", "False") == "True"
 if not DEBUG and not RESEND_ENABLED:
     raise Exception(
         "RESEND_API_KEY/RESEND_FROM_EMAIL not configured. "
-        "Set RESEND_API_KEY (preferred) or the custom env var used in settings, and RESEND_FROM_EMAIL."
+        "Set RESEND_API_KEY and RESEND_FROM_EMAIL."
     )
 
 # ALLOWED_HOSTS desde entorno o valores seguros por defecto

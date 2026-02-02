@@ -264,8 +264,25 @@ export async function logout() {
 }
 
 /** Hook simple: si no hay token, te manda a /login. */
-export function useAuthGuard() {
+export function useAuthGuard(options = {}) {
+  const enabled = options?.enabled !== false
   useEffect(() => {
+    if (!enabled) return
+    try {
+      const href = (window.location && window.location.href) ? window.location.href : ""
+      const p = (window.location && window.location.pathname) ? window.location.pathname : ""
+      if (
+        p === "/" ||
+        p.startsWith("/login") ||
+        p.startsWith("/forgot-password") ||
+        p.startsWith("/reset-password") ||
+        href.includes("/login") ||
+        href.includes("/forgot-password") ||
+        href.includes("/reset-password")
+      ) {
+        return
+      }
+    } catch {}
     const t = getAccessToken()
     if (!t && typeof window !== "undefined") {
       window.location.href = "/login"
