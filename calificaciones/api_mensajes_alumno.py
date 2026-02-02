@@ -15,6 +15,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 
 from .models import Alumno, Mensaje, Notificacion
+from .resend_email import send_message_email
 
 
 # =========================================================
@@ -224,6 +225,19 @@ def alumno_enviar(request):
                 "alumno_id": getattr(alumno, "id", None) if alumno else None,
             },
         )
+    except Exception:
+        pass
+
+    try:
+        to_email = (getattr(receptor, "email", "") or "").strip()
+        if to_email:
+            actor_label = (user.get_full_name() or user.username or "Usuario").strip()
+            send_message_email(
+                to_email=to_email,
+                subject=(asunto or "Nuevo mensaje").strip(),
+                content=(contenido or "").strip(),
+                actor_label=actor_label,
+            )
     except Exception:
         pass
 
