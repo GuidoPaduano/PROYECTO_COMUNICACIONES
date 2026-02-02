@@ -15,6 +15,7 @@ from .views import (
     mi_perfil,
     perfil_api,
     auth_logout,
+    auth_change_password,
 
     # catálogos y alumnos
     notas_catalogos,
@@ -81,6 +82,12 @@ from .api_padres import (
     notas_de_hijo,
 )
 
+# Password reset (frontend)
+from .api_password_reset import (
+    password_reset_request,
+    password_reset_confirm,
+)
+
 # APIs de eventos para padres (calendario filtrado por hijo/curso)
 from .api_eventos_padres import (
     eventos_para_hijo,
@@ -143,6 +150,11 @@ urlpatterns = [
 
     # ===== Logout de sesión (cookies) =====
     path("auth/logout/", auth_logout, name="auth_logout"),
+    path("auth/password-change/", auth_change_password, name="auth_change_password"),
+
+    # ===== Password reset (frontend custom) =====
+    path("auth/password-reset/", password_reset_request, name="auth_password_reset"),
+    path("auth/password-reset/confirm/", password_reset_confirm, name="auth_password_reset_confirm"),
 
     # ===== Perfil / WhoAmI =====
     path("auth/whoami/", WhoAmI.as_view(), name="api_whoami"),

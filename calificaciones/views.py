@@ -30,7 +30,7 @@ from .utils_cursos import filtrar_cursos_validos
 from .serializers import EventoSerializer, AlumnoFullSerializer, NotaPublicSerializer  # ⬅️ NUEVO
 from .constants import MATERIAS
 from .contexto import resolve_alumno_for_user
-from django.contrib.auth import logout as dj_logout
+from django.contrib.auth import logout as dj_logout, update_session_auth_hash
 from django.contrib.auth import get_user_model
 
 import json
@@ -2044,6 +2044,41 @@ def auth_logout(request):
     resp.delete_cookie("sessionid")
     resp.delete_cookie("csrftoken")
     return resp
+
+
+# =========================================================
+#  Cambiar contraseña (autenticado)
+# =========================================================
+@api_view(["POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser, FormParser, MultiPartParser])
+def auth_change_password(request):
+    user = request.user
+    data = request.data or {}
+
+    current = (data.get("current_password") or data.get("password_actual") or "").strip()
+    new = (data.get("new_password") or data.get("password_nueva") or "").strip()
+
+    if not current or not new:
+        return Response({"detail": "Completá la contraseña actual y la nueva."}, status=400)
+
+    if len(new) < 6:
+        return Response({"detail": "La contraseña nueva debe tener al menos 6 caracteres."}, status=400)
+
+    if not user.check_password(current):
+        return Response({"detail": "La contraseña actual no coincide."}, status=400)
+
+    user.set_password(new)
+    user.save(update_fields=["password"])
+
+    # Mantener la sesión de Django si estuviera usando cookies
+    try:
+        update_session_auth_hash(request, user)
+    except Exception:
+        pass
+
+    return Response({"detail": "Contraseña actualizada."})
 
 
 # =========================================================
