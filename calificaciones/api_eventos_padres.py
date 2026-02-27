@@ -1,5 +1,6 @@
 # calificaciones/api_eventos_padres.py
 from django.http import JsonResponse, HttpResponseForbidden
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -49,7 +50,15 @@ def eventos_para_hijo(request, alumno_id: str):
     if not request.user.is_superuser and alumno.padre_id != request.user.id:
         return HttpResponseForbidden("No tenés permiso.")
 
-    qs = Evento.objects.filter(curso=alumno.curso).order_by("fecha", "id")
+    qs = (
+        Evento.objects.filter(
+            Q(curso=alumno.curso)
+            | Q(curso__iexact="ALL")
+            | Q(curso__iexact="TODOS")
+            | Q(curso="*")
+        )
+        .order_by("fecha", "id")
+    )
 
     # Rango opcional
     desde = _parse_date(request.GET.get("desde"))
@@ -76,7 +85,15 @@ def eventos_para_mis_hijos(request):
         hijos = Alumno.objects.filter(padre=request.user)
 
     cursos = sorted({h.curso for h in hijos if h.curso})
-    qs = Evento.objects.filter(curso__in=cursos).order_by("fecha", "id")
+    qs = (
+        Evento.objects.filter(
+            Q(curso__in=cursos)
+            | Q(curso__iexact="ALL")
+            | Q(curso__iexact="TODOS")
+            | Q(curso="*")
+        )
+        .order_by("fecha", "id")
+    )
 
     desde = _parse_date(request.GET.get("desde"))
     hasta = _parse_date(request.GET.get("hasta"))

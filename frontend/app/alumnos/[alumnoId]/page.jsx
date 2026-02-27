@@ -2525,9 +2525,6 @@ function AlumnoPerfilPageInner() {
                       </div>
                       <div>
                         <h3 className="tile-title">Asistencias</h3>
-                        <p className="tile-subtitle">
-                          {asistencias.length === 0 ? "(Próximamente)" : ""}
-                        </p>
                       </div>
                     </div>
 

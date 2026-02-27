@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import {
+  BarChart3,
   CalendarDays,
   ClipboardList,
   Gavel,
@@ -63,6 +64,17 @@ const NAV_ITEMS = [
     icon: GraduationCap,
     show: ({ roles, isSuper }) => isSuper || roles.has("padres"),
   },
+  {
+    href: "/reportes",
+    label: "Reportes",
+    icon: BarChart3,
+    show: ({ roles, isSuper }) =>
+      isSuper ||
+      roles.has("profesores") ||
+      roles.has("preceptores") ||
+      roles.has("padres") ||
+      roles.has("alumnos"),
+  },
   { href: "/mensajes", label: "Mensajes", icon: MessageSquare, public: true },
   { href: "/perfil", label: "Perfil", icon: User, public: true },
 ]
@@ -99,6 +111,13 @@ export function AppShell({
     if (!Array.isArray(roles)) return new Set()
     return new Set(roles.map((r) => String(r || "").toLowerCase()).filter(Boolean))
   }, [roles])
+  const roleLabel = useMemo(() => {
+    if (roleSet.has("padres")) return "Padre"
+    if (roleSet.has("profesores")) return "Profesor"
+    if (roleSet.has("preceptores")) return "Preceptor"
+    if (roleSet.has("alumnos")) return "Alumno"
+    return isSuper ? "Administrador" : ""
+  }, [roleSet, isSuper])
   const hideHeaderForPadrePerfil =
     rolesReady && pathname?.startsWith("/perfil") && roleSet.has("padres")
   const hideHeaderForAlumnoDetail =
@@ -190,7 +209,9 @@ export function AppShell({
               <div className="sidebar-avatar">{(userLabel || "User").slice(0, 2)}</div>
               <div>
                 <p className="text-sm font-semibold text-white leading-tight">{userLabel || "Sesion"}</p>
-                <p className="text-xs text-slate-300 leading-tight">Conectado</p>
+                <p className="text-xs text-slate-300 leading-tight">
+                  {roleLabel || "Conectado"}
+                </p>
               </div>
             </div>
             <button type="button" className="sidebar-logout" onClick={handleLogout}>

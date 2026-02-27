@@ -49,6 +49,7 @@ import {
 
 const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
+const LAST_HIJO_KEY = "mis_hijos_last_alumno"
 const fetchCache = new Map()
 
 // ⛔️ Sin imports NPM de FullCalendar (usamos CDN)
@@ -76,6 +77,20 @@ function getStoredCurso() {
 function setStoredCurso(value) {
   try {
     if (value) localStorage.setItem(LAST_CURSO_KEY, value)
+  } catch {}
+}
+
+function getStoredHijo() {
+  try {
+    return localStorage.getItem(LAST_HIJO_KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
+function setStoredHijo(value) {
+  try {
+    if (value) localStorage.setItem(LAST_HIJO_KEY, value)
   } catch {}
 }
 
@@ -281,7 +296,13 @@ export default function CalendarioEscolarPage() {
           const j = await hijosRes.json()
           const arr = Array.isArray(j?.results) ? j.results : []
           setHijos(arr)
-          if (arr[0]?.id_alumno) setSelectedKid(String(arr[0].id_alumno))
+          const ids = arr
+            .map((h) => String(h?.id_alumno || "").trim())
+            .filter(Boolean)
+          const stored = typeof window !== "undefined" ? getStoredHijo() : ""
+          const initial =
+            stored && ids.includes(stored) ? stored : arr[0]?.id_alumno ? String(arr[0].id_alumno) : ""
+          if (initial) setSelectedKid(initial)
         }
       } catch {}
     })()
@@ -701,6 +722,12 @@ export default function CalendarioEscolarPage() {
     isPreceptor,
     selectedCurso,
   ])
+
+  useEffect(() => {
+    if (!isPadre) return
+    if (!selectedKid) return
+    setStoredHijo(String(selectedKid))
+  }, [isPadre, selectedKid])
 
   // Refetch al cambiar de hijo
   useEffect(() => {

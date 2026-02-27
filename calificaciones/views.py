@@ -1674,7 +1674,12 @@ def api_eventos(request):
     else:
         try:
             alumno = Alumno.objects.get(padre=user)
-            qs = Evento.objects.filter(curso=alumno.curso)
+            qs = Evento.objects.filter(
+                Q(curso=alumno.curso)
+                | Q(curso__iexact="ALL")
+                | Q(curso__iexact="TODOS")
+                | Q(curso="*")
+            )
         except Alumno.DoesNotExist:
             qs = Evento.objects.none()
 

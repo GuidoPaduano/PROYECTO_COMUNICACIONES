@@ -557,7 +557,6 @@ export default function Profile() {
                       size="icon"
                       className="absolute bottom-0 right-0 rounded-full w-10 h-10 bg-[#0c1b3f] hover:bg-[#0a1736]"
                       disabled
-                      title="Próximamente"
                     >
                       <Camera className="h-4 w-4" />
                     </Button>

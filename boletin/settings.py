@@ -104,12 +104,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'boletin.wsgi.application'
 
-# Base de datos PostgreSQL desde Railway
+# Base de datos (PostgreSQL en Railway / SQLite local opcional)
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+DB_SSL_REQUIRE = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL'),
+        default=DATABASE_URL,
         conn_max_age=600,
-        ssl_require=True
+        ssl_require=DB_SSL_REQUIRE
     )
 }
 

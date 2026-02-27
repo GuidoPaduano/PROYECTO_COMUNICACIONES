@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Q
 
 from rest_framework.decorators import (
     api_view,
@@ -633,12 +634,25 @@ def eventos_listar(request):
                     status=status.HTTP_403_FORBIDDEN,
                 )
         elif cursos_prof:
-            qs = qs.filter(curso__in=cursos_prof)
+            qs = qs.filter(
+                Q(curso__in=cursos_prof)
+                | Q(curso__iexact="ALL")
+                | Q(curso__iexact="TODOS")
+                | Q(curso="*")
+            )
 
+    if curso:
+        if _is_all_cursos(curso):
+            curso = ""
     if curso:
         if not _is_valid_curso(curso):
             return Response({"detail": "Curso inválido."}, status=status.HTTP_400_BAD_REQUEST)
-        qs = qs.filter(curso=curso)
+        qs = qs.filter(
+            Q(curso=curso)
+            | Q(curso__iexact="ALL")
+            | Q(curso__iexact="TODOS")
+            | Q(curso="*")
+        )
 
     qs = qs.order_by("fecha", "id")
     data = [_serialize_evento(e) for e in qs]
