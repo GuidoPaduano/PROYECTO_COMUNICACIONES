@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import {
+  BarChart3,
   CalendarDays,
   CheckSquare,
   ChevronLeft,
@@ -91,6 +92,12 @@ const ROUTE_META = [
     title: () => "Mis hijos",
     subtitle: "Seguimiento academico y comunicacion.",
     icon: <GraduationCap className="w-5 h-5 text-indigo-500" />,
+  },
+  {
+    match: (p) => p.startsWith("/reportes"),
+    title: () => "Reportes",
+    subtitle: "Dashboard de estadisticas de notas y asistencias.",
+    icon: <BarChart3 className="w-5 h-5 text-indigo-500" />,
   },
   {
     match: (p) => p.startsWith("/mensajes"),

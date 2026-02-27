@@ -280,8 +280,25 @@ def cursos_disponibles(request):
     GET /alumnos/cursos/
     Devuelve todos los cursos disponibles (catalogo Alumno.CURSOS).
     """
-    base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
-    cursos = [{"id": c[0], "nombre": c[1]} for c in base]
+    # Preferimos los cursos reales en DB (para no listar cursos inexistentes).
+    # Si no hay alumnos, caemos al catálogo definido en el modelo.
+    catalogo = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
+    catalogo_ids = [c[0] for c in catalogo]
+
+    try:
+        reales = list(
+            Alumno.objects.values_list("curso", flat=True).distinct().order_by("curso")
+        )
+    except Exception:
+        reales = []
+
+    if reales:
+        reales_set = {str(c) for c in reales if c}
+        ordered = [cid for cid in catalogo_ids if cid in reales_set]
+        extras = sorted([cid for cid in reales_set if cid not in set(ordered)])
+        cursos = [{"id": cid, "nombre": dict(catalogo).get(cid, cid)} for cid in (ordered + extras)]
+    else:
+        cursos = [{"id": c[0], "nombre": c[1]} for c in catalogo]
     return Response({"cursos": cursos}, status=200)
 
 

@@ -40,6 +40,7 @@ const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores"]
 const PREVIEW_KEY = "preview_role"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 const LAST_HIJO_KEY = "mis_hijos_last_alumno"
+const PROXIMOS_EVENTOS_DIAS = 8
 
 function hoyISO() {
   const d = new Date()
@@ -771,6 +772,7 @@ setMensajeSan("")
   const showPreceptor = showAll || effectiveGroups.includes("Preceptores")
   const showDocenteCursos = showProfesor || showPreceptor
   const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor
+  const isAlumnoOrPadreOnly = (showAlumno || showPadre) && !showProfesor && !showPreceptor
   const showLegacyDashboardCards = false
 
   useEffect(() => {
@@ -823,7 +825,7 @@ setMensajeSan("")
       setEventosProfesorLoading(true)
       try {
         const desde = hoyISO()
-        const hasta = addDaysISO(desde, 5)
+        const hasta = addDaysISO(desde, PROXIMOS_EVENTOS_DIAS)
         const res = await pfetch(
           `/eventos/?curso=${encodeURIComponent(profesorCursoSel)}&desde=${desde}&hasta=${hasta}`
         )
@@ -932,7 +934,7 @@ setMensajeSan("")
       setEventosPadreLoading(true)
       try {
         const desde = hoyISO()
-        const hasta = addDaysISO(desde, 5)
+        const hasta = addDaysISO(desde, PROXIMOS_EVENTOS_DIAS)
         const res = await pfetch(
           `/padres/hijos/${encodeURIComponent(padreKidId)}/eventos/?desde=${desde}&hasta=${hasta}`
         )
@@ -1007,7 +1009,7 @@ setMensajeSan("")
       setEventosLoading(true)
       try {
         const desde = hoyISO()
-        const hasta = addDaysISO(desde, 5)
+        const hasta = addDaysISO(desde, PROXIMOS_EVENTOS_DIAS)
         const res = await pfetch(
           `/eventos/?curso=${encodeURIComponent(alumnoCurso)}&desde=${desde}&hasta=${hasta}`
         )
@@ -1147,13 +1149,13 @@ setMensajeSan("")
           <DialogHeader>
             <DialogTitle>Enviar mensajes</DialogTitle>
             <DialogDescription>
-              {isAlumnoOnly
+              {isAlumnoOrPadreOnly
                 ? "Elegí si querés enviar a un profesor o preceptor."
                 : "Elegí si querés enviar a un alumno en particular o a un curso entero."}
             </DialogDescription>
           </DialogHeader>
 
-          {isAlumnoOnly ? (
+          {isAlumnoOrPadreOnly ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
@@ -1553,8 +1555,8 @@ setMensajeSan("")
       <ComposeComunicadoFamilia
         open={openComFam}
         onOpenChange={setOpenComFam}
-        // Preceptor: cursos restringidos a su curso. Profesor: lista completa de cursos.
-        cursosEndpoint={effectiveGroups.includes("Preceptores") ? "/preceptor/cursos/" : "/notas/catalogos/"}
+        // Mostrar todos los cursos en el selector de mensajes (también para preceptores).
+        cursosEndpoint="/alumnos/cursos/"
       />
     </div>
   )
@@ -1582,7 +1584,8 @@ function ProximosEventosCard({
             <div>
               <h3 className="tile-title">{titleText || "Proximos eventos"}</h3>
               <p className="tile-subtitle">
-                {subtitleText || "En los proximos 5 dias"}
+                {subtitleText ||
+                  `En los proximos ${PROXIMOS_EVENTOS_DIAS} dias`}
               </p>
             </div>
           </div>
@@ -1597,7 +1600,7 @@ function ProximosEventosCard({
             <p className="text-sm text-slate-500">Cargando eventos...</p>
           ) : eventos.length === 0 ? (
             <p className="text-sm text-slate-500">
-              No hay eventos en los proximos 5 dias.
+              {`No hay eventos en los proximos ${PROXIMOS_EVENTOS_DIAS} dias.`}
             </p>
           ) : (
             <div className="space-y-3">
@@ -1756,10 +1759,11 @@ function PadreInicio({
             showHijoLabel && hijoLabel
               ? (
                 <span>
-                  En los proximos 5 dias · <strong>{hijoLabel}</strong>
+                  En los proximos {PROXIMOS_EVENTOS_DIAS} dias ·{" "}
+                  <strong>{hijoLabel}</strong>
                 </span>
               )
-              : "En los proximos 5 dias"
+              : `En los proximos ${PROXIMOS_EVENTOS_DIAS} dias`
           }
           countLabel="eventos"
         />

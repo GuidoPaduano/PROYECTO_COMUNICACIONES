@@ -571,10 +571,19 @@ export default function MensajesPage() {
     : []
   const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
   const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
-  const cursosEndpoint = isPreceptor ? "/preceptor/cursos/" : "/notas/catalogos/"
+  const isPadre = groups.includes("Padres") || groups.includes("Padre")
+  const isAlumnoOrPadre = isAlumno || isPadre
+  const cursosEndpoint = "/alumnos/cursos/"
 
+  const debugFlag =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("debug")
   const showDebug =
-    unreadCount > 0 && !loading && !error && (Array.isArray(list) ? list.length : 0) === 0
+    debugFlag &&
+    unreadCount > 0 &&
+    !loading &&
+    !error &&
+    (Array.isArray(list) ? list.length : 0) === 0
 
   const cursoChip = (msgSel?.curso_asociado || msgSel?.curso || "").toString().trim()
   const cursoSugeridoAlumno = me?.alumno?.curso || me?.curso || me?.user?.alumno?.curso || ""
@@ -679,7 +688,7 @@ export default function MensajesPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end sm:col-span-2">
                 <Button
-                  onClick={() => (isAlumno ? setOpenSendPicker(true) : setOpenSendPicker(true))}
+                  onClick={() => (isAlumnoOrPadre ? setOpenSendPicker(true) : setOpenSendPicker(true))}
                   className="w-full gap-2"
                 >
                   <Plus className="h-4 w-4" />
@@ -789,13 +798,13 @@ export default function MensajesPage() {
           <DialogHeader>
             <DialogTitle>Enviar mensajes</DialogTitle>
             <DialogDescription>
-              {isAlumno
+              {isAlumnoOrPadre
                 ? "Elegí si querés enviar a un profesor o preceptor."
                 : "Elegí si querés enviar a un alumno en particular o a un curso entero."}
             </DialogDescription>
           </DialogHeader>
 
-          {isAlumno ? (
+          {isAlumnoOrPadre ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"

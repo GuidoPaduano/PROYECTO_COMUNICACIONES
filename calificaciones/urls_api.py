@@ -81,6 +81,11 @@ from .api_padres import (
     mis_hijos,
     notas_de_hijo,
 )
+from .api_reportes import (
+    reportes_mis_estadisticas,
+    reportes_por_curso,
+    reportes_materia_curso,
+)
 
 # Password reset (frontend)
 from .api_password_reset import (
@@ -196,6 +201,24 @@ urlpatterns = [
     # ===== Catalogo de cursos =====
     path("alumnos/cursos/", cursos_disponibles, name="alumnos_cursos"),
     path("alumnos/cursos", cursos_disponibles, name="alumnos_cursos_noslash"),
+
+    # ===== Reportes =====
+    path("reportes/mis-estadisticas/", reportes_mis_estadisticas, name="reportes_mis_estadisticas"),
+    path("reportes/mis-estadisticas", reportes_mis_estadisticas, name="reportes_mis_estadisticas_noslash"),
+
+    path("reportes/curso/<str:curso>/", reportes_por_curso, name="reportes_por_curso"),
+    path("reportes/curso/<str:curso>", reportes_por_curso, name="reportes_por_curso_noslash"),
+
+    path(
+        "reportes/materia/<str:id_materia>/curso/<str:curso>/",
+        reportes_materia_curso,
+        name="reportes_materia_curso",
+    ),
+    path(
+        "reportes/materia/<str:id_materia>/curso/<str:curso>",
+        reportes_materia_curso,
+        name="reportes_materia_curso_noslash",
+    ),
 
     # ===== Crear alumno =====
     path("alumnos/crear/", crear_alumno, name="alumnos_crear"),
