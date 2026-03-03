@@ -1,4 +1,4 @@
-# calificaciones/views.py
+﻿# calificaciones/views.py
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse, JsonResponse
 from django.contrib import messages
@@ -24,11 +24,12 @@ from django.utils.decorators import method_decorator
 
 from reportlab.pdfgen import canvas
 
-from django.db.models import Q  # ✅ NUEVO (para filtros robustos de no leídos)
+from django.db.models import Q  # âœ… NUEVO (para filtros robustos de no leÃ­dos)
 
 from .models import Alumno, Nota, Mensaje, Evento, Asistencia, Notificacion
 from .utils_cursos import filtrar_cursos_validos
-from .serializers import EventoSerializer, AlumnoFullSerializer, NotaPublicSerializer  # ⬅️ NUEVO
+from .serializers import EventoSerializer, AlumnoFullSerializer, NotaCreateSerializer, NotaPublicSerializer
+from .forms import NotaForm
 from .constants import MATERIAS
 from .contexto import resolve_alumno_for_user
 from django.contrib.auth import logout as dj_logout, update_session_auth_hash
@@ -40,7 +41,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    # ✅ NUEVO: si existen los modelos reales preceptor/profesor→cursos, los usamos para permisos
+    # âœ… NUEVO: si existen los modelos reales preceptor/profesorâ†’cursos, los usamos para permisos
     from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
 except Exception:
     PreceptorCurso = None
@@ -52,7 +53,7 @@ except Exception:
 # =========================================================
 
 def _infer_tipo_remitente_local(user) -> str:
-    """Devuelve un tipo válido para Mensaje.tipo_remitente."""
+    """Devuelve un tipo vÃ¡lido para Mensaje.tipo_remitente."""
     try:
         if user.groups.filter(name__icontains="precep").exists():
             return "Preceptor"
@@ -66,7 +67,7 @@ def _infer_tipo_remitente_local(user) -> str:
 
 
 def _resolver_destinatario_padre(alumno):
-    """Destinatario para notificación.
+    """Destinatario para notificaciÃ³n.
 
     Preferencia: Alumno.padre (FK real)
     Fallback legacy: User.username == alumno.id_alumno
@@ -116,10 +117,10 @@ def _resolver_destinatarios_notif(alumno):
     # Padre
     _add(getattr(alumno, "padre", None))
 
-    # Alumno (vínculo explícito)
+    # Alumno (vÃ­nculo explÃ­cito)
     _add(getattr(alumno, "usuario", None))
 
-    # Alumno por convención username==legajo
+    # Alumno por convenciÃ³n username==legajo
     try:
         User = get_user_model()
         legajo = (getattr(alumno, "id_alumno", "") or "").strip()
@@ -128,7 +129,7 @@ def _resolver_destinatarios_notif(alumno):
     except Exception:
         pass
 
-    # Último fallback: el resolver legacy de padre
+    # Ãšltimo fallback: el resolver legacy de padre
     if not destinatarios:
         try:
             u_fb, _src = _resolver_destinatario_padre(alumno)
@@ -144,7 +145,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
 
     Importante:
     - NO crea un Mensaje (bandeja de entrada).
-    - La bandeja queda solo para mensajería real entre usuarios.
+    - La bandeja queda solo para mensajerÃ­a real entre usuarios.
     """
     try:
         alumno = getattr(nota, "alumno", None)
@@ -170,9 +171,9 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
 
         titulo = f"Nueva nota para {nombre}"
 
-        # Descripción compacta (no hace falta que parezca un email)
+        # DescripciÃ³n compacta (no hace falta que parezca un email)
         parts = []
-        parts.append("Se registró una nueva calificación.")
+        parts.append("Se registrÃ³ una nueva calificaciÃ³n.")
         if curso:
             parts.append(f"Curso: {curso}")
         if materia:
@@ -180,7 +181,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
         if tipo:
             parts.append(f"Tipo: {tipo}")
         if calif:
-            parts.append(f"Calificación: {calif}")
+            parts.append(f"CalificaciÃ³n: {calif}")
         if cuatri:
             parts.append(f"Cuatrimestre: {cuatri}")
         if hasattr(fecha, "isoformat"):
@@ -188,7 +189,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
         if obs:
             parts.append(f"Obs: {obs}")
 
-        descripcion = " · ".join([p for p in parts if p]).strip()
+        descripcion = " Â· ".join([p for p in parts if p]).strip()
 
         # URL destino (Parte B/C usan esto)
         url = f"/alumnos/{alumno.id}/?tab=notas"
@@ -215,7 +216,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
 
 
 def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
-    """Notificación optimizada: 1 Notificacion por ALUMNO (campanita), sin ensuciar bandeja.
+    """NotificaciÃ³n optimizada: 1 Notificacion por ALUMNO (campanita), sin ensuciar bandeja.
 
     Devuelve cantidad de notificaciones creadas.
     """
@@ -229,7 +230,7 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
             if not alumno:
                 continue
 
-            # ✅ Igual que en la API: notificamos a PADRE y ALUMNO (si existe vínculo)
+            # âœ… Igual que en la API: notificamos a PADRE y ALUMNO (si existe vÃ­nculo)
             destinatarios = _resolver_destinatarios_notif(alumno)
             if not destinatarios:
                 continue
@@ -284,16 +285,16 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
                 fecha = getattr(nn, "fecha", None)
                 fstr = fecha.isoformat() if hasattr(fecha, "isoformat") else ""
 
-                base = f"• {materia} ({tipo}): {calif}".strip()
+                base = f"â€¢ {materia} ({tipo}): {calif}".strip()
                 if fstr:
-                    base += f" — {fstr}"
+                    base += f" â€” {fstr}"
                 lines.append(base)
 
             descripcion = "Se registraron nuevas calificaciones."
             if curso:
                 descripcion += f" Curso: {curso}."
             if lines:
-                # Guardamos en texto (la UI lo truncará si hace falta)
+                # Guardamos en texto (la UI lo truncarÃ¡ si hace falta)
                 descripcion += " " + " ".join(lines)
 
             url = f"/alumnos/{alumno.id}/?tab=notas"
@@ -326,13 +327,13 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
 
 
 # ============================================================
-# Helper: Vista previa de rol (“Vista como…”) para superusuario
+# Helper: Vista previa de rol (â€œVista comoâ€¦â€) para superusuario
 # ============================================================
 def _get_preview_role(request):
     """
-    Devuelve un rol de vista previa si el usuario es superusuario y pidió simular un rol.
+    Devuelve un rol de vista previa si el usuario es superusuario y pidiÃ³ simular un rol.
     Lee `view_as` (querystring) o el header `X-Preview-Role`.
-    Valores válidos: 'Profesores', 'Preceptores', 'Padres', 'Alumnos'.
+    Valores vÃ¡lidos: 'Profesores', 'Preceptores', 'Padres', 'Alumnos'.
     """
     try:
         role = (request.GET.get("view_as") or request.headers.get("X-Preview-Role") or "").strip()
@@ -360,7 +361,7 @@ class EventoForm(forms.ModelForm):
 #  Helpers
 # =========================================================
 def _coerce_json(request):
-    """Intenta parsear JSON manualmente si request.data viene vacío."""
+    """Intenta parsear JSON manualmente si request.data viene vacÃ­o."""
     if getattr(request, "data", None):
         return request.data
     try:
@@ -410,7 +411,7 @@ def _rol_principal(user):
     for g in ("Profesores", "Padres", "Alumnos", "Preceptores"):
         if user.groups.filter(name=g).exists():
             return g
-    return "—"
+    return "â€”"
 
 
 def _alumno_to_dict(a: Alumno):
@@ -452,13 +453,13 @@ def _has_model_field(model, name: str) -> bool:
 
 
 # =========================================================
-#  ✅ NUEVO: permisos de PRECEPTOR por curso (PreceptorCurso o fallback)
+#  âœ… NUEVO: permisos de PRECEPTOR por curso (PreceptorCurso o fallback)
 # =========================================================
 def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     """
     Permite acceso a preceptor SOLO si el alumno pertenece a un curso asignado a ese preceptor.
 
-    - Si existe PreceptorCurso, se consulta ahí.
+    - Si existe PreceptorCurso, se consulta ahÃ­.
     - Si NO existe, se usa el helper obtener_curso_del_preceptor() como fallback.
     """
     curso_alumno = getattr(alumno, "curso", None)
@@ -466,7 +467,7 @@ def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
         return False
 
     if PreceptorCurso is not None:
-        # Intento "directo" por convención habitual
+        # Intento "directo" por convenciÃ³n habitual
         try:
             if PreceptorCurso.objects.filter(preceptor=user, curso=curso_alumno).exists():
                 return True
@@ -522,7 +523,7 @@ def _profesor_can_access_alumno(user, alumno: Alumno) -> bool:
 
 
 # =========================================================
-#  ✅ NUEVO: Compat Mensaje (emisor/receptor vs remitente/destinatario)
+#  âœ… NUEVO: Compat Mensaje (emisor/receptor vs remitente/destinatario)
 # =========================================================
 def _mensaje_sender_field() -> str:
     return "remitente" if _has_model_field(Mensaje, "remitente") else "emisor"
@@ -565,7 +566,7 @@ def index(request):
 
 
 # =========================================================
-#  PERFIL API (GET+PATCH) para Next.js — JWT o sesión
+#  PERFIL API (GET+PATCH) para Next.js â€” JWT o sesiÃ³n
 # =========================================================
 @csrf_exempt
 @api_view(["GET", "PATCH"])
@@ -578,7 +579,7 @@ def perfil_api(request):
     """
     user = request.user
 
-    # ===== Vista previa de rol (“Vista como…”) para superusuario =====
+    # ===== Vista previa de rol (â€œVista comoâ€¦â€) para superusuario =====
     try:
         preview_role = _get_preview_role(request)
     except Exception:
@@ -592,7 +593,7 @@ def perfil_api(request):
     try:
         rol_real = _rol_principal(user)
     except Exception:
-        rol_real = grupos_reales[0] if grupos_reales else "—"
+        rol_real = grupos_reales[0] if grupos_reales else "â€”"
     rol = preview_role if preview_role else rol_real
 
     # ===== Contextos =====
@@ -661,7 +662,7 @@ def perfil_api(request):
             try:
                 User = get_user_model()
                 if User.objects.filter(email__iexact=email).exclude(pk=user.pk).exists():
-                    return JsonResponse({"detail": "Ese correo ya está en uso."}, status=400)
+                    return JsonResponse({"detail": "Ese correo ya estÃ¡ en uso."}, status=400)
             except Exception:
                 pass
             user.email = email
@@ -671,7 +672,7 @@ def perfil_api(request):
             try:
                 user.full_clean(exclude=['password'])
             except Exception:
-                return JsonResponse({"detail": "Datos inválidos"}, status=400)
+                return JsonResponse({"detail": "Datos invÃ¡lidos"}, status=400)
             user.save()
 
     # ===== Stats =====
@@ -682,14 +683,14 @@ def perfil_api(request):
     else:
         notas_count = 0
 
-    # ✅ FIX: Mensajes (compat emisor/receptor vs remitente/destinatario)
+    # âœ… FIX: Mensajes (compat emisor/receptor vs remitente/destinatario)
     inbox_qs = _mensajes_inbox_qs(user)
     sent_qs = _mensajes_sent_qs(user)
 
     mensajes_recibidos = inbox_qs.count()
     mensajes_enviados = sent_qs.count()
 
-    # cálculo defensivo de "no leídos" (según campos existentes en tu modelo)
+    # cÃ¡lculo defensivo de "no leÃ­dos" (segÃºn campos existentes en tu modelo)
     if _has_model_field(Mensaje, "leido") and _has_model_field(Mensaje, "leido_en"):
         mensajes_no_leidos = inbox_qs.filter(Q(leido=False) | Q(leido_en__isnull=True)).count()
     elif _has_model_field(Mensaje, "leido"):
@@ -727,7 +728,7 @@ def perfil_api(request):
 
 
 # =========================================================
-#  ✅ FIX NUEVO: endpoint que tu front espera para calendario
+#  âœ… FIX NUEVO: endpoint que tu front espera para calendario
 #      GET /api/mi-curso/  ->  { "curso": "1A" }
 # =========================================================
 @csrf_exempt
@@ -742,7 +743,7 @@ def mi_curso(request):
     - Alumno: curso del alumno vinculado (resolve_alumno_for_user)
     - Padre: curso del hijo (primero), o seleccionar por ?id_alumno=... o ?alumno_id=...
     - Preceptor: curso asignado por obtener_curso_del_preceptor
-    - Superuser: si está en vista previa, se comporta como ese rol; si no, devuelve ?curso=... o el primer curso disponible
+    - Superuser: si estÃ¡ en vista previa, se comporta como ese rol; si no, devuelve ?curso=... o el primer curso disponible
     """
     user = request.user
     preview_role = _get_preview_role(request)
@@ -811,7 +812,7 @@ def mi_curso(request):
 
 
 # =========================================================
-#  Catálogos/Alumnos para "Nueva nota"
+#  CatÃ¡logos/Alumnos para "Nueva nota"
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -819,10 +820,10 @@ def mi_curso(request):
 @permission_classes([IsAuthenticated])
 def notas_catalogos(request):
     """
-    Devuelve catálogos base para la pantalla de "Nueva nota".
+    Devuelve catÃ¡logos base para la pantalla de "Nueva nota".
     - cursos: lista id/nombre sacada de Alumno.CURSOS
     - materias: lista desde constants.MATERIAS
-    - tipos: (opcional) vacío por ahora; se puede poblar luego si definen choices
+    - tipos: (opcional) vacÃ­o por ahora; se puede poblar luego si definen choices
     """
     cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
     cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
@@ -842,7 +843,7 @@ def notas_catalogos(request):
 
 
 # =========================================================
-#  ✅ NUEVO: API cursos del preceptor (para selects del front)
+#  âœ… NUEVO: API cursos del preceptor (para selects del front)
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -852,7 +853,7 @@ def preceptor_cursos(request):
     """
     GET /preceptor/cursos/
     - Superusuario: devuelve todos los cursos definidos en Alumno.CURSOS
-    - Preceptor: devuelve sólo su curso (según helper obtener_curso_del_preceptor)
+    - Preceptor: devuelve sÃ³lo su curso (segÃºn helper obtener_curso_del_preceptor)
     """
     user = request.user
     if user.is_superuser:
@@ -911,13 +912,13 @@ def alumnos_por_curso(request):
     """
     curso = (request.GET.get("curso") or "").strip()
     if not curso:
-        return Response({"detail": "Parámetro 'curso' es requerido."}, status=400)
+        return Response({"detail": "ParÃ¡metro 'curso' es requerido."}, status=400)
 
     if _has_role(request, "Profesores") and not request.user.is_superuser:
         if not _profesor_can_access_curso(request.user, curso):
             return Response({"detail": "No autorizado para ese curso."}, status=403)
 
-    # ✅ FIX: si Alumno no tiene apellido, no explota
+    # âœ… FIX: si Alumno no tiene apellido, no explota
     if _has_model_field(Alumno, "apellido"):
         qs = Alumno.objects.filter(curso=curso).order_by("apellido", "nombre")
     else:
@@ -927,7 +928,7 @@ def alumnos_por_curso(request):
 
 
 # =========================================================
-#  ✅ NUEVO: endpoint compatible con tu front:
+#  âœ… NUEVO: endpoint compatible con tu front:
 #      GET /api/alumnos/curso/<curso>/
 # =========================================================
 @csrf_exempt
@@ -938,15 +939,15 @@ def alumnos_por_curso_path(request, curso: str):
     """
     GET /api/alumnos/curso/<curso>/
 
-    Este endpoint existe porque tu front está pidiendo:
+    Este endpoint existe porque tu front estÃ¡ pidiendo:
       /api/alumnos/curso/1A/
 
-    y antes solo existía:
+    y antes solo existÃ­a:
       /api/alumnos/?curso=1A
     """
     curso = (curso or "").strip()
     if not curso:
-        return Response({"detail": "curso vacío."}, status=400)
+        return Response({"detail": "curso vacÃ­o."}, status=400)
 
     if _has_role(request, "Profesores") and not request.user.is_superuser:
         if not _profesor_can_access_curso(request.user, curso):
@@ -961,7 +962,7 @@ def alumnos_por_curso_path(request, curso: str):
 
 
 # =========================================================
-#  🔎 API Detalle de Alumno (preferir legajo sobre PK)
+#  ðŸ”Ž API Detalle de Alumno (preferir legajo sobre PK)
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -971,15 +972,15 @@ def alumno_detalle(request, alumno_id):
     """
     GET /api/alumnos/<alumno_id>/
 
-    Prioridad de resolución:
+    Prioridad de resoluciÃ³n:
       1) Buscar por legajo `id_alumno` (string exacto).
-      2) Si no existe y es numérico, intentar como PK (id interno).
+      2) Si no existe y es numÃ©rico, intentar como PK (id interno).
     """
     try:
         # 1) intentar por legajo
         a = Alumno.objects.get(id_alumno=str(alumno_id))
     except Alumno.DoesNotExist:
-        # 2) fallback a PK si es numérico
+        # 2) fallback a PK si es numÃ©rico
         if str(alumno_id).isdigit():
             try:
                 a = Alumno.objects.get(pk=int(alumno_id))
@@ -988,14 +989,14 @@ def alumno_detalle(request, alumno_id):
         else:
             return Response({"detail": "No encontrado"}, status=404)
 
-    # ✅ NUEVO: autorización consistente (incluye preceptor por curso)
+    # âœ… NUEVO: autorizaciÃ³n consistente (incluye preceptor por curso)
     user = request.user
     is_padre = (getattr(a, "padre_id", None) == user.id)
     is_prof_ok = _has_role(request, "Profesores") and _profesor_can_access_alumno(user, a)
     is_prof_or_super = (user.is_superuser or is_prof_ok)
     # Alumno propio:
-    # - Vínculo explícito Alumno.usuario (si existe)
-    # - Fallback robusto (username==legajo, padre con único hijo, etc.)
+    # - VÃ­nculo explÃ­cito Alumno.usuario (si existe)
+    # - Fallback robusto (username==legajo, padre con Ãºnico hijo, etc.)
     is_alumno_mismo = False
     try:
         is_alumno_mismo = (getattr(a, "usuario_id", None) == user.id)
@@ -1017,7 +1018,7 @@ def alumno_detalle(request, alumno_id):
 
 
 # =========================================================
-#  📘 API Notas de un alumno (preferir legajo sobre PK)
+#  ðŸ“˜ API Notas de un alumno (preferir legajo sobre PK)
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -1027,9 +1028,9 @@ def alumno_notas(request, alumno_id):
     """
     GET /api/alumnos/<alumno_id>/notas/
 
-    Prioridad de resolución:
+    Prioridad de resoluciÃ³n:
       1) Buscar por legajo `id_alumno`.
-      2) Si no existe y es numérico, intentar como PK (id).
+      2) Si no existe y es numÃ©rico, intentar como PK (id).
     """
     try:
         alumno = Alumno.objects.get(id_alumno=str(alumno_id))
@@ -1058,11 +1059,11 @@ def alumno_notas(request, alumno_id):
         except Exception:
             pass
 
-    # ✅ NUEVO: sumar Preceptores (pero solo si tienen el curso asignado)
+    # âœ… NUEVO: sumar Preceptores (pero solo si tienen el curso asignado)
     is_preceptor_ok = (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, alumno))
     is_prof_ok = (_has_role(request, "Profesores") and _profesor_can_access_alumno(user, alumno))
 
-    # Autorización: superuser, profesores, preceptor por curso, padre o el propio alumno
+    # AutorizaciÃ³n: superuser, profesores, preceptor por curso, padre o el propio alumno
     if not (
         user.is_superuser
         or is_prof_ok
@@ -1091,135 +1092,153 @@ def alumno_notas(request, alumno_id):
 # =========================================================
 @login_required
 def agregar_nota(request):
-    if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenés permiso.", status=403)
+    if not (_has_role(request, "Profesores") or request.user.is_superuser):
+        return HttpResponse("No tenes permiso.", status=403)
 
-    cursos = getattr(Alumno, 'CURSOS', [])
-    curso_seleccionado = request.GET.get('curso') or request.POST.get('curso')
+    cursos = getattr(Alumno, "CURSOS", [])
+    curso_seleccionado = request.GET.get("curso") or request.POST.get("curso")
     if _has_role(request, "Profesores") and not request.user.is_superuser:
         asignados = _profesor_cursos_asignados(request.user)
         if asignados:
             asignados_set = set(asignados)
             cursos = [c for c in cursos if c[0] in asignados_set]
             if curso_seleccionado and curso_seleccionado not in asignados_set:
-                return HttpResponse("No tenés permiso para ese curso.", status=403)
+                return HttpResponse("No tenes permiso para ese curso.", status=403)
 
-    if request.method == 'POST':
-        alumnos_list = request.POST.getlist('alumno[]')
+    if request.method == "POST":
+        alumnos_list = request.POST.getlist("alumno[]")
+
         if alumnos_list:
-            materias_list = request.POST.getlist('materia[]')
-            tipos_list = request.POST.getlist('tipo[]')
-            califs_list = request.POST.getlist('calificacion[]')
-            cuatris_list = request.POST.getlist('cuatrimestre[]')
-            fechas_list = request.POST.getlist('fecha[]')
+            materias_list = request.POST.getlist("materia[]")
+            tipos_list = request.POST.getlist("tipo[]")
+            califs_list = request.POST.getlist("calificacion[]")
+            resultados_list = request.POST.getlist("resultado[]")
+            notas_numericas_list = request.POST.getlist("nota_numerica[]")
+            cuatris_list = request.POST.getlist("cuatrimestre[]")
+            fechas_list = request.POST.getlist("fecha[]")
 
             creadas = 0
             errores = 0
             notas_creadas = []
-            n = min(len(alumnos_list), len(materias_list), len(tipos_list),
-                    len(califs_list), len(cuatris_list), len(fechas_list))
 
-            for i in range(n):
-                alum_id = (alumnos_list[i] or '').strip()
-                materia = (materias_list[i] or '').strip()
-                tipo = (tipos_list[i] or '').strip()
-                calif = (califs_list[i] or '').strip()
-                cuatr = (cuatris_list[i] or '').strip()
-                fstr = (fechas_list[i] or '').strip()
-                fparsed = parse_date(fstr) if fstr else None
+            for i, alum_id_raw in enumerate(alumnos_list):
+                alum_id = (alum_id_raw or "").strip()
+                materia = (materias_list[i] or "").strip() if i < len(materias_list) else ""
+                tipo = (tipos_list[i] or "").strip() if i < len(tipos_list) else ""
+                calif = (califs_list[i] or "").strip() if i < len(califs_list) else ""
+                resultado = (resultados_list[i] or "").strip() if i < len(resultados_list) else ""
+                nota_numerica = (notas_numericas_list[i] or "").strip() if i < len(notas_numericas_list) else ""
+                cuatr = (cuatris_list[i] or "").strip() if i < len(cuatris_list) else ""
+                fstr = (fechas_list[i] or "").strip() if i < len(fechas_list) else ""
+                fparsed = parse_date(fstr) if fstr else date.today()
 
-                if not (alum_id and materia and tipo and calif and cuatr and fparsed):
+                if not (alum_id and materia and tipo and cuatr):
+                    errores += 1
                     continue
 
                 try:
                     alumno = Alumno.objects.get(id_alumno=alum_id)
-                    calif_norm = calif.strip().upper()
-                    nota = Nota(
-                        alumno=alumno,
-                        materia=materia,
-                        tipo=tipo,
-                        calificacion=calif_norm,
-                        cuatrimestre=int(cuatr),
-                        fecha=fparsed
-                    )
-                    nota.full_clean()
-                    nota.save()
-
-                    notas_creadas.append(nota)
-
-                    creadas += 1
-                except (Alumno.DoesNotExist, ValidationError, Exception):
+                except Alumno.DoesNotExist:
                     errores += 1
                     continue
 
-            # Notificación optimizada: en lote (1 por alumno)
+                payload = {
+                    "alumno": alumno.id,
+                    "materia": materia,
+                    "tipo": tipo,
+                    "calificacion": calif,
+                    "resultado": resultado,
+                    "nota_numerica": nota_numerica,
+                    "cuatrimestre": cuatr,
+                    "fecha": (fparsed or date.today()).isoformat(),
+                }
+                ser = NotaCreateSerializer(data=payload)
+                if ser.is_valid():
+                    nota = ser.save()
+                    notas_creadas.append(nota)
+                    creadas += 1
+                else:
+                    errores += 1
+
             try:
                 _notify_padres_por_notas_bulk(request.user, notas_creadas)
             except Exception:
                 pass
 
             if creadas:
-                messages.success(request, f"✅ Se guardaron {creadas} nota(s).")
+                messages.success(request, f"Se guardaron {creadas} nota(s).")
             if errores:
-                messages.error(request, f"⚠️ {errores} fila(s) no pudieron guardarse. Revisá los datos.")
+                messages.error(request, f"{errores} fila(s) no pudieron guardarse. Revisa los datos.")
             return redirect(f"{request.path}?curso={curso_seleccionado or ''}")
 
-        alumno_id = request.POST.get('alumno')
-        materia = request.POST.get('materia')
-        tipo = request.POST.get('tipo')
-        calificacion = request.POST.get('calificacion')
-        cuatrimestre = request.POST.get('cuatrimestre')
-        fecha_nota = parse_date(request.POST.get('fecha') or '') or date.today()
+        alumno_id = request.POST.get("alumno")
+        materia = request.POST.get("materia")
+        tipo = request.POST.get("tipo")
+        calificacion = request.POST.get("calificacion")
+        resultado = request.POST.get("resultado")
+        nota_numerica = request.POST.get("nota_numerica")
+        cuatrimestre = request.POST.get("cuatrimestre")
+        fecha_nota = parse_date(request.POST.get("fecha") or "") or date.today()
 
         try:
             alumno = Alumno.objects.get(id_alumno=alumno_id)
-            calif_norm = (calificacion or "").strip().upper()
-            nota = Nota(
-                alumno=alumno,
-                materia=materia or "",
-                tipo=tipo or "",
-                calificacion=calif_norm,
-                cuatrimestre=int(cuatrimestre),
-                fecha=fecha_nota
-            )
-            nota.full_clean()
-            nota.save()
+            payload = {
+                "alumno": alumno.id,
+                "materia": materia or "",
+                "tipo": tipo or "",
+                "calificacion": calificacion or "",
+                "resultado": resultado or "",
+                "nota_numerica": nota_numerica or "",
+                "cuatrimestre": cuatrimestre,
+                "fecha": fecha_nota.isoformat(),
+            }
+            ser = NotaCreateSerializer(data=payload)
+            if not ser.is_valid():
+                raise ValidationError(str(ser.errors))
+            nota = ser.save()
 
-            # Notificar al padre (campanita)
             try:
                 _notify_padre_por_nota(request.user, nota)
             except Exception:
                 pass
 
-            messages.success(request, "✅ Nota guardada correctamente.")
+            messages.success(request, "Nota guardada correctamente.")
         except Alumno.DoesNotExist:
-            messages.error(request, "❌ Alumno no encontrado.")
+            messages.error(request, "Alumno no encontrado.")
         except ValidationError as e:
-            messages.error(request, f"❌ Calificación inválida: {e}")
+            messages.error(request, f"Carga invalida: {e}")
         except Exception as e:
-            messages.error(request, f"❌ No se pudo guardar la nota: {e}")
-        return redirect('index')
+            messages.error(request, f"No se pudo guardar la nota: {e}")
+        return redirect("index")
 
     alumnos = []
     if curso_seleccionado:
-        alumnos = Alumno.objects.filter(curso=curso_seleccionado).order_by('nombre')
+        alumnos = Alumno.objects.filter(curso=curso_seleccionado).order_by("nombre")
+    nota_form = NotaForm()
+    nota_form.fields["alumno"].queryset = alumnos or Alumno.objects.none()
 
-    return render(request, 'calificaciones/agregar_nota.html', {
-        'cursos': cursos,
-        'curso_seleccionado': curso_seleccionado,
-        'alumnos': alumnos,
-        'materias': MATERIAS
-    })
+    return render(
+        request,
+        "calificaciones/agregar_nota.html",
+        {
+            "cursos": cursos,
+            "curso_seleccionado": curso_seleccionado,
+            "alumnos": alumnos,
+            "materias": MATERIAS,
+            "resultados_catalogo": Nota.RESULTADO_CHOICES,
+            "form": nota_form,
+        },
+    )
 
 
 @csrf_exempt
 @login_required
 def agregar_nota_masiva(request):
-    if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenés permiso.", status=403)
+    if not (_has_role(request, "Profesores") or request.user.is_superuser):
+        return HttpResponse("No tenes permiso.", status=403)
 
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Método no permitido'}, status=405)
+    if request.method != "POST":
+        return JsonResponse({"error": "Metodo no permitido"}, status=405)
 
     if _has_role(request, "Profesores") and not request.user.is_superuser:
         asignados = _profesor_cursos_asignados(request.user)
@@ -1228,36 +1247,42 @@ def agregar_nota_masiva(request):
             if curso_qs and curso_qs not in asignados:
                 return JsonResponse({"detail": "No autorizado para ese curso."}, status=403)
 
-    alumnos_ids = request.POST.getlist('alumno[]')
-    materias = request.POST.getlist('materia[]')
-    tipos = request.POST.getlist('tipo[]')
-    califs = request.POST.getlist('calificacion[]')
-    cuatris = request.POST.getlist('cuatrimestre[]')
-    fechas = request.POST.getlist('fecha[]')
+    alumnos_ids = request.POST.getlist("alumno[]")
+    materias = request.POST.getlist("materia[]")
+    tipos = request.POST.getlist("tipo[]")
+    califs = request.POST.getlist("calificacion[]")
+    resultados = request.POST.getlist("resultado[]")
+    notas_numericas = request.POST.getlist("nota_numerica[]")
+    cuatris = request.POST.getlist("cuatrimestre[]")
+    fechas = request.POST.getlist("fecha[]")
 
-    if not alumnos_ids and request.POST.get('alumno'):
-        alumnos_ids = [request.POST.get('alumno')]
-        materias = [request.POST.get('materia')]
-        tipos = [request.POST.get('tipo')]
-        califs = [request.POST.get('calificacion')]
-        cuatris = [request.POST.get('cuatrimestre')]
-        fechas = [request.POST.get('fecha')] if request.POST.get('fecha') else []
+    if not alumnos_ids and request.POST.get("alumno"):
+        alumnos_ids = [request.POST.get("alumno")]
+        materias = [request.POST.get("materia")]
+        tipos = [request.POST.get("tipo")]
+        califs = [request.POST.get("calificacion")]
+        resultados = [request.POST.get("resultado")]
+        notas_numericas = [request.POST.get("nota_numerica")]
+        cuatris = [request.POST.get("cuatrimestre")]
+        fechas = [request.POST.get("fecha")] if request.POST.get("fecha") else []
 
-    n = min(len(alumnos_ids), len(materias), len(tipos), len(califs), len(cuatris))
-    if n == 0:
-        return JsonResponse({'ok': False, 'creadas': 0, 'detail': 'Sin filas válidas'}, status=400)
+    if len(alumnos_ids) == 0:
+        return JsonResponse({"ok": False, "creadas": 0, "detail": "Sin filas validas"}, status=400)
 
-    has_fecha = any(f.name == 'fecha' for f in Nota._meta.fields)
-
-    objs = []
     errores = 0
-    for i in range(n):
-        alum_id = (alumnos_ids[i] or '').strip()
-        materia = (materias[i] or '').strip()
-        tipo = (tipos[i] or '').strip()
-        calif = (califs[i] or '').strip()
-        cuatr = (cuatris[i] or '').strip()
-        if not (alum_id and materia and tipo and calif):
+    notas_creadas = []
+
+    for i, alum_id_raw in enumerate(alumnos_ids):
+        alum_id = (alum_id_raw or "").strip()
+        materia = (materias[i] or "").strip() if i < len(materias) else ""
+        tipo = (tipos[i] or "").strip() if i < len(tipos) else ""
+        calif = (califs[i] or "").strip() if i < len(califs) else ""
+        resultado = (resultados[i] or "").strip() if i < len(resultados) else ""
+        nota_numerica = (notas_numericas[i] or "").strip() if i < len(notas_numericas) else ""
+        cuatr = (cuatris[i] or "").strip() if i < len(cuatris) else ""
+        f = parse_date(fechas[i]) if i < len(fechas) and fechas[i] else date.today()
+
+        if not (alum_id and materia and tipo and cuatr):
             errores += 1
             continue
 
@@ -1267,44 +1292,35 @@ def agregar_nota_masiva(request):
             errores += 1
             continue
 
-        kwargs = dict(
-            alumno=alumno,
-            materia=materia,
-            tipo=tipo,
-            calificacion=calif.strip().upper(),
-            cuatrimestre=int(cuatris[i] or 0),
-        )
-        if has_fecha and i < len(fechas) and fechas[i]:
-            f = parse_date(fechas[i])
-            if f:
-                kwargs['fecha'] = f
-
-        try:
-            nota = Nota(**kwargs)
-            nota.full_clean()
-            objs.append(nota)
-        except ValidationError:
-            errores += 1
-        except Exception:
+        payload = {
+            "alumno": alumno.id,
+            "materia": materia,
+            "tipo": tipo,
+            "calificacion": calif,
+            "resultado": resultado,
+            "nota_numerica": nota_numerica,
+            "cuatrimestre": cuatr,
+            "fecha": (f or date.today()).isoformat(),
+        }
+        ser = NotaCreateSerializer(data=payload)
+        if ser.is_valid():
+            notas_creadas.append(ser.save())
+        else:
             errores += 1
 
-    creadas = 0
-    if objs:
-        Nota.objects.bulk_create(objs)
-        creadas = len(objs)
-
-        # Notificación optimizada: en lote (1 por alumno)
+    creadas = len(notas_creadas)
+    if notas_creadas:
         try:
-            _notify_padres_por_notas_bulk(request.user, objs)
+            _notify_padres_por_notas_bulk(request.user, notas_creadas)
         except Exception:
             pass
 
-    accept = (request.headers.get('Accept') or '').lower()
-    curso_qs = request.POST.get('curso') or ''
-    if 'text/html' in accept:
+    accept = (request.headers.get("Accept") or "").lower()
+    curso_qs = request.POST.get("curso") or ""
+    if "text/html" in accept:
         return redirect(f"/agregar_nota?curso={curso_qs}")
 
-    return JsonResponse({'ok': True, 'creadas': creadas, 'errores': errores})
+    return JsonResponse({"ok": True, "creadas": creadas, "errores": errores})
 
 
 @login_required
@@ -1313,7 +1329,7 @@ def ver_notas(request):
     if _has_role(request, 'Padres') or request.user.is_superuser:
         alumnos = Alumno.objects.filter(padre=request.user)
 
-        # Fallback para vista previa: tomar un padre real y sus hijos si no hay vínculos
+        # Fallback para vista previa: tomar un padre real y sus hijos si no hay vÃ­nculos
         if not alumnos.exists() and _get_preview_role(request):
             a0 = Alumno.objects.filter(padre__isnull=False).order_by('padre_id').first()
             if a0 and a0.padre_id:
@@ -1326,12 +1342,12 @@ def ver_notas(request):
 
 
 # =========================================================
-#  Mensajería (HTML)
+#  MensajerÃ­a (HTML)
 # =========================================================
 @login_required
 def enviar_mensaje(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenés permiso.", status=403)
+        return HttpResponse("No tenÃ©s permiso.", status=403)
 
     cursos_disponibles = Alumno.CURSOS
     curso_seleccionado = request.GET.get('curso')
@@ -1341,7 +1357,7 @@ def enviar_mensaje(request):
             asignados_set = set(asignados)
             cursos_disponibles = [c for c in cursos_disponibles if c[0] in asignados_set]
             if curso_seleccionado and curso_seleccionado not in asignados_set:
-                return HttpResponse("No tenés permiso para ese curso.", status=403)
+                return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
     alumnos = Alumno.objects.filter(curso=curso_seleccionado) if curso_seleccionado else []
 
     if request.method == 'POST':
@@ -1404,7 +1420,7 @@ def enviar_mensaje(request):
 @login_required
 def enviar_comunicado(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenés permiso.", status=403)
+        return HttpResponse("No tenÃ©s permiso.", status=403)
 
     cursos = Alumno.CURSOS
     if _has_role(request, "Profesores") and not request.user.is_superuser:
@@ -1418,7 +1434,7 @@ def enviar_comunicado(request):
         if _has_role(request, "Profesores") and not request.user.is_superuser:
             asignados = _profesor_cursos_asignados(request.user)
             if asignados and curso not in set(asignados):
-                return HttpResponse("No tenés permiso para ese curso.", status=403)
+                return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
         asunto = request.POST['asunto']
         contenido = request.POST['contenido']
         alumnos = Alumno.objects.filter(curso=curso, padre__isnull=False)
@@ -1477,7 +1493,7 @@ def enviar_comunicado(request):
 
 
 # =========================================================
-#  ✅ NUEVO: Mensajería API (JSON) para modales del front
+#  âœ… NUEVO: MensajerÃ­a API (JSON) para modales del front
 # =========================================================
 @csrf_exempt
 @api_view(["POST"])
@@ -1488,7 +1504,7 @@ def mensajes_enviar_api(request):
     """
     POST /mensajes/enviar/
     Body JSON: { alumno_id (PK) | id_alumno (legajo), asunto, contenido }
-    Envía el mensaje al PADRE del alumno. Opcionalmente setea curso_asociado/curso si el modelo lo posee.
+    EnvÃ­a el mensaje al PADRE del alumno. Opcionalmente setea curso_asociado/curso si el modelo lo posee.
     """
     payload = _coerce_json(request)
     alumno_pk = payload.get("alumno_id")
@@ -1505,7 +1521,7 @@ def mensajes_enviar_api(request):
         try:
             alumno = Alumno.objects.get(pk=int(alumno_pk))
         except Exception:
-            return Response({"detail": "alumno_id inválido."}, status=400)
+            return Response({"detail": "alumno_id invÃ¡lido."}, status=400)
     elif legajo:
         try:
             alumno = Alumno.objects.get(id_alumno=str(legajo))
@@ -1577,7 +1593,7 @@ def ver_mensajes(request):
 
 
 # =========================================================
-#  Boletín / Historial
+#  BoletÃ­n / Historial
 # =========================================================
 @login_required
 def generar_boletin_pdf(request, alumno_id):
@@ -1585,7 +1601,7 @@ def generar_boletin_pdf(request, alumno_id):
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="boletin_{alumno.nombre}.pdf'
     p = canvas.Canvas(response)
-    p.drawString(100, 800, f"Boletín de {alumno.nombre}")
+    p.drawString(100, 800, f"BoletÃ­n de {alumno.nombre}")
     y = 750
     notas = Nota.objects.filter(alumno=alumno).order_by('cuatrimestre')
     for nota in notas:
@@ -1599,12 +1615,12 @@ def generar_boletin_pdf(request, alumno_id):
 @login_required
 def historial_notas_profesor(request, alumno_id):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenés permiso para ver esto.", status=403)
+        return HttpResponse("No tenÃ©s permiso para ver esto.", status=403)
 
     alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
     if _has_role(request, "Profesores") and not request.user.is_superuser:
         if not _profesor_can_access_alumno(request.user, alumno):
-            return HttpResponse("No tenés permiso para ese curso.", status=403)
+            return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
     materias = set(Nota.objects.filter(alumno=alumno).values_list('materia', flat=True))
     materia_seleccionada = request.GET.get('materia')
     notas = []
@@ -1623,7 +1639,7 @@ def historial_notas_profesor(request, alumno_id):
 @login_required
 def historial_notas_padre(request):
     if not (_has_role(request, 'Padres') or request.user.is_superuser):
-        return HttpResponse("No tenés permiso para ver esto.", status=403)
+        return HttpResponse("No tenÃ©s permiso para ver esto.", status=403)
 
     alumnos = Alumno.objects.filter(padre=request.user)
     if not alumnos.exists() and _get_preview_role(request):
@@ -1654,7 +1670,7 @@ def historial_notas_padre(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def api_eventos_tipos(request):
-    return Response(["examen", "acto", "reunión", "feriado"])
+    return Response(["examen", "acto", "reuniÃ³n", "feriado"])
 
 
 @csrf_exempt
@@ -1694,13 +1710,13 @@ def api_eventos(request):
     if _has_role(request, "Profesores") and not user.is_superuser:
         asignados = _profesor_cursos_asignados(user)
         if asignados and data.get("curso") not in set(asignados):
-            return Response({"detail": "No tenés permiso para ese curso."}, status=403)
+            return Response({"detail": "No tenÃ©s permiso para ese curso."}, status=403)
 
     ser = EventoSerializer(data=data)
     if not ser.is_valid():
-        logger.warning("❌ Validación evento (POST) fallida. data=%s errors=%s", data, ser.errors)
+        logger.warning("âŒ ValidaciÃ³n evento (POST) fallida. data=%s errors=%s", data, ser.errors)
         return Response(
-            {"detail": "Validación fallida", "errors": ser.errors, "data": data},
+            {"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -1725,9 +1741,9 @@ def api_evento_detalle(request, pk: int):
         partial = (request.method == "PATCH")
         ser = EventoSerializer(ev, data=data, partial=partial)
         if not ser.is_valid():
-            logger.warning("❌ Validación evento (UPDATE) fallida. data=%s errors=%s", data, ser.errors)
+            logger.warning("âŒ ValidaciÃ³n evento (UPDATE) fallida. data=%s errors=%s", data, ser.errors)
             return Response(
-                {"detail": "Validación fallida", "errors": ser.errors, "data": data},
+                {"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         ser.save()
@@ -1751,7 +1767,7 @@ class EventoViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="tipos",
             permission_classes=[AllowAny], authentication_classes=[])
     def tipos(self, request):
-        return Response(["examen", "acto", "reunión", "feriado"])
+        return Response(["examen", "acto", "reuniÃ³n", "feriado"])
 
     def get_queryset(self):
         user = self.request.user
@@ -1773,8 +1789,8 @@ class EventoViewSet(viewsets.ModelViewSet):
         data = _normalize_event_payload(payload)
         ser = self.get_serializer(data=data)
         if not ser.is_valid():
-            logger.warning("❌ Validación evento (ViewSet.create) fallida. data=%s errors=%s", data, ser.errors)
-            return Response({"detail": "Validación fallida", "errors": ser.errors, "data": data},
+            logger.warning("âŒ ValidaciÃ³n evento (ViewSet.create) fallida. data=%s errors=%s", data, ser.errors)
+            return Response({"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
                             status=status.HTTP_400_BAD_REQUEST)
         self.perform_create(ser)
         return Response(ser.data, status=status.HTTP_201_CREATED)
@@ -1786,8 +1802,8 @@ class EventoViewSet(viewsets.ModelViewSet):
         data = _normalize_event_payload(payload)
         ser = self.get_serializer(instance, data=data, partial=partial)
         if not ser.is_valid():
-            logger.warning("❌ Validación evento (ViewSet.update) fallida. data=%s errors=%s", data, ser.errors)
-            return Response({"detail": "Validación fallida", "errors": ser.errors, "data": data},
+            logger.warning("âŒ ValidaciÃ³n evento (ViewSet.update) fallida. data=%s errors=%s", data, ser.errors)
+            return Response({"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
                             status=status.HTTP_400_BAD_REQUEST)
         self.perform_update(ser)
         return Response(ser.data)
@@ -1812,7 +1828,7 @@ def calendario_view(request):
 @login_required
 def crear_evento(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenés permiso para crear eventos.", status=403)
+        return HttpResponse("No tenÃ©s permiso para crear eventos.", status=403)
 
     asignados = []
     if _has_role(request, "Profesores") and not request.user.is_superuser:
@@ -1837,7 +1853,7 @@ def crear_evento(request):
         else:
             return JsonResponse({'success': False, 'errors': form.errors}, status=400)
 
-    return JsonResponse({'error': 'Método no permitido'}, status=405)
+    return JsonResponse({'error': 'MÃ©todo no permitido'}, status=405)
 
 
 @login_required
@@ -1845,7 +1861,7 @@ def editar_evento(request, evento_id):
     evento = get_object_or_404(Evento, id=evento_id)
 
     if not (request.user == evento.creado_por or request.user.is_superuser):
-        return HttpResponse("No tenés permiso para editar este evento.", status=403)
+        return HttpResponse("No tenÃ©s permiso para editar este evento.", status=403)
 
     if request.method == 'POST':
         form = EventoForm(request.POST, instance=evento)
@@ -1864,7 +1880,7 @@ def eliminar_evento(request, evento_id):
     evento = get_object_or_404(Evento, id=evento_id)
 
     if not (request.user == evento.creado_por or request.user.is_superuser):
-        return HttpResponse("No tenés permiso para eliminar este evento.", status=403)
+        return HttpResponse("No tenÃ©s permiso para eliminar este evento.", status=403)
 
     if request.method == 'POST':
         evento.delete()
@@ -1874,7 +1890,7 @@ def eliminar_evento(request, evento_id):
 
 
 # =========================================================
-#  Asistencias / Perfiles específicos
+#  Asistencias / Perfiles especÃ­ficos
 # =========================================================
 @login_required
 def pasar_asistencia(request):
@@ -1891,7 +1907,7 @@ def pasar_asistencia(request):
     else:
         curso_id = obtener_curso_del_preceptor(usuario)
         if not curso_id:
-            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenés un curso asignado como preceptor.'})
+            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenÃ©s un curso asignado como preceptor.'})
         curso_nombre = dict(Alumno.CURSOS).get(curso_id)
         cursos = [{'id': curso_id, 'nombre': curso_nombre}]
 
@@ -1927,7 +1943,7 @@ def pasar_asistencia(request):
                 if not alumno_nombre:
                     alumno_nombre = getattr(alumno, "nombre", "") or str(getattr(alumno, "id_alumno", "")) or "Alumno"
                 titulo = f"Inasistencia registrada: {alumno_nombre}"
-                descripcion = f"Alumno: {alumno_nombre} · Curso: {getattr(alumno, 'curso', '')} · Fecha: {fecha_actual.isoformat()}"
+                descripcion = f"Alumno: {alumno_nombre} Â· Curso: {getattr(alumno, 'curso', '')} Â· Fecha: {fecha_actual.isoformat()}"
                 for dest in destinatarios:
                     Notificacion.objects.create(
                         destinatario=dest,
@@ -1980,13 +1996,13 @@ def perfil_alumno(request, alumno_id):
         except Exception:
             pass
 
-    # ✅ NUEVO: permitir preceptor si el curso coincide
+    # âœ… NUEVO: permitir preceptor si el curso coincide
     is_preceptor_ok = (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(request.user, alumno))
 
     if not (is_padre or is_prof_or_super or is_alumno_mismo or is_preceptor_ok):
-        return HttpResponse("No tenés permiso para ver este perfil.", status=403)
+        return HttpResponse("No tenÃ©s permiso para ver este perfil.", status=403)
 
-    # ✅ NUEVO: contamos ausentes como 1 y "tarde" como 0.5
+    # âœ… NUEVO: contamos ausentes como 1 y "tarde" como 0.5
     asistencias_irregulares = Asistencia.objects.filter(alumno=alumno).filter(
         Q(presente=False) | Q(tarde=True)
     ).order_by('-fecha')
@@ -2008,7 +2024,7 @@ def perfil_alumno(request, alumno_id):
 @login_required
 def mi_perfil(request):
     """
-    Versión minimal (compat): ahora también expone el alumno vinculado si existe,
+    VersiÃ³n minimal (compat): ahora tambiÃ©n expone el alumno vinculado si existe,
     para que el front pueda resolver el id incluso si no llama a /api/perfil_api/.
     """
     user = request.user
@@ -2036,7 +2052,7 @@ def mi_perfil(request):
 
 
 # =========================================================
-#  Logout de sesión (complementa blacklist de JWT)
+#  Logout de sesiÃ³n (complementa blacklist de JWT)
 # =========================================================
 @csrf_exempt
 @api_view(["POST"])
@@ -2044,7 +2060,7 @@ def mi_perfil(request):
 @permission_classes([AllowAny])
 def auth_logout(request):
     """
-    Cierra la sesión de Django si la hubiera (cookie sessionid) y limpia cookies.
+    Cierra la sesiÃ³n de Django si la hubiera (cookie sessionid) y limpia cookies.
     Para JWT, complementamos con /api/token/blacklist/ desde el front.
     """
     try:
@@ -2053,14 +2069,14 @@ def auth_logout(request):
     except Exception:
         pass
     resp = JsonResponse({"detail": "ok"})
-    # Limpieza defensiva de cookies típicas
+    # Limpieza defensiva de cookies tÃ­picas
     resp.delete_cookie("sessionid")
     resp.delete_cookie("csrftoken")
     return resp
 
 
 # =========================================================
-#  Cambiar contraseña (autenticado)
+#  Cambiar contraseÃ±a (autenticado)
 # =========================================================
 @api_view(["POST"])
 @authentication_classes([JWTAuthentication])
@@ -2075,18 +2091,18 @@ def auth_change_password(request):
     new = (data.get("new_password") or data.get("password_nueva") or "").strip()
 
     if not current or not new:
-        return Response({"detail": "Completá la contraseña actual y la nueva."}, status=400)
+        return Response({"detail": "CompletÃ¡ la contraseÃ±a actual y la nueva."}, status=400)
 
     if len(new) < 6:
-        return Response({"detail": "La contraseña nueva debe tener al menos 6 caracteres."}, status=400)
+        return Response({"detail": "La contraseÃ±a nueva debe tener al menos 6 caracteres."}, status=400)
 
     if not user.check_password(current):
-        return Response({"detail": "La contraseña actual no coincide."}, status=400)
+        return Response({"detail": "La contraseÃ±a actual no coincide."}, status=400)
 
     user.set_password(new)
     user.save(update_fields=["password"])
 
-    # Revocar refresh tokens existentes si blacklist está habilitado
+    # Revocar refresh tokens existentes si blacklist estÃ¡ habilitado
     try:
         from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
         tokens = OutstandingToken.objects.filter(user=user)
@@ -2095,17 +2111,17 @@ def auth_change_password(request):
     except Exception:
         pass
 
-    # Mantener la sesión de Django si estuviera usando cookies
+    # Mantener la sesiÃ³n de Django si estuviera usando cookies
     try:
         update_session_auth_hash(request, user)
     except Exception:
         pass
 
-    return Response({"detail": "Contraseña actualizada."})
+    return Response({"detail": "ContraseÃ±a actualizada."})
 
 
 # =========================================================
-#  ✅ NUEVO: contador de no leídos para el badge de la topbar
+#  âœ… NUEVO: contador de no leÃ­dos para el badge de la topbar
 # =========================================================
 @api_view(["GET"])
 @authentication_classes([JWTAuthentication])
@@ -2126,3 +2142,4 @@ def mensajes_unread_count(request):
         count = 0
 
     return Response({"count": count})
+
