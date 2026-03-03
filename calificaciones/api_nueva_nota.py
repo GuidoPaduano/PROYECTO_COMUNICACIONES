@@ -1,4 +1,6 @@
 # calificaciones/api_nueva_nota.py
+from decimal import Decimal, InvalidOperation
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -54,6 +56,26 @@ def _cuatris_por_defecto():
         return [c[0] for c in Nota.CUATRIMESTRE_CHOICES]
     except Exception:
         return [1, 2]
+
+
+def _resultados_catalogo():
+    return [{"id": key, "label": label} for key, label in Nota.RESULTADO_CHOICES]
+
+
+def _calificaciones_legacy_catalogo():
+    return ["TEA", "TEP", "TED", "NO ENTREGADO"] + [str(x) for x in range(1, 11)]
+
+
+def _parse_decimal_optional(value):
+    if value in (None, ""):
+        return None
+    try:
+        parsed = Decimal(str(value).strip().replace(",", "."))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if parsed < Decimal("1") or parsed > Decimal("10"):
+        return None
+    return parsed.quantize(Decimal("0.01"))
 
 
 def get_materias_catalogo():
@@ -191,6 +213,8 @@ class NuevaNotaDatosIniciales(APIView):
             "materias": get_materias_catalogo(),
             "tipos": _tipos_por_defecto(),
             "cuatrimestres": _cuatris_por_defecto(),
+            "resultados": _resultados_catalogo(),
+            "calificaciones": _calificaciones_legacy_catalogo(),
             "hoy": timezone.localdate(),
         }
         return Response(data, status=status.HTTP_200_OK)
@@ -220,6 +244,8 @@ class CatalogosNuevaNota(APIView):
                 "materias": get_materias_catalogo(),
                 "tipos": _tipos_por_defecto(),
                 "cuatrimestres": _cuatris_por_defecto(),
+                "resultados": _resultados_catalogo(),
+                "calificaciones": _calificaciones_legacy_catalogo(),
                 "hoy": timezone.localdate(),
             },
             status=status.HTTP_200_OK,
@@ -286,6 +312,10 @@ def _normalizar_nota_payload(d):
             data["alumno"] = data.pop("alumno_id")
         elif "id_alumno" in data:
             data["alumno"] = data.pop("id_alumno")
+    if "nota_numerica" not in data and "notaNumerica" in data:
+        data["nota_numerica"] = data.pop("notaNumerica")
+    if "resultado" in data and data["resultado"] not in (None, ""):
+        data["resultado"] = str(data["resultado"]).strip().upper()
     # Si alumno es legajo o string, lo convierto a pk
     alumno_val = data.get("alumno", None)
     if alumno_val is not None:
@@ -472,7 +502,17 @@ def _notify_padre_nota(remitente, nota: Nota):
 class CrearNota(APIView):
     """
     POST /api/calificaciones/notas/
-    Body JSON: { alumno | alumno_id | id_alumno, materia, tipo, calificacion, cuatrimestre, fecha }
+    Body JSON:
+    {
+      alumno | alumno_id | id_alumno,
+      materia,
+      tipo,
+      resultado?,         # TEA/TEP/TED
+      nota_numerica?,     # 1..10
+      calificacion?,      # legacy
+      cuatrimestre,
+      fecha?
+    }
     """
     permission_classes = [IsAuthenticated]
 
@@ -607,7 +647,10 @@ class CrearNotasMasivo(APIView):
             materia = (item.get('materia') or '').strip()
             tipo = (item.get('tipo') or '').strip()
             calif_raw = item.get('calificacion')
-            calif = str(calif_raw or '').strip()
+            calif = str(calif_raw or '').strip().upper()
+            resultado = str(item.get('resultado') or '').strip().upper()
+            nota_numerica_raw = item.get("nota_numerica", item.get("notaNumerica"))
+            nota_numerica = _parse_decimal_optional(nota_numerica_raw)
             cuatri_raw = item.get('cuatrimestre')
             fecha_raw = item.get('fecha', None)
 
@@ -623,25 +666,38 @@ class CrearNotasMasivo(APIView):
             elif allowed_tipos is not None and tipo not in allowed_tipos:
                 row_err.setdefault('tipo', []).append('Tipo inválido.')
 
+            if resultado and resultado not in {"TEA", "TEP", "TED"}:
+                row_err.setdefault("resultado", []).append("Resultado invalido. Usa TEA, TEP o TED.")
+
+            if nota_numerica_raw not in (None, "") and nota_numerica is None:
+                row_err.setdefault("nota_numerica", []).append("La nota_numerica debe estar entre 1 y 10.")
+
+            if calif:
+                try:
+                    from .models import validate_calificacion_ext
+                    validate_calificacion_ext(calif)
+                except ValidationError as ve:
+                    row_err.setdefault('calificacion', []).append(str(ve))
+                except Exception:
+                    row_err.setdefault('calificacion', []).append('Calificación inválida.')
+
+            if calif and calif in {"TEA", "TEP", "TED"} and not resultado:
+                resultado = calif
+            if calif and nota_numerica is None:
+                parsed_from_calif = _parse_decimal_optional(calif)
+                if parsed_from_calif is not None:
+                    nota_numerica = parsed_from_calif
+
             if not calif:
-                row_err.setdefault('calificacion', []).append('Calificación requerida.')
-            else:
-                # normalizar: "No entregado" -> "NO ENTREGADO"; también TEA/TEP/TED
-                calif_up = calif.upper()
-                if calif_up == 'NO ENTREGADO':
-                    calif = 'NO ENTREGADO'
-                else:
-                    # correr el validador legacy del modelo
-                    try:
-                        # validate_calificacion_ext vive en models.py
-                        from .models import validate_calificacion_ext
-                        validate_calificacion_ext(calif_up)
-                        calif = calif_up
-                    except ValidationError as ve:
-                        row_err.setdefault('calificacion', []).append(str(ve))
-                    except Exception:
-                        # fallback: si algo raro pasa, no rompemos, pero marcamos error
-                        row_err.setdefault('calificacion', []).append('Calificación inválida.')
+                if resultado:
+                    calif = resultado
+                elif nota_numerica is not None:
+                    calif = str(nota_numerica).rstrip("0").rstrip(".")
+
+            if (not calif) and (not resultado) and (nota_numerica is None):
+                row_err.setdefault("resultado", []).append(
+                    "Debes informar resultado, nota_numerica o calificacion."
+                )
 
             try:
                 cuatri = int(cuatri_raw)
@@ -673,6 +729,8 @@ class CrearNotasMasivo(APIView):
                     materia=materia,
                     tipo=tipo,
                     calificacion=calif,
+                    resultado=(resultado or None),
+                    nota_numerica=nota_numerica,
                     cuatrimestre=cuatri,
                     fecha=fecha,
                 )

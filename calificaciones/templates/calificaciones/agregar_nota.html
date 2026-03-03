@@ -1,4 +1,4 @@
-{% load static %}
+﻿{% load static %}
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -40,44 +40,29 @@
       {{ form.tipo.errors }}
     </div>
 
-    {# ===== Calificación con SELECT que incluye “No entregado” ===== #}
     <div class="field">
-      <label for="{{ form.calificacion.id_for_label }}">Calificación</label>
-      {% with v=form.calificacion.value|default_if_none:""|upper cal_id=form.calificacion.id_for_label %}
-        <select name="{{ form.calificacion.html_name }}" id="{{ cal_id }}">
-          <option value="">Seleccioná…</option>
+      <label for="{{ form.resultado.id_for_label }}">Resultado (principal)</label>
+      {{ form.resultado }}
+      {{ form.resultado.errors }}
+      <div class="help">Selecciona TEA/TEP/TED (Aprobado/Desaprobado/Aplazado).</div>
+    </div>
 
-          <option value="1"  {% if v == "1"  %}selected{% endif %}>1</option>
-          <option value="2"  {% if v == "2"  %}selected{% endif %}>2</option>
-          <option value="3"  {% if v == "3"  %}selected{% endif %}>3</option>
-          <option value="4"  {% if v == "4"  %}selected{% endif %}>4</option>
-          <option value="5"  {% if v == "5"  %}selected{% endif %}>5</option>
-          <option value="6"  {% if v == "6"  %}selected{% endif %}>6</option>
-          <option value="7"  {% if v == "7"  %}selected{% endif %}>7</option>
-          <option value="8"  {% if v == "8"  %}selected{% endif %}>8</option>
-          <option value="9"  {% if v == "9"  %}selected{% endif %}>9</option>
-          <option value="10" {% if v == "10" %}selected{% endif %}>10</option>
-
-          <option value="TEA" {% if v == "TEA" %}selected{% endif %}>TEA</option>
-          <option value="TEP" {% if v == "TEP" %}selected{% endif %}>TEP</option>
-          <option value="TED" {% if v == "TED" %}selected{% endif %}>TED</option>
-
-          <option value="NO ENTREGADO" {% if v == "NO ENTREGADO" or v == "NOENTREGADO" %}selected{% endif %}>No entregado</option>
-        </select>
-      {% endwith %}
-
-      {% if form.calificacion.errors %}
-        <ul class="errorlist">
-          {% for e in form.calificacion.errors %}<li>{{ e }}</li>{% endfor %}
-        </ul>
+    <div class="field">
+      <label for="{{ form.nota_numerica.id_for_label }}">Nota numerica (opcional)</label>
+      {{ form.nota_numerica }}
+      {{ form.nota_numerica.errors }}
+      {% if form.nota_numerica.help_text %}
+        <div class="help">{{ form.nota_numerica.help_text }}</div>
       {% endif %}
-      <div class="help">
-        {% if form.fields.calificacion.help_text %}
-          {{ form.fields.calificacion.help_text }}
-        {% else %}
-          Valores permitidos: 1–10, TEA, TEP, TED o <em>No entregado</em>.
-        {% endif %}
-      </div>
+    </div>
+
+    <div class="field">
+      <label for="{{ form.calificacion.id_for_label }}">Calificacion (legacy opcional)</label>
+      {{ form.calificacion }}
+      {{ form.calificacion.errors }}
+      {% if form.calificacion.help_text %}
+        <div class="help">{{ form.calificacion.help_text }}</div>
+      {% endif %}
     </div>
 
     <div class="field">
@@ -85,6 +70,12 @@
       {{ form.cuatrimestre }}
       {{ form.cuatrimestre.errors }}
     </div>
+
+    {% if form.non_field_errors %}
+      <ul class="errorlist">
+        {% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+    {% endif %}
 
     <div class="actions">
       <button type="submit">Guardar</button>

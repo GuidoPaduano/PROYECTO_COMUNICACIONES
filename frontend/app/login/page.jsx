@@ -30,7 +30,7 @@ export default function LoginPage() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setError(data?.detail || "Credenciales inválidas")
+        setError(data?.detail || "Usuario o clave incorrecto")
       } else {
         const data = await res.json()
         setTokens(data.access, data.refresh)

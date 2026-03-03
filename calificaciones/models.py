@@ -1,11 +1,12 @@
-from django.db import models
+﻿from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 
 
 # ============================================================
-# ✅ FIX: Validator requerido por migraciones viejas (0014/0015)
+# âœ… FIX: Validator requerido por migraciones viejas (0014/0015)
 # ============================================================
 def validate_calificacion_ext(value):
     """
@@ -18,11 +19,11 @@ def validate_calificacion_ext(value):
       - NO ENTREGADO
     """
     if value is None:
-        raise ValidationError("La calificación no puede estar vacía.")
+        raise ValidationError("La calificaciÃ³n no puede estar vacÃ­a.")
 
     s = str(value).strip()
     if not s:
-        raise ValidationError("La calificación no puede estar vacía.")
+        raise ValidationError("La calificaciÃ³n no puede estar vacÃ­a.")
 
     up = s.upper()
 
@@ -35,20 +36,20 @@ def validate_calificacion_ext(value):
     try:
         num = float(num_str)
     except Exception:
-        raise ValidationError("Calificación inválida. Usá 1-10 o TEA/TEP/TED/NO ENTREGADO.")
+        raise ValidationError("CalificaciÃ³n invÃ¡lida. UsÃ¡ 1-10 o TEA/TEP/TED/NO ENTREGADO.")
 
     if not (1 <= num <= 10):
-        raise ValidationError("La calificación numérica debe estar entre 1 y 10.")
+        raise ValidationError("La calificaciÃ³n numÃ©rica debe estar entre 1 y 10.")
 
     # hasta 2 decimales
     if "." in num_str:
         dec = num_str.split(".", 1)[1]
         if len(dec) > 2:
-            raise ValidationError("La calificación puede tener como máximo 2 decimales.")
+            raise ValidationError("La calificaciÃ³n puede tener como mÃ¡ximo 2 decimales.")
 
 
 class Alumno(models.Model):
-    # ✅ No achicamos curso a 2 porque tu DB ya tiene valores tipo 5NAT/4ECO, etc.
+    # âœ… No achicamos curso a 2 porque tu DB ya tiene valores tipo 5NAT/4ECO, etc.
     CURSOS = [
         # Formato corto
         ('1A', '1A'), ('1B', '1B'),
@@ -66,9 +67,9 @@ class Alumno(models.Model):
 
     nombre = models.CharField(max_length=100)
     apellido = models.CharField(max_length=100, default="", blank=True)
-    id_alumno = models.CharField(max_length=20, unique=True)  # ID/Legajo único
+    id_alumno = models.CharField(max_length=20, unique=True)  # ID/Legajo Ãºnico
 
-    # ✅ clave: max_length grande para NO romper al migrar
+    # âœ… clave: max_length grande para NO romper al migrar
     curso = models.CharField(max_length=20, choices=CURSOS, db_index=True)
 
     padre = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="alumnos_como_padre")
@@ -84,33 +85,52 @@ class Alumno(models.Model):
 class Nota(models.Model):
     MATERIAS = [
         ('Lengua', 'Lengua'),
-        ('Matemática', 'Matemática'),
+        ('MatemÃ¡tica', 'MatemÃ¡tica'),
         ('Ciencias', 'Ciencias'),
         ('Historia', 'Historia'),
-        ('Geografía', 'Geografía'),
-        ('Inglés', 'Inglés'),
-        ('Educación Física', 'Educación Física'),
-        ('Música', 'Música'),
-        ('Plástica', 'Plástica'),
+        ('GeografÃ­a', 'GeografÃ­a'),
+        ('InglÃ©s', 'InglÃ©s'),
+        ('EducaciÃ³n FÃ­sica', 'EducaciÃ³n FÃ­sica'),
+        ('MÃºsica', 'MÃºsica'),
+        ('PlÃ¡stica', 'PlÃ¡stica'),
         ('Catequesis', 'Catequesis'),
-        ('Informática', 'Informática'),
+        ('InformÃ¡tica', 'InformÃ¡tica'),
     ]
 
     TIPOS = [
         ('Examen', 'Examen'),
-        ('Trabajo Práctico', 'Trabajo Práctico'),
-        ('Participación', 'Participación'),
+        ('Trabajo PrÃ¡ctico', 'Trabajo PrÃ¡ctico'),
+        ('ParticipaciÃ³n', 'ParticipaciÃ³n'),
         ('Tarea', 'Tarea'),
+    ]
+    RESULTADO_CHOICES = [
+        ("TEA", "Aprobado"),
+        ("TEP", "Desaprobado"),
+        ("TED", "Aplazado"),
     ]
 
     alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE, related_name="notas")
     materia = models.CharField(max_length=50, choices=MATERIAS)
     tipo = models.CharField(max_length=50, choices=TIPOS)
 
-    # ✅ CLAVE: CharField para permitir "TEA/TEP/TED/NO ENTREGADO" y también "7" / "8.50"
+    # âœ… CLAVE: CharField para permitir "TEA/TEP/TED/NO ENTREGADO" y tambiÃ©n "7" / "8.50"
     calificacion = models.CharField(
         max_length=15,
         validators=[validate_calificacion_ext],
+    )
+    resultado = models.CharField(
+        max_length=3,
+        choices=RESULTADO_CHOICES,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    nota_numerica = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
     )
 
     cuatrimestre = models.IntegerField(choices=[(1, "1"), (2, "2")])
@@ -134,10 +154,10 @@ class Mensaje(models.Model):
     remitente = models.ForeignKey(User, on_delete=models.CASCADE, related_name="mensajes_enviados")
     destinatario = models.ForeignKey(User, on_delete=models.CASCADE, related_name="mensajes_recibidos")
 
-    # ✅ max_length grande para legacy
+    # âœ… max_length grande para legacy
     curso = models.CharField(max_length=20, blank=True, null=True, db_index=True)
 
-    # ✅ default para evitar prompts si hay filas viejas
+    # âœ… default para evitar prompts si hay filas viejas
     tipo_remitente = models.CharField(max_length=20, choices=REMITENTE_TIPOS, default="Profesor")
 
     asunto = models.CharField(max_length=255)
@@ -155,7 +175,7 @@ class Mensaje(models.Model):
 class Comunicado(models.Model):
     remitente = models.ForeignKey(User, on_delete=models.CASCADE)
 
-    # ✅ max_length grande
+    # âœ… max_length grande
     curso = models.CharField(max_length=20, blank=True, null=True, db_index=True)
 
     titulo = models.CharField(max_length=255)
@@ -171,15 +191,15 @@ class Comunicado(models.Model):
 
 class Sancion(models.Model):
     TIPOS = [
-        ('Amonestación', 'Amonestación'),
-        ('Llamado de atención', 'Llamado de atención'),
-        ('Suspensión', 'Suspensión'),
+        ('AmonestaciÃ³n', 'AmonestaciÃ³n'),
+        ('Llamado de atenciÃ³n', 'Llamado de atenciÃ³n'),
+        ('SuspensiÃ³n', 'SuspensiÃ³n'),
     ]
 
     alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE, related_name="sanciones")
 
-    # ✅ default para evitar prompts
-    tipo = models.CharField(max_length=50, choices=TIPOS, default="Amonestación")
+    # âœ… default para evitar prompts
+    tipo = models.CharField(max_length=50, choices=TIPOS, default="AmonestaciÃ³n")
 
     motivo = models.TextField()
     detalle = models.TextField(blank=True, null=True)
@@ -194,10 +214,10 @@ class Sancion(models.Model):
 
 
 TIPOS_EVENTO = [
-    ('Evaluación', 'Evaluación'),
+    ('EvaluaciÃ³n', 'EvaluaciÃ³n'),
     ('Entrega', 'Entrega'),
     ('Acto', 'Acto'),
-    ('Reunión', 'Reunión'),
+    ('ReuniÃ³n', 'ReuniÃ³n'),
     ('Otro', 'Otro'),
 ]
 
@@ -206,7 +226,7 @@ class Evento(models.Model):
     titulo = models.CharField(max_length=255)
     descripcion = models.TextField(blank=True, null=True)
 
-    # ✅ max_length grande (no varchar(2))
+    # âœ… max_length grande (no varchar(2))
     curso = models.CharField(max_length=20, choices=Alumno.CURSOS, db_index=True)
 
     fecha = models.DateField()
@@ -224,7 +244,7 @@ class Evento(models.Model):
 # =========================
 TIPOS_ASISTENCIA = (
     ("clases", "Clases"),
-    ("informatica", "Informática"),
+    ("informatica", "InformÃ¡tica"),
     ("catequesis", "Catequesis"),
 )
 
@@ -244,7 +264,7 @@ class Asistencia(models.Model):
     observacion = models.CharField(max_length=255, blank=True, null=True)
     creado_por = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
 
-    # ✅ default=timezone.now evita prompts de auto_now_add en tablas con filas existentes
+    # âœ… default=timezone.now evita prompts de auto_now_add en tablas con filas existentes
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -278,7 +298,7 @@ class Asistencia(models.Model):
 class Notificacion(models.Model):
     TIPO_CHOICES = [
         ("nota", "Nota"),
-        ("sancion", "Sanción"),
+        ("sancion", "SanciÃ³n"),
         ("inasistencia", "Inasistencia"),
         ("mensaje", "Mensaje"),
         ("evento", "Evento"),
@@ -304,3 +324,5 @@ class Notificacion(models.Model):
 
     def __str__(self):
         return f"{self.tipo}: {self.titulo}"
+
+
