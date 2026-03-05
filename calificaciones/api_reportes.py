@@ -49,11 +49,11 @@ def _role_label(user) -> str:
     groups = _user_groups(user)
     if "Padres" in groups:
         return "Padres"
-    if "Alumnos" in groups:
+    if "Alumnos" in groups or "Alumno" in groups:
         return "Alumnos"
     if "Profesores" in groups:
         return "Profesores"
-    if "Preceptores" in groups:
+    if "Preceptores" in groups or "Preceptor" in groups:
         return "Preceptores"
     return "SinRol"
 
