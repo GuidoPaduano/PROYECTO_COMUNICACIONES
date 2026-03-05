@@ -12,9 +12,9 @@ function normalizeRole(me) {
   const groups = Array.isArray(me?.groups) ? me.groups : []
   if (me?.is_superuser) return "Superuser"
   if (groups.includes("Padres")) return "Padres"
-  if (groups.includes("Alumnos")) return "Alumnos"
+  if (groups.includes("Alumnos") || groups.includes("Alumno")) return "Alumnos"
   if (groups.includes("Profesores")) return "Profesores"
-  if (groups.includes("Preceptores")) return "Preceptores"
+  if (groups.includes("Preceptores") || groups.includes("Preceptor")) return "Preceptores"
   return "SinRol"
 }
 
@@ -312,15 +312,23 @@ export default function ReportesPage() {
               </div>
             ) : null}
 
-            {isPadre ? (
+            {isPadre && alumnos.length > 1 ? (
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Alumno</label>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hijo</label>
                 <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={alumnoSel} onChange={(e) => setAlumnoSel(e.target.value)}>
-                  {alumnos.length === 0 ? <option value="">Sin alumnos</option> : null}
                   {alumnos.map((a) => (
                     <option key={a.id || a.id_alumno} value={a.id || a.id_alumno}>{a.nombre} ({a.curso})</option>
                   ))}
                 </select>
+              </div>
+            ) : null}
+
+            {isPadre && alumnos.length === 1 ? (
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hijo</label>
+                <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {alumnos[0]?.nombre} ({alumnos[0]?.curso})
+                </div>
               </div>
             ) : null}
           </div>
