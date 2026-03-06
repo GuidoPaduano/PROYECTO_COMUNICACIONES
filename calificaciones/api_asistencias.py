@@ -9,6 +9,7 @@ from django.utils.dateparse import parse_date
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from django.http import QueryDict
 
 from rest_framework.decorators import (
     api_view,
@@ -23,6 +24,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Alumno, Asistencia, Notificacion
 from .utils_cursos import filtrar_cursos_validos
+from .alerts_inasistencias import evaluar_alertas_inasistencia_por_alumnos, evaluar_alerta_inasistencia
 
 try:
     # Si existen los modelos reales de preceptor/profesor → cursos
@@ -99,8 +101,8 @@ def _coerce_json(request) -> Dict[str, Any]:
         if getattr(request, "data", None) is not None:
             data = request.data
 
-            # Si es un QueryDict-like
-            if hasattr(data, "keys") and hasattr(data, "get"):
+            # Si es QueryDict real (form-data), normalizamos escalares.
+            if isinstance(data, QueryDict):
                 out: Dict[str, Any] = {}
                 for k in list(data.keys()):
                     out[k] = _first_scalar(data.get(k))
@@ -108,10 +110,7 @@ def _coerce_json(request) -> Dict[str, Any]:
 
             # Si ya es dict normal
             if isinstance(data, dict):
-                out = {}
-                for k, v in data.items():
-                    out[k] = _first_scalar(v)
-                return out
+                return dict(data)
     except Exception:
         pass
 
@@ -539,6 +538,7 @@ def _bulk_upsert_asistencias(
     to_update: List[Asistencia] = []
     to_create: List[Asistencia] = []
     ausentes: List[int] = []
+    afectados: List[int] = []
 
     for aid in alumno_ids:
         st = estado_by_alumno_id.get(aid) or {"presente": True, "tarde": False}
@@ -563,6 +563,7 @@ def _bulk_upsert_asistencias(
                 changed = True
             if changed:
                 to_update.append(obj)
+                afectados.append(aid)
                 if prev_presente and (not presente):
                     ausentes.append(aid)
         else:
@@ -575,6 +576,7 @@ def _bulk_upsert_asistencias(
                     tarde=tarde,
                 )
             )
+            afectados.append(aid)
             if not presente:
                 ausentes.append(aid)
 
@@ -593,7 +595,7 @@ def _bulk_upsert_asistencias(
                         defaults={"presente": bool(obj.presente), "tarde": bool(getattr(obj, "tarde", False)), "justificada": False},
                     )
 
-    return {"guardadas": len(alumno_ids), "errores": 0, "ausentes": ausentes}
+    return {"guardadas": len(alumno_ids), "errores": 0, "ausentes": ausentes, "afectados": sorted(set(afectados))}
 
 
 # =========================================================
@@ -728,6 +730,14 @@ def registrar_asistencias(request):
                 )
             except Exception:
                 pass
+            try:
+                evaluar_alertas_inasistencia_por_alumnos(
+                    alumno_ids=sorted(set(res.get("afectados") or [])),
+                    tipo_asistencia=tipo_asistencia,
+                    actor=getattr(request, "user", None),
+                )
+            except Exception:
+                pass
 
             items_out: List[Dict[str, Any]] = []
             if return_items and alumno_ids:
@@ -842,6 +852,14 @@ def registrar_asistencias(request):
             )
         except Exception:
             pass
+        try:
+            evaluar_alertas_inasistencia_por_alumnos(
+                alumno_ids=sorted(set(res.get("afectados") or [])),
+                tipo_asistencia=tipo_asistencia,
+                actor=getattr(request, "user", None),
+            )
+        except Exception:
+            pass
 
         items_out: List[Dict[str, Any]] = []
         if return_items:
@@ -894,6 +912,7 @@ def registrar_asistencias(request):
     guardadas = 0
     errores = 0
     items_out: List[Dict[str, Any]] = []
+    afectados_ids_por_tipo: Dict[str, set[int]] = {}
 
     for it in items:
         it = _try_parse_json(it)
@@ -952,6 +971,10 @@ def registrar_asistencias(request):
                 # ✅ NUEVO: persiste también "tarde" (si no es presente, se fuerza False arriba)
                 defaults={"presente": bool(presente), "tarde": bool(tarde)},
             )
+            key_tipo = str(tipo_asistencia or "clases")
+            if key_tipo not in afectados_ids_por_tipo:
+                afectados_ids_por_tipo[key_tipo] = set()
+            afectados_ids_por_tipo[key_tipo].add(int(alumno.id))
             guardadas += 1
             if (prev is None and (not bool(presente))) or (prev is not None and bool(prev.presente) and (not bool(presente))):
                 try:
@@ -980,6 +1003,16 @@ def registrar_asistencias(request):
                 })
         except Exception:
             errores += 1
+
+    try:
+        for tipo_eval, ids_eval in afectados_ids_por_tipo.items():
+            evaluar_alertas_inasistencia_por_alumnos(
+                alumno_ids=sorted(ids_eval),
+                tipo_asistencia=tipo_eval,
+                actor=getattr(request, "user", None),
+            )
+    except Exception:
+        pass
 
     return _ok_response({
         "guardadas": guardadas,
@@ -1065,6 +1098,15 @@ def justificar_asistencia(request, pk: int):
 
     setattr(obj, "justificada", nueva)
     obj.save(update_fields=["justificada"])
+    try:
+        evaluar_alerta_inasistencia(
+            alumno=obj.alumno,
+            tipo_asistencia=getattr(obj, "tipo_asistencia", "clases"),
+            actor=getattr(request, "user", None),
+            asistencia=obj,
+        )
+    except Exception:
+        pass
 
     falta_valor = 0.0 if nueva else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0))
 

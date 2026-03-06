@@ -1,11 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { API_BASE, clearTokens, setTokens } from "../_lib/auth"
 
 
 
 export default function LoginPage() {
+  const router = useRouter()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -34,7 +36,7 @@ export default function LoginPage() {
       } else {
         const data = await res.json()
         setTokens(data.access, data.refresh)
-        window.location.href = "/dashboard"
+        router.replace("/dashboard")
       }
     } catch {
       setError("No se pudo conectar con el servidor")

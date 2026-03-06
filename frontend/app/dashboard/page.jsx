@@ -305,8 +305,11 @@ export default function DashboardPage() {
   useEffect(() => {
     let alive = true
     let timer = null
+    const isPageVisible = () =>
+      typeof document === "undefined" || document.visibilityState === "visible"
 
     const loadUnread = async () => {
+      if (!isPageVisible()) return
       try {
         let res = await pfetch("/mensajes/unread_count/")
         if (!res.ok) res = await pfetch("/api/mensajes/unread_count/")
@@ -317,15 +320,24 @@ export default function DashboardPage() {
     }
 
     loadUnread()
-    timer = setInterval(loadUnread, 60000)
+    timer = setInterval(loadUnread, 120000)
 
     const handler = () => loadUnread()
+    const visibilityHandler = () => {
+      if (isPageVisible()) loadUnread()
+    }
     if (typeof window !== "undefined") window.addEventListener(INBOX_EVENT, handler)
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", visibilityHandler)
+    }
 
     return () => {
       alive = false
       if (timer) clearInterval(timer)
       if (typeof window !== "undefined") window.removeEventListener(INBOX_EVENT, handler)
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", visibilityHandler)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewRole])
@@ -386,6 +398,10 @@ const [mensajeSan, setMensajeSan] = useState("")
   const [eventosPadreLoading, setEventosPadreLoading] = useState(false)
   const [mensajesHome, setMensajesHome] = useState([])
   const [mensajesHomeLoading, setMensajesHomeLoading] = useState(false)
+  const [preceptorAlertas, setPreceptorAlertas] = useState([])
+  const [preceptorAlertasLoading, setPreceptorAlertasLoading] = useState(false)
+  const [preceptorAlertasInasistencias, setPreceptorAlertasInasistencias] = useState([])
+  const [preceptorAlertasInasistenciasLoading, setPreceptorAlertasInasistenciasLoading] = useState(false)
 
   const [openAlumnoMsg, setOpenAlumnoMsg] = useState(false)
   const [loadingAlumnoMsg, setLoadingAlumnoMsg] = useState(false)
@@ -1002,6 +1018,64 @@ setMensajeSan("")
   }, [showPadre, showAlumno, showPreceptor, showProfesor, previewRole])
 
   useEffect(() => {
+    if (!showPreceptor) return
+    let alive = true
+    ;(async () => {
+      setPreceptorAlertasLoading(true)
+      try {
+        const tries = ["/preceptor/alertas-academicas/?limit=12", "/api/preceptor/alertas-academicas/?limit=12"]
+        let data = null
+        for (const url of tries) {
+          try {
+            const r = await pfetch(url)
+            if (!r.ok) continue
+            data = await r.json().catch(() => ({}))
+            break
+          } catch {}
+        }
+        const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
+        if (alive) setPreceptorAlertas(rows)
+      } catch {
+        if (alive) setPreceptorAlertas([])
+      } finally {
+        if (alive) setPreceptorAlertasLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [showPreceptor, previewRole])
+
+  useEffect(() => {
+    if (!showPreceptor) return
+    let alive = true
+    ;(async () => {
+      setPreceptorAlertasInasistenciasLoading(true)
+      try {
+        const tries = ["/preceptor/alertas-inasistencias/?limit=12", "/api/preceptor/alertas-inasistencias/?limit=12"]
+        let data = null
+        for (const url of tries) {
+          try {
+            const r = await pfetch(url)
+            if (!r.ok) continue
+            data = await r.json().catch(() => ({}))
+            break
+          } catch {}
+        }
+        const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
+        if (alive) setPreceptorAlertasInasistencias(rows)
+      } catch {
+        if (alive) setPreceptorAlertasInasistencias([])
+      } finally {
+        if (alive) setPreceptorAlertasInasistenciasLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [showPreceptor, previewRole])
+
+  useEffect(() => {
     if (!isAlumnoOnly) return
     if (!alumnoCurso) return
     let alive = true
@@ -1125,6 +1199,10 @@ setMensajeSan("")
               eventos={eventosProfesor}
               eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
               hasCurso={!!profesorCursoSel}
+              alertas={preceptorAlertas}
+              alertasLoading={preceptorAlertasLoading}
+              alertasInasistencias={preceptorAlertasInasistencias}
+              alertasInasistenciasLoading={preceptorAlertasInasistenciasLoading}
               mensajes={mensajesHome}
               mensajesLoading={mensajesHomeLoading}
               myId={myId}
@@ -1720,20 +1798,136 @@ function ProfesorInicio({ mensajes, mensajesLoading, myId }) {
 }
 
 function PreceptorInicio({
+  alertas,
+  alertasLoading,
+  alertasInasistencias,
+  alertasInasistenciasLoading,
   mensajes,
   mensajesLoading,
   myId,
 }) {
   return (
-    <section className="min-h-[60vh] flex items-center">
-      <div className="w-full max-w-5xl mx-auto">
-          <MensajesRecientesCard
-            mensajes={mensajes}
-            loading={mensajesLoading}
-            myId={myId}
-          />
+    <section>
+      <div className="w-full max-w-7xl mx-auto flex flex-col gap-6">
+        <MensajesRecientesCard mensajes={mensajes} loading={mensajesLoading} myId={myId} />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+          <AlertasAcademicasCard alertas={alertas} loading={alertasLoading} />
+          <AlertasInasistenciasCard alertas={alertasInasistencias} loading={alertasInasistenciasLoading} />
+        </div>
       </div>
     </section>
+  )
+}
+
+function AlertasAcademicasCard({ alertas, loading }) {
+  return (
+    <Card className="surface-card">
+      <CardContent className="surface-card-pad flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <ClipboardList className="h-6 w-6 text-amber-700" />
+          </div>
+          <div>
+            <h3 className="tile-title">Atencion academica</h3>
+            <p className="tile-subtitle">Alumnos detectados en alerta</p>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-slate-500">Cargando alertas...</p>
+        ) : !Array.isArray(alertas) || alertas.length === 0 ? (
+          <p className="text-sm text-slate-500">No hay alumnos en alerta academica.</p>
+        ) : (
+          <div className="space-y-3">
+            {alertas.map((it, idx) => {
+              const a = it?.alumno || {}
+              const nombre = [String(a?.apellido || "").trim(), String(a?.nombre || "").trim()]
+                .filter(Boolean)
+                .join(", ") || String(a?.id_alumno || "Alumno")
+              const alumnoId = a?.id
+              const href = alumnoId
+                ? `/alumnos/${encodeURIComponent(String(alumnoId))}?tab=notas`
+                : "/alumnos"
+              const materias = Array.isArray(it?.materias_en_alerta) ? it.materias_en_alerta : []
+              return (
+                <Link
+                  key={`alerta-alumno-${alumnoId || idx}`}
+                  href={href}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-amber-200 px-4 py-3 bg-amber-50/40 hover:bg-amber-50 transition"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{nombre}</p>
+                    <p className="text-xs text-slate-600 truncate">
+                      {a?.curso ? `Curso ${a.curso}` : "Curso s/d"}
+                      {materias.length ? ` · ${materias.join(", ")}` : ""}
+                    </p>
+                  </div>
+                  <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 text-amber-800">
+                    Ver perfil
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function AlertasInasistenciasCard({ alertas, loading }) {
+  return (
+    <Card className="surface-card">
+      <CardContent className="surface-card-pad flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <CheckSquare className="h-6 w-6 text-rose-700" />
+          </div>
+          <div>
+            <h3 className="tile-title">Alerta por inasistencias</h3>
+            <p className="tile-subtitle">Ausencias consecutivas detectadas</p>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-slate-500">Cargando alertas...</p>
+        ) : !Array.isArray(alertas) || alertas.length === 0 ? (
+          <p className="text-sm text-slate-500">No hay alumnos con alerta por inasistencias.</p>
+        ) : (
+          <div className="space-y-3">
+            {alertas.map((it, idx) => {
+              const a = it?.alumno || {}
+              const nombre = [String(a?.apellido || "").trim(), String(a?.nombre || "").trim()]
+                .filter(Boolean)
+                .join(", ") || String(a?.id_alumno || "Alumno")
+              const alumnoId = a?.id
+              const href = alumnoId
+                ? `/alumnos/${encodeURIComponent(String(alumnoId))}?tab=asistencias`
+                : "/alumnos"
+              const totalInas = Number(it?.total_inasistencias_clases || 0)
+              return (
+                <Link
+                  key={`alerta-inasist-${alumnoId || idx}`}
+                  href={href}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-rose-200 px-4 py-3 bg-rose-50/40 hover:bg-rose-50 transition"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{nombre}</p>
+                    <p className="text-xs text-slate-600 truncate">
+                      {a?.curso ? `Curso ${a.curso}` : "Curso s/d"}
+                      {totalInas > 0 ? ` · ${totalInas} inasistencias totales a clases` : " · 0 inasistencias totales a clases"}
+                    </p>
+                  </div>
+                  <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-800">
+                    Ver asistencias
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

@@ -167,6 +167,11 @@ class Mensaje(models.Model):
 
     class Meta:
         ordering = ["-fecha_envio", "-id"]
+        indexes = [
+            models.Index(fields=["destinatario", "leido", "fecha_envio"]),
+            models.Index(fields=["destinatario", "fecha_envio"]),
+            models.Index(fields=["remitente", "fecha_envio"]),
+        ]
 
     def __str__(self):
         return f"{self.asunto} ({self.remitente} -> {self.destinatario})"
@@ -285,11 +290,114 @@ class Asistencia(models.Model):
         ]
         indexes = [
             models.Index(fields=["alumno", "fecha", "tipo_asistencia"]),
+            models.Index(fields=["alumno", "tipo_asistencia", "presente"]),
         ]
 
     def __str__(self):
         estado = "Ausente" if (not self.presente) else ("Tarde" if getattr(self, "tarde", False) else "Presente")
         return f"{self.alumno} - {self.fecha} - {self.tipo_asistencia} - {estado}"
+
+
+class AlertaAcademica(models.Model):
+    ESTADO_CHOICES = [
+        ("activa", "Activa"),
+        ("cerrada", "Cerrada"),
+    ]
+
+    alumno = models.ForeignKey(
+        Alumno,
+        on_delete=models.CASCADE,
+        related_name="alertas_academicas",
+        db_index=True,
+    )
+    materia = models.CharField(max_length=50, db_index=True)
+    cuatrimestre = models.IntegerField(null=True, blank=True, db_index=True)
+    severidad = models.IntegerField(db_index=True)
+    riesgo_ponderado = models.DecimalField(max_digits=4, decimal_places=3, default=0)
+    triggers = models.JSONField(default=dict, blank=True)
+    ventana_desde = models.DateField(null=True, blank=True)
+    ventana_hasta = models.DateField(null=True, blank=True)
+    fecha_evento = models.DateField(default=timezone.localdate, db_index=True)
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="activa", db_index=True)
+
+    nota_disparadora = models.ForeignKey(
+        "Nota",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alertas_disparadas",
+    )
+    creada_por = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alertas_creadas",
+    )
+    creada_en = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-creada_en", "-id"]
+        indexes = [
+            models.Index(fields=["alumno", "materia", "creada_en"]),
+            models.Index(fields=["alumno", "materia", "cuatrimestre"]),
+        ]
+
+    def __str__(self):
+        return f"Alerta N{self.severidad} - {self.alumno} - {self.materia}"
+
+
+class AlertaInasistencia(models.Model):
+    ESTADO_CHOICES = [
+        ("activa", "Activa"),
+        ("cerrada", "Cerrada"),
+    ]
+    MOTIVO_CHOICES = [
+        ("AUSENCIAS_CONSECUTIVAS", "Ausencias consecutivas"),
+        ("FALTAS_ACUMULADAS", "Faltas acumuladas"),
+    ]
+
+    alumno = models.ForeignKey(
+        Alumno,
+        on_delete=models.CASCADE,
+        related_name="alertas_inasistencia",
+        db_index=True,
+    )
+    curso = models.CharField(max_length=20, db_index=True)
+    tipo_asistencia = models.CharField(max_length=20, default="clases", db_index=True)
+    motivo = models.CharField(max_length=40, choices=MOTIVO_CHOICES, db_index=True)
+    severidad = models.IntegerField(default=1, db_index=True)
+    valor_actual = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    umbral = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="activa", db_index=True)
+    fecha_evento = models.DateField(default=timezone.localdate, db_index=True)
+    detalle = models.JSONField(default=dict, blank=True)
+    asistencia_disparadora = models.ForeignKey(
+        "Asistencia",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alertas_inasistencia_disparadas",
+    )
+    creada_por = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alertas_inasistencia_creadas",
+    )
+    creada_en = models.DateTimeField(auto_now_add=True, db_index=True)
+    cerrada_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-creada_en", "-id"]
+        indexes = [
+            models.Index(fields=["alumno", "motivo", "estado"]),
+            models.Index(fields=["curso", "estado", "creada_en"]),
+        ]
+
+    def __str__(self):
+        return f"Inasistencia ({self.motivo}) - {self.alumno}"
 
 # ------------------------------------------------------------
 # Notificaciones (campana / inbox UI)
@@ -321,6 +429,10 @@ class Notificacion(models.Model):
 
     class Meta:
         ordering = ["-creada_en"]
+        indexes = [
+            models.Index(fields=["destinatario", "leida", "creada_en"]),
+            models.Index(fields=["destinatario", "creada_en"]),
+        ]
 
     def __str__(self):
         return f"{self.tipo}: {self.titulo}"

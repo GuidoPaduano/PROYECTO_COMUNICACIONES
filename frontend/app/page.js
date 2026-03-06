@@ -1,5 +1,14 @@
 "use client"
 
-import LoginPage from "./login/page"
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 
-export default LoginPage
+export default function HomePage() {
+  const router = useRouter()
+
+  useEffect(() => {
+    router.replace("/login")
+  }, [router])
+
+  return null
+}

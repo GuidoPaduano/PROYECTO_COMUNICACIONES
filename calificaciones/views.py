@@ -24,7 +24,8 @@ from django.utils.decorators import method_decorator
 
 from reportlab.pdfgen import canvas
 
-from django.db.models import Q  # âœ… NUEVO (para filtros robustos de no leÃ­dos)
+from django.db.models import Q, Count  # âœ… NUEVO (para filtros robustos de no leÃ­dos)
+from functools import lru_cache
 
 from .models import Alumno, Nota, Mensaje, Evento, Asistencia, Notificacion
 from .utils_cursos import filtrar_cursos_validos
@@ -444,6 +445,7 @@ def _has_role(request, *roles):
 
 
 # ===== Helper: detectar si un campo existe en el modelo (para contadores) =====
+@lru_cache(maxsize=None)
 def _has_model_field(model, name: str) -> bool:
     try:
         model._meta.get_field(name)
@@ -525,14 +527,17 @@ def _profesor_can_access_alumno(user, alumno: Alumno) -> bool:
 # =========================================================
 #  âœ… NUEVO: Compat Mensaje (emisor/receptor vs remitente/destinatario)
 # =========================================================
+@lru_cache(maxsize=1)
 def _mensaje_sender_field() -> str:
     return "remitente" if _has_model_field(Mensaje, "remitente") else "emisor"
 
 
+@lru_cache(maxsize=1)
 def _mensaje_recipient_field() -> str:
     return "destinatario" if _has_model_field(Mensaje, "destinatario") else "receptor"
 
 
+@lru_cache(maxsize=1)
 def _mensaje_curso_field() -> str:
     if _has_model_field(Mensaje, "curso_asociado"):
         return "curso_asociado"
@@ -549,6 +554,20 @@ def _mensajes_inbox_qs(user):
 def _mensajes_sent_qs(user):
     sf = _mensaje_sender_field()
     return Mensaje.objects.filter(**{sf: user})
+
+
+def _mensajes_unread_count_from_qs(inbox_qs) -> int:
+    has_leido = _has_model_field(Mensaje, "leido")
+    has_leido_en = _has_model_field(Mensaje, "leido_en")
+    if has_leido and has_leido_en:
+        return inbox_qs.filter(Q(leido=False) | Q(leido_en__isnull=True)).count()
+    if has_leido:
+        return inbox_qs.filter(leido=False).count()
+    if has_leido_en:
+        return inbox_qs.filter(leido_en__isnull=True).count()
+    if _has_model_field(Mensaje, "fecha_lectura"):
+        return inbox_qs.filter(fecha_lectura__isnull=True).count()
+    return 0
 
 
 # =========================================================
@@ -690,17 +709,7 @@ def perfil_api(request):
     mensajes_recibidos = inbox_qs.count()
     mensajes_enviados = sent_qs.count()
 
-    # cÃ¡lculo defensivo de "no leÃ­dos" (segÃºn campos existentes en tu modelo)
-    if _has_model_field(Mensaje, "leido") and _has_model_field(Mensaje, "leido_en"):
-        mensajes_no_leidos = inbox_qs.filter(Q(leido=False) | Q(leido_en__isnull=True)).count()
-    elif _has_model_field(Mensaje, "leido"):
-        mensajes_no_leidos = inbox_qs.filter(leido=False).count()
-    elif _has_model_field(Mensaje, "leido_en"):
-        mensajes_no_leidos = inbox_qs.filter(leido_en__isnull=True).count()
-    elif _has_model_field(Mensaje, "fecha_lectura"):
-        mensajes_no_leidos = inbox_qs.filter(fecha_lectura__isnull=True).count()
-    else:
-        mensajes_no_leidos = 0
+    mensajes_no_leidos = _mensajes_unread_count_from_qs(inbox_qs)
 
     data = {
         "user": {
@@ -2007,8 +2016,12 @@ def perfil_alumno(request, alumno_id):
         Q(presente=False) | Q(tarde=True)
     ).order_by('-fecha')
 
-    ausentes_cnt = Asistencia.objects.filter(alumno=alumno, presente=False).count()
-    tarde_cnt = Asistencia.objects.filter(alumno=alumno, presente=True, tarde=True).count()
+    resumen_asist = Asistencia.objects.filter(alumno=alumno).aggregate(
+        ausentes=Count("id", filter=Q(presente=False)),
+        tardes=Count("id", filter=Q(presente=True, tarde=True)),
+    )
+    ausentes_cnt = int(resumen_asist.get("ausentes") or 0)
+    tarde_cnt = int(resumen_asist.get("tardes") or 0)
     faltas_equivalentes = ausentes_cnt + (tarde_cnt * 0.5)
 
     return render(request, 'calificaciones/perfil_alumno.html', {
@@ -2129,17 +2142,6 @@ def auth_change_password(request):
 def mensajes_unread_count(request):
     user = request.user
     inbox_qs = _mensajes_inbox_qs(user)
-
-    if _has_model_field(Mensaje, "leido") and _has_model_field(Mensaje, "leido_en"):
-        count = inbox_qs.filter(Q(leido=False) | Q(leido_en__isnull=True)).count()
-    elif _has_model_field(Mensaje, "leido"):
-        count = inbox_qs.filter(leido=False).count()
-    elif _has_model_field(Mensaje, "leido_en"):
-        count = inbox_qs.filter(leido_en__isnull=True).count()
-    elif _has_model_field(Mensaje, "fecha_lectura"):
-        count = inbox_qs.filter(fecha_lectura__isnull=True).count()
-    else:
-        count = 0
-
+    count = _mensajes_unread_count_from_qs(inbox_qs)
     return Response({"count": count})
 

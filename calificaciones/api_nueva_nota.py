@@ -20,6 +20,7 @@ from .models import Alumno, Nota, Mensaje, Notificacion
 from .serializers import AlumnoSerializer, NotaCreateSerializer
 from .contexto import build_context_for_user, alumno_to_dict
 from .utils_cursos import filtrar_cursos_validos
+from .alerts import evaluar_alerta_nota
 
 # ---------- Catálogo (con fallbacks) ----------
 try:
@@ -522,7 +523,9 @@ class CrearNota(APIView):
         if serializer.is_valid():
             nota = serializer.save()
             notificado, notif_dest_id, notif_source, notif_error = _notify_padre_nota(request.user, nota)
+            alerta_info = evaluar_alerta_nota(nota=nota, actor=request.user)
             resp = {"ok": True, "id": nota.id, "notificado": notificado, "notif_destinatario_id": notif_dest_id, "notif_source": notif_source}
+            resp["alerta"] = alerta_info
             # Si sos staff/superuser y falló, devolvemos error para debug
             if (not notificado) and notif_error and (getattr(request.user, 'is_staff', False) or getattr(request.user, 'is_superuser', False)):
                 resp["notif_error"] = notif_error
@@ -747,6 +750,7 @@ class CrearNotasMasivo(APIView):
         # ------------------------
         created_ids = []
         notificados = 0
+        alertas_creadas = 0
 
         # prefetch de users por legajo (1 query)
         User = get_user_model()
@@ -771,7 +775,13 @@ class CrearNotasMasivo(APIView):
                 except Exception:
                     pass
 
+        destinatarios_cache = {}
+
         def _destinatarios_para_alumno(a: Alumno):
+            aid = getattr(a, "id", None)
+            if aid is not None and aid in destinatarios_cache:
+                return destinatarios_cache[aid]
+
             destinatarios = []
             seen = set()
 
@@ -796,6 +806,8 @@ class CrearNotasMasivo(APIView):
             except Exception:
                 pass
 
+            if aid is not None:
+                destinatarios_cache[aid] = destinatarios
             return destinatarios
 
         docente = (request.user.get_full_name() or request.user.username).strip()
@@ -865,11 +877,19 @@ class CrearNotasMasivo(APIView):
                 Notificacion.objects.bulk_create(notifs, batch_size=500)
                 notificados = len(notifs)
 
+            for n in notas_objs:
+                try:
+                    info = evaluar_alerta_nota(nota=n, actor=request.user)
+                    if info.get("created"):
+                        alertas_creadas += 1
+                except Exception:
+                    pass
+
         # 207 si hubo errores parciales, 201 si todo ok
         if errors:
             return Response(
-                {"ok": True, "created": created_ids, "errors": errors, "notificados": notificados},
+                {"ok": True, "created": created_ids, "errors": errors, "notificados": notificados, "alertas": alertas_creadas},
                 status=207,
             )
 
-        return Response({"ok": True, "created": created_ids, "notificados": notificados}, status=status.HTTP_201_CREATED)
+        return Response({"ok": True, "created": created_ids, "notificados": notificados, "alertas": alertas_creadas}, status=status.HTTP_201_CREATED)

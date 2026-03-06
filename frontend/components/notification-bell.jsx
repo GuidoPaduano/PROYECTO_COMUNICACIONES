@@ -416,19 +416,27 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
   useEffect(() => {
     let timer = null
     let alive = true
+    const isPageVisible = () =>
+      typeof document === "undefined" || document.visibilityState === "visible"
 
     const run = async () => {
-      if (!alive) return
+      if (!alive || !isPageVisible()) return
       await loadNotifCount()
       await loadPreview()
     }
 
     run()
-    timer = setInterval(run, 60000)
+    timer = setInterval(run, 120000)
 
     const handler = () => run()
+    const visibilityHandler = () => {
+      if (isPageVisible()) run()
+    }
     if (typeof window !== "undefined") {
       window.addEventListener(INBOX_EVENT, handler)
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", visibilityHandler)
     }
 
     return () => {
@@ -436,6 +444,9 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
       if (timer) clearInterval(timer)
       if (typeof window !== "undefined") {
         window.removeEventListener(INBOX_EVENT, handler)
+      }
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", visibilityHandler)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

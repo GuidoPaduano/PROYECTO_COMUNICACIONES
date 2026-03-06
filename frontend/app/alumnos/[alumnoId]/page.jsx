@@ -370,13 +370,17 @@ async function getSancionesByPkOrCode(pk, code) {
 
 /** Asistencias por PK o id_alumno */
 async function getAsistenciasByPkOrCode(pk, code) {
+  const pkStr = String(pk ?? "").trim()
+  const pkIsNumeric = /^\d+$/.test(pkStr)
+  const codeSafe = String(code ?? "").trim() || (!pkIsNumeric ? pkStr : "")
+
   const tries = [
-    pk && `/asistencias/?alumno=${pk}`,
-    pk && `/api/asistencias/?alumno=${pk}`,
-    pk && `/asistencias/alumno/${pk}/`,
-    code && `/asistencias/?id_alumno=${encodeURIComponent(code)}`,
-    code && `/api/asistencias/?id_alumno=${encodeURIComponent(code)}`,
-    code && `/asistencias/alumno_codigo/${encodeURIComponent(code)}/`,
+    pkIsNumeric && `/asistencias/?alumno=${pkStr}`,
+    pkIsNumeric && `/api/asistencias/?alumno=${pkStr}`,
+    pkIsNumeric && `/asistencias/alumno/${pkStr}/`,
+    codeSafe && `/asistencias/?id_alumno=${encodeURIComponent(codeSafe)}`,
+    codeSafe && `/api/asistencias/?id_alumno=${encodeURIComponent(codeSafe)}`,
+    codeSafe && `/asistencias/alumno_codigo/${encodeURIComponent(codeSafe)}/`,
   ].filter(Boolean)
 
   for (const url of tries) {

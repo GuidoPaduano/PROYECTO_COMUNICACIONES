@@ -86,6 +86,7 @@ from .api_reportes import (
     reportes_por_curso,
     reportes_materia_curso,
 )
+from .api_alertas import preceptor_alertas_academicas, preceptor_alertas_inasistencias
 
 # Password reset (frontend)
 from .api_password_reset import (
@@ -327,6 +328,10 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("preceptores/mis-cursos", preceptor_cursos_asistencias, name="preceptores_mis_cursos_noslash"),
     path("cursos/mis-cursos/", preceptor_cursos_asistencias, name="cursos_mis_cursos"),
     path("cursos/mis-cursos", preceptor_cursos_asistencias, name="cursos_mis_cursos_noslash"),
+    path("preceptor/alertas-academicas/", preceptor_alertas_academicas, name="preceptor_alertas_academicas"),
+    path("preceptor/alertas-academicas", preceptor_alertas_academicas, name="preceptor_alertas_academicas_noslash"),
+    path("preceptor/alertas-inasistencias/", preceptor_alertas_inasistencias, name="preceptor_alertas_inasistencias"),
+    path("preceptor/alertas-inasistencias", preceptor_alertas_inasistencias, name="preceptor_alertas_inasistencias_noslash"),
 
     # ===== Asistencias =====
     path("asistencias/tipos/", tipos_asistencia, name="asistencias_tipos"),

@@ -23,6 +23,7 @@ from .resend_email import send_message_email
 from uuid import UUID, uuid4
 import json
 import re
+from functools import lru_cache
 
 User = get_user_model()
 
@@ -40,16 +41,19 @@ def _has_field(model, field_name: str) -> bool:
         return False
 
 
+@lru_cache(maxsize=1)
 def _sender_field() -> str:
     """Compat: Mensaje.remitente (nuevo) vs Mensaje.emisor (viejo)."""
     return "remitente" if _has_field(Mensaje, "remitente") else "emisor"
 
 
+@lru_cache(maxsize=1)
 def _recipient_field() -> str:
     """Compat: Mensaje.destinatario (nuevo) vs Mensaje.receptor (viejo)."""
     return "destinatario" if _has_field(Mensaje, "destinatario") else "receptor"
 
 
+@lru_cache(maxsize=1)
 def _curso_field() -> str:
     """Compat: Mensaje.curso_asociado (viejo) vs Mensaje.curso (nuevo)."""
     if _has_field(Mensaje, "curso_asociado"):
@@ -59,9 +63,26 @@ def _curso_field() -> str:
     return ""
 
 
+@lru_cache(maxsize=1)
 def _threads_enabled() -> bool:
     """True si el modelo Mensaje tiene thread_id."""
     return _has_field(Mensaje, "thread_id")
+
+
+@lru_cache(maxsize=1)
+def _flags():
+    return {
+        "has_curso_asociado": _has_field(Mensaje, "curso_asociado"),
+        "has_remitente": _has_field(Mensaje, "remitente"),
+        "has_destinatario": _has_field(Mensaje, "destinatario"),
+        "has_leido": _has_field(Mensaje, "leido"),
+        "has_leido_en": _has_field(Mensaje, "leido_en"),
+        "has_alumno": _has_field(Mensaje, "alumno"),
+        "has_tipo": _has_field(Mensaje, "tipo"),
+        "has_tipo_remitente": _has_field(Mensaje, "tipo_remitente"),
+        "has_fecha_envio": _has_field(Mensaje, "fecha_envio"),
+        "has_reply_to": _has_field(Mensaje, "reply_to"),
+    }
 
 
 def _parse_int(value, default=None):
@@ -147,6 +168,7 @@ def _get_curso_value(m):
 
 def _serialize_msg(m):
     """Serialización consistente para front (mantiene emisor/receptor por compat)."""
+    flags = _flags()
     sender_obj = _get_sender_obj(m)
     recipient_obj = _get_recipient_obj(m)
 
@@ -160,7 +182,7 @@ def _serialize_msg(m):
         "curso": _get_curso_value(m),
         "curso_asociado": (
             getattr(m, "curso_asociado", None)
-            if _has_field(Mensaje, "curso_asociado")
+            if flags["has_curso_asociado"]
             else _get_curso_value(m)
         ),
 
@@ -169,10 +191,10 @@ def _serialize_msg(m):
         "emisor_id": getattr(sender_obj, "id", None),
         "receptor_id": getattr(recipient_obj, "id", None),
 
-        "remitente": _user_label(getattr(m, "remitente", None)) if _has_field(Mensaje, "remitente") else None,
-        "destinatario": _user_label(getattr(m, "destinatario", None)) if _has_field(Mensaje, "destinatario") else None,
-        "remitente_id": getattr(getattr(m, "remitente", None), "id", None) if _has_field(Mensaje, "remitente") else None,
-        "destinatario_id": getattr(getattr(m, "destinatario", None), "id", None) if _has_field(Mensaje, "destinatario") else None,
+        "remitente": _user_label(getattr(m, "remitente", None)) if flags["has_remitente"] else None,
+        "destinatario": _user_label(getattr(m, "destinatario", None)) if flags["has_destinatario"] else None,
+        "remitente_id": getattr(getattr(m, "remitente", None), "id", None) if flags["has_remitente"] else None,
+        "destinatario_id": getattr(getattr(m, "destinatario", None), "id", None) if flags["has_destinatario"] else None,
     }
 
     if hasattr(m, "reply_to_id"):
@@ -183,20 +205,21 @@ def _serialize_msg(m):
         except Exception:
             item["thread_id"] = None
 
-    if _has_field(Mensaje, "leido"):
+    if flags["has_leido"]:
         try:
             item["leido"] = bool(getattr(m, "leido"))
         except Exception:
             item["leido"] = None
-    if _has_field(Mensaje, "leido_en"):
+    if flags["has_leido_en"]:
         item["leido_en"] = getattr(m, "leido_en", None)
 
     return item
 
 
 def _mark_qs_as_read(qs):
-    has_leido = _has_field(Mensaje, "leido")
-    has_leido_en = _has_field(Mensaje, "leido_en")
+    flags = _flags()
+    has_leido = flags["has_leido"]
+    has_leido_en = flags["has_leido_en"]
 
     if has_leido and has_leido_en:
         return qs.filter(models.Q(leido=False) | models.Q(leido_en__isnull=True)).update(
@@ -427,7 +450,7 @@ def _qs_conversacion_por_participantes(base_msg):
         if base_curso not in (None, "", []):
             q = q.filter(**{cf: base_curso})
 
-    if _has_field(Mensaje, "alumno"):
+    if _flags()["has_alumno"]:
         base_alumno = getattr(base_msg, "alumno", None)
         if base_alumno is not None:
             q = q.filter(alumno=base_alumno)
@@ -443,6 +466,7 @@ def _qs_conversacion_por_participantes(base_msg):
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def enviar_mensaje(request):
+    flags = _flags()
     data = _coerce_json(request)
 
     asunto = (data.get("asunto") or "").strip()
@@ -511,16 +535,16 @@ def enviar_mensaje(request):
             elif alumno is not None and getattr(alumno, "curso", None):
                 kwargs[cf] = getattr(alumno, "curso", None)
 
-        if _has_field(Mensaje, "tipo"):
+        if flags["has_tipo"]:
             kwargs["tipo"] = tipo
 
-        if _has_field(Mensaje, "tipo_remitente"):
+        if flags["has_tipo_remitente"]:
             kwargs["tipo_remitente"] = _infer_tipo_remitente(request.user)
 
-        if alumno is not None and _has_field(Mensaje, "alumno"):
+        if alumno is not None and flags["has_alumno"]:
             kwargs["alumno"] = alumno
 
-        if _has_field(Mensaje, "fecha_envio"):
+        if flags["has_fecha_envio"]:
             kwargs["fecha_envio"] = timezone.now()
 
         msg = Mensaje.objects.create(**kwargs)
@@ -549,6 +573,7 @@ def enviar_mensaje(request):
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def enviar_mensaje_grupal(request):
+    flags = _flags()
     data = _coerce_json(request)
     curso = (data.get("curso") or "").strip()
     asunto = (data.get("asunto") or "").strip()
@@ -606,16 +631,16 @@ def enviar_mensaje_grupal(request):
             if cf:
                 kwargs[cf] = curso
 
-            if _has_field(Mensaje, "tipo"):
+            if flags["has_tipo"]:
                 kwargs["tipo"] = tipo
 
-            if _has_field(Mensaje, "tipo_remitente"):
+            if flags["has_tipo_remitente"]:
                 kwargs["tipo_remitente"] = _infer_tipo_remitente(request.user)
 
-            if _has_field(Mensaje, "alumno"):
+            if flags["has_alumno"]:
                 kwargs["alumno"] = a
 
-            if _has_field(Mensaje, "fecha_envio"):
+            if flags["has_fecha_envio"]:
                 kwargs["fecha_envio"] = timezone.now()
 
             msg = Mensaje.objects.create(**kwargs)
@@ -682,8 +707,9 @@ def enviar_mensaje_grupal(request):
 def mensajes_unread_count(request):
     qs = _qs_inbox_for_user(request.user)
 
-    has_leido = _has_field(Mensaje, "leido")
-    has_leido_en = _has_field(Mensaje, "leido_en")
+    flags = _flags()
+    has_leido = flags["has_leido"]
+    has_leido_en = flags["has_leido_en"]
 
     if has_leido and has_leido_en:
         return Response(
@@ -726,8 +752,9 @@ def mensajes_marcar_leido(request, mensaje_id: int):
     if getattr(m, rf, None) != request.user:
         return Response({"detail": "No autorizado."}, status=403)
 
-    has_leido = _has_field(Mensaje, "leido")
-    has_leido_en = _has_field(Mensaje, "leido_en")
+    flags = _flags()
+    has_leido = flags["has_leido"]
+    has_leido_en = flags["has_leido_en"]
 
     changed = False
     if has_leido and getattr(m, "leido", None) is not True:
@@ -785,10 +812,11 @@ def mensajes_eliminar(request, mensaje_id: int):
 @permission_classes([IsAuthenticated])
 def mensajes_recibidos(request):
     qs = _qs_inbox_for_user(request.user)
+    flags = _flags()
 
     if request.GET.get("solo_no_leidos") in ("1", "true", "True"):
-        has_leido = _has_field(Mensaje, "leido")
-        has_leido_en = _has_field(Mensaje, "leido_en")
+        has_leido = flags["has_leido"]
+        has_leido_en = flags["has_leido_en"]
         if has_leido and has_leido_en:
             qs = qs.filter(models.Q(leido=False) | models.Q(leido_en__isnull=True))
         elif has_leido:
@@ -796,7 +824,7 @@ def mensajes_recibidos(request):
         elif has_leido_en:
             qs = qs.filter(leido_en__isnull=True)
 
-    if _has_field(Mensaje, "fecha_envio"):
+    if flags["has_fecha_envio"]:
         qs = qs.order_by("-fecha_envio", "-id")
     else:
         qs = qs.order_by("-id")
@@ -981,6 +1009,7 @@ def mensajes_marcar_thread_leidos(request, thread_id: str):
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser])
 def responder_mensaje(request):
+    flags = _flags()
     try:
         data = request.data if hasattr(request, "data") else json.loads(request.body.decode("utf-8"))
     except Exception:
@@ -1026,7 +1055,7 @@ def responder_mensaje(request):
     if cf:
         nuevo_kwargs[cf] = getattr(original, cf, None)
 
-    if _has_field(Mensaje, "reply_to"):
+    if flags["has_reply_to"]:
         nuevo_kwargs["reply_to"] = original
 
     if _threads_enabled():
@@ -1035,21 +1064,21 @@ def responder_mensaje(request):
             original.save(update_fields=["thread_id"])
         nuevo_kwargs["thread_id"] = getattr(original, "thread_id", None)
 
-    if _has_field(Mensaje, "tipo_remitente"):
+    if flags["has_tipo_remitente"]:
         nuevo_kwargs["tipo_remitente"] = _infer_tipo_remitente(request.user)
 
-    if _has_field(Mensaje, "fecha_envio"):
+    if flags["has_fecha_envio"]:
         nuevo_kwargs["fecha_envio"] = timezone.now()
 
     nuevo = Mensaje.objects.create(**nuevo_kwargs)
     try:
-        alumno_ref = getattr(original, "alumno", None) if _has_field(Mensaje, "alumno") else None
+        alumno_ref = getattr(original, "alumno", None) if flags["has_alumno"] else None
         _notify_msg(msg=nuevo, receptor=original_sender, alumno=alumno_ref, actor=request.user)
     except Exception:
         pass
 
-    has_leido = _has_field(Mensaje, "leido")
-    has_leido_en = _has_field(Mensaje, "leido_en")
+    has_leido = flags["has_leido"]
+    has_leido_en = flags["has_leido_en"]
     update_fields = []
 
     if has_leido and getattr(original, "leido", None) is not True:
@@ -1094,8 +1123,9 @@ def mensajes_normalizar_flags(request):
             return Response({"detail": "Solo superusuarios pueden usar scope=all."}, status=403)
         scope_all = True
 
-    has_leido = _has_field(Mensaje, "leido")
-    has_leido_en = _has_field(Mensaje, "leido_en")
+    flags = _flags()
+    has_leido = flags["has_leido"]
+    has_leido_en = flags["has_leido_en"]
 
     if not (has_leido and has_leido_en):
         return Response({"ok": True, "actualizados": 0, "scope": "self" if not scope_all else "all"}, status=200)
