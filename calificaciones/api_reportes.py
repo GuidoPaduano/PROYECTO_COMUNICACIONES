@@ -97,6 +97,11 @@ def _resolve_profesor_cursos(user) -> list[str]:
     if getattr(user, "is_superuser", False):
         return sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
 
+    cache_key = f"reportes:v2:cursos_profesor:u{getattr(user, 'id', 'x')}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
+
     if ProfesorCurso is not None:
         try:
             cursos = list(
@@ -105,13 +110,16 @@ def _resolve_profesor_cursos(user) -> list[str]:
                 .distinct()
             )
             if cursos:
-                return sorted(set(str(c) for c in cursos))
+                out = sorted(set(str(c) for c in cursos))
+                cache.set(cache_key, out, 180)
+                return out
         except Exception:
             pass
 
     valid = {str(c[0]) for c in getattr(Alumno, "CURSOS", [])}
     from_groups = sorted(valid.intersection(_user_groups(user)))
     if from_groups:
+        cache.set(cache_key, from_groups, 180)
         return from_groups
 
     # Fallback legacy: si no hay asignacion explicita, usar cursos existentes.
@@ -126,16 +134,24 @@ def _resolve_profesor_cursos(user) -> list[str]:
             }
         )
         if from_db:
+            cache.set(cache_key, from_db, 180)
             return from_db
     except Exception:
         pass
 
-    return sorted(valid)
+    out = sorted(valid)
+    cache.set(cache_key, out, 180)
+    return out
 
 
 def _resolve_preceptor_cursos(user) -> list[str]:
     if getattr(user, "is_superuser", False):
         return sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
+
+    cache_key = f"reportes:v2:cursos_preceptor:u{getattr(user, 'id', 'x')}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return list(cached)
 
     if PreceptorCurso is not None:
         try:
@@ -145,12 +161,15 @@ def _resolve_preceptor_cursos(user) -> list[str]:
                 .distinct()
             )
             if cursos:
-                return sorted(set(str(c) for c in cursos))
+                out = sorted(set(str(c) for c in cursos))
+                cache.set(cache_key, out, 180)
+                return out
         except Exception:
             pass
 
     valid = {str(c[0]) for c in getattr(Alumno, "CURSOS", [])}
     from_groups = sorted(valid.intersection(_user_groups(user)))
+    cache.set(cache_key, from_groups, 180)
     return from_groups
 
 
@@ -274,10 +293,10 @@ def _build_notas_payload(base_qs):
         )
 
     if por_materia:
-        materia_mas_floja = sorted(
+        materia_mas_floja = min(
             por_materia,
             key=lambda x: (x["TEA_pct"], -x["TED_count"]),
-        )[0]
+        )
         materia_mas_floja = {
             "materia_id": materia_mas_floja["materia_id"],
             "materia_nombre": materia_mas_floja["materia_nombre"],
@@ -455,6 +474,13 @@ def reportes_materia_curso(request, id_materia: str, curso: str):
     else:
         cursos_habilitados = sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
 
+    cache_key = (
+        f"reportes:v2:materia_curso:u{user.id}:r{role}:c{curso_norm}:m{materia}:q{cuatrimestre or 'all'}"
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
+
     notas_qs = Nota.objects.filter(alumno__curso=curso_norm, materia=materia)
     notas_qs = _apply_cuatrimestre_filter(notas_qs, cuatrimestre)
 
@@ -469,4 +495,5 @@ def reportes_materia_curso(request, id_materia: str, curso: str):
         "permisos": {"cursos_habilitados": cursos_habilitados},
         **notas_payload,
     }
+    cache.set(cache_key, payload, 120)
     return Response(payload)

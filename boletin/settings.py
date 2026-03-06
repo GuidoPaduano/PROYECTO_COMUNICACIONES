@@ -147,7 +147,11 @@ LOGIN_URL = '/accounts/login/'
 CSRF_TRUSTED_ORIGINS = [
     'https://proyectocomunicaciones-production.up.railway.app',
     'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3002',
     'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+    'http://127.0.0.1:3002',
     'http://192.168.1.38:3000',  # ← agregado: acceso por IP LAN
     # 'http://192.168.1.38:3001',  # ← opcional si a veces Next usa 3001
 ]
@@ -184,7 +188,11 @@ SIMPLE_JWT = {
 # ✅ CORS
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3002",
     "http://172.16.0.2:3000",
     "http://192.168.1.38:3000",  # ← agregado: front por IP LAN
     # "http://192.168.1.38:3001",  # ← opcional si a veces Next usa 3001
@@ -223,3 +231,14 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # (Opcional) Forzar HTTPS en prod
 SECURE_SSL_REDIRECT = not DEBUG
+
+# Alertas academicas por notas
+ALERTAS_ACADEMICAS_VENTANA_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_VENTANA_DIAS", "45"))
+ALERTAS_ACADEMICAS_COOLDOWN_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_COOLDOWN_DIAS", "7"))
+ALERTAS_ACADEMICAS_ESCALADO_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_ESCALADO_DIAS", "14"))
+ALERTAS_ACADEMICAS_EMAIL_ENABLED = os.environ.get("ALERTAS_ACADEMICAS_EMAIL_ENABLED", "False") == "True"
+
+ALERTAS_INASISTENCIAS_CONSECUTIVAS = int(os.environ.get("ALERTAS_INASISTENCIAS_CONSECUTIVAS", "2"))
+ALERTAS_INASISTENCIAS_COOLDOWN_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_COOLDOWN_DIAS", "7"))
+ALERTAS_INASISTENCIAS_REAPERTURA_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_REAPERTURA_DIAS", "14"))
+ALERTAS_INASISTENCIAS_UMBRALES_FALTAS = os.environ.get("ALERTAS_INASISTENCIAS_UMBRALES_FALTAS", "10,20,25")

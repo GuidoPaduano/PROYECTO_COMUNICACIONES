@@ -127,6 +127,7 @@ def _collect_destinatarios_evento(curso: str):
     except Exception:
         pass
 
+    legajos = []
     for a in qs:
         _add_destinatario(destinatarios, seen, getattr(a, 'padre', None))
 
@@ -137,7 +138,16 @@ def _collect_destinatarios_evento(curso: str):
         try:
             legajo = (getattr(a, 'id_alumno', '') or '').strip()
             if legajo:
-                _add_destinatario(destinatarios, seen, User.objects.filter(username__iexact=legajo).first())
+                legajos.append(legajo)
+        except Exception:
+            pass
+
+    if legajos:
+        try:
+            users = User.objects.filter(username__in=sorted(set(legajos)))
+            by_username = {str(getattr(u, "username", "")).strip(): u for u in users}
+            for leg in legajos:
+                _add_destinatario(destinatarios, seen, by_username.get(leg))
         except Exception:
             pass
 
@@ -189,23 +199,38 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
         "creado_por": actor_label or None,
     }
 
-    created = 0
+    notifs = []
     for u in destinatarios:
         try:
-            Notificacion.objects.create(
-                destinatario=u,
-                tipo="evento",
-                titulo=titulo,
-                descripcion=descripcion,
-                url=url,
-                leida=False,
-                meta=meta,
+            notifs.append(
+                Notificacion(
+                    destinatario=u,
+                    tipo="evento",
+                    titulo=titulo,
+                    descripcion=descripcion,
+                    url=url,
+                    leida=False,
+                    meta=meta,
+                )
             )
-            created += 1
         except Exception:
             pass
 
-    return created
+    if not notifs:
+        return 0
+
+    try:
+        Notificacion.objects.bulk_create(notifs, batch_size=500)
+        return len(notifs)
+    except Exception:
+        created = 0
+        for n in notifs:
+            try:
+                n.save()
+                created += 1
+            except Exception:
+                pass
+        return created
 
 
 # ------------------------------------------------------------
@@ -543,6 +568,7 @@ def _collect_destinatarios_curso(curso: str):
     except Exception:
         qs = []
 
+    legajos = []
     for a in qs:
         # Padre
         _add_destinatario(destinatarios, seen, getattr(a, "padre", None))
@@ -555,8 +581,16 @@ def _collect_destinatarios_curso(curso: str):
         try:
             legajo = (getattr(a, "id_alumno", "") or "").strip()
             if legajo:
-                u_alumno = User.objects.filter(username__iexact=legajo).first()
-                _add_destinatario(destinatarios, seen, u_alumno)
+                legajos.append(legajo)
+        except Exception:
+            pass
+
+    if legajos:
+        try:
+            users = User.objects.filter(username__in=sorted(set(legajos)))
+            by_username = {str(getattr(u, "username", "")).strip(): u for u in users}
+            for leg in legajos:
+                _add_destinatario(destinatarios, seen, by_username.get(leg))
         except Exception:
             pass
 
@@ -949,3 +983,4 @@ def preceptor_cursos(request):
         cursos = []
 
     return Response(_serialize_cursos_para_selector(cursos), status=status.HTTP_200_OK)
+

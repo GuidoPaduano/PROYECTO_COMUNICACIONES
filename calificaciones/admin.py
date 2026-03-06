@@ -10,6 +10,8 @@ from .models import (
     Nota,
     Sancion,
     Asistencia,
+    AlertaAcademica,
+    AlertaInasistencia,
 )
 from .models_preceptores import PreceptorCurso, ProfesorCurso
 
@@ -92,6 +94,28 @@ class AsistenciaAdmin(admin.ModelAdmin):
             return obj.alumno.curso
         except Exception:
             return ""
+
+
+@admin.register(AlertaAcademica)
+class AlertaAcademicaAdmin(admin.ModelAdmin):
+    list_display = ("alumno", "materia", "cuatrimestre", "severidad", "riesgo_ponderado", "estado", "fecha_evento", "creada_en")
+    list_filter = ("severidad", "estado", "materia", "cuatrimestre", "alumno__curso")
+    search_fields = ("alumno__nombre", "alumno__apellido", "alumno__id_alumno", "materia")
+    ordering = ("-creada_en", "-id")
+    date_hierarchy = "creada_en"
+    list_select_related = ("alumno", "creada_por", "nota_disparadora")
+    autocomplete_fields = ("alumno", "creada_por", "nota_disparadora")
+
+
+@admin.register(AlertaInasistencia)
+class AlertaInasistenciaAdmin(admin.ModelAdmin):
+    list_display = ("alumno", "curso", "tipo_asistencia", "motivo", "valor_actual", "umbral", "estado", "fecha_evento", "creada_en")
+    list_filter = ("estado", "motivo", "tipo_asistencia", "curso")
+    search_fields = ("alumno__nombre", "alumno__apellido", "alumno__id_alumno", "curso")
+    ordering = ("-creada_en", "-id")
+    date_hierarchy = "creada_en"
+    list_select_related = ("alumno", "creada_por", "asistencia_disparadora")
+    autocomplete_fields = ("alumno", "creada_por", "asistencia_disparadora")
 
 
 # ====================================================================================
