@@ -2,12 +2,11 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-# SimpleJWT
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView,
-    TokenBlacklistView,
+from .auth_api import (
+    SafeTokenBlacklistView,
+    SafeTokenObtainPairView,
+    SafeTokenRefreshView,
+    SafeTokenVerifyView,
 )
 
 # Vistas / APIs ya existentes
@@ -28,6 +27,7 @@ from .views import (
 from .api_notas import (
     notas_listar,
     notas_por_codigo,
+    firmar_nota,
 )
 
 # APIs de calificaciones (nueva nota, whoami)
@@ -36,6 +36,7 @@ from .api_nueva_nota import (
     NuevaNotaDatosIniciales,
     CrearNota,
     CrearNotasMasivo,
+    EditarNota,
 )
 
 # APIs de mensajería
@@ -74,6 +75,7 @@ from .api_mensajes_alumno import (
 from .api_sanciones import (
     sanciones_lista_crear,
     sancion_detalle,
+    firmar_sancion,
 )
 
 # APIs para padres (hijos y sus notas)
@@ -116,6 +118,7 @@ from .api_asistencias import (
     asistencias_por_codigo,
     asistencias_por_curso_y_fecha,
     justificar_asistencia,    editar_detalle_asistencia,
+    firmar_asistencia,
 )
 
 # API para crear alumnos (preceptor)
@@ -149,10 +152,10 @@ def alumnos_por_curso_path(request, curso):
 
 urlpatterns = [
     # ===== Auth (JWT) =====
-    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("token/verify/", TokenVerifyView.as_view(), name="token_verify"),
-    path("token/blacklist/", TokenBlacklistView.as_view(), name="token_blacklist"),
+    path("token/", SafeTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", SafeTokenRefreshView.as_view(), name="token_refresh"),
+    path("token/verify/", SafeTokenVerifyView.as_view(), name="token_verify"),
+    path("token/blacklist/", SafeTokenBlacklistView.as_view(), name="token_blacklist"),
 
     # ===== Logout de sesión (cookies) =====
     path("auth/logout/", auth_logout, name="auth_logout"),
@@ -245,11 +248,15 @@ urlpatterns = [
     path("notas", notas_listar, name="notas_listar_noslash"),
     path("notas/alumno_codigo/<str:id_alumno>/", notas_por_codigo, name="notas_por_codigo"),
     path("notas/alumno_codigo/<str:id_alumno>", notas_por_codigo, name="notas_por_codigo_noslash"),
+    path("notas/<int:pk>/firmar/", firmar_nota, name="firmar_nota"),
+    path("notas/<int:pk>/firmar", firmar_nota, name="firmar_nota_noslash"),
 
     # ===== Nueva Nota (JSON) =====
     path("calificaciones/nueva-nota/datos/", NuevaNotaDatosIniciales.as_view(), name="nueva_nota_datos"),
     path("calificaciones/notas/", CrearNota.as_view(), name="crear_nota"),
     path("calificaciones/notas/masivo/", CrearNotasMasivo.as_view(), name="crear_nota_masivo"),
+    path("calificaciones/notas/<int:nota_id>/", EditarNota.as_view(), name="editar_nota"),
+    path("calificaciones/notas/<int:nota_id>", EditarNota.as_view(), name="editar_nota_noslash"),
 
     # ===== Mensajes =====
     path("mensajes/enviar/", enviar_mensaje, name="api_mensaje_enviar"),
@@ -342,6 +349,8 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
 
     path("asistencias/<int:pk>/justificar/", justificar_asistencia, name="asistencias_justificar"),
     path("asistencias/<int:pk>/justificar", justificar_asistencia, name="asistencias_justificar_noslash"),
+    path("asistencias/<int:pk>/firmar/", firmar_asistencia, name="asistencias_firmar"),
+    path("asistencias/<int:pk>/firmar", firmar_asistencia, name="asistencias_firmar_noslash"),
 
     # ✅ Legacy extra: algunos frontends viejos llaman /asistencias/justificar/<id>/
     # (mismo handler)
@@ -395,6 +404,8 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     # ===== Sanciones =====
     path("sanciones/", sanciones_lista_crear, name="sanciones_lista_crear"),
     path("sanciones/<int:pk>/", sancion_detalle, name="sancion_detalle"),
+    path("sanciones/<int:pk>/firmar/", firmar_sancion, name="sanciones_firmar"),
+    path("sanciones/<int:pk>/firmar", firmar_sancion, name="sanciones_firmar_noslash"),
 
     # DRF router
     path("", include(router.urls)),

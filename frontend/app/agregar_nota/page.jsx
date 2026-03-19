@@ -9,11 +9,15 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import SuccessMessage from "@/components/ui/success-message"
 
-const DEFAULT_RESULTADOS = [
-  { id: "TEA", label: "Aprobado" },
-  { id: "TEP", label: "Desaprobado" },
-  { id: "TED", label: "Aplazado" },
-]
+const ESTADOS_CALIFICACION = new Set(["TEA", "TEP", "TED"])
+
+function buildCalificacionOptions() {
+  const values = ["TEA", "TEP", "TED"]
+  for (let value = 1; value <= 10; value += 1) {
+    values.push(String(value))
+  }
+  return values.map((value) => ({ id: value, label: value }))
+}
 
 function hoyISO() {
   const d = new Date()
@@ -30,19 +34,8 @@ function parseNotaNumerica(value) {
   return Number(num.toFixed(2))
 }
 
-function normalizeResultadosCatalog(data) {
-  if (!Array.isArray(data)) return DEFAULT_RESULTADOS
-  const rows = data
-    .map((item) => {
-      if (typeof item === "string") return { id: item.toUpperCase(), label: item }
-      if (!item?.id) return null
-      return {
-        id: String(item.id).toUpperCase(),
-        label: String(item.label || item.nombre || item.id),
-      }
-    })
-    .filter(Boolean)
-  return rows.length ? rows : DEFAULT_RESULTADOS
+function normalizeCalificacionValue(value) {
+  return String(value ?? "").trim().replace(",", ".").toUpperCase()
 }
 
 function pickId(a) {
@@ -65,14 +58,12 @@ export default function CargarNotasRapidas() {
   const [materias, setMaterias] = useState([])
   const [tipos, setTipos] = useState([])
   const [cuatris, setCuatris] = useState([1, 2])
-  const [resultados, setResultados] = useState(DEFAULT_RESULTADOS)
-
+  const [calificaciones, setCalificaciones] = useState(buildCalificacionOptions())
   const [rows, setRows] = useState([])
   const [fill, setFill] = useState({
     materia: "",
     tipo: "",
-    resultado: "",
-    nota_numerica: "",
+    calificacion: "",
     cuatrimestre: "",
     fecha: "",
     reemplazarTodo: false,
@@ -107,8 +98,7 @@ export default function CargarNotasRapidas() {
         setMaterias(Array.isArray(initData?.materias) ? initData.materias : [])
         setTipos(Array.isArray(initData?.tipos) ? initData.tipos : [])
         setCuatris(Array.isArray(initData?.cuatrimestres) ? initData.cuatrimestres : [1, 2])
-        setResultados(normalizeResultadosCatalog(initData?.resultados))
-
+        setCalificaciones(buildCalificacionOptions())
         const alumnos = Array.isArray(initData?.alumnos) ? initData.alumnos : []
         const cursosSet = new Set()
         for (const a of alumnos) {
@@ -147,8 +137,7 @@ export default function CargarNotasRapidas() {
             nombre: String(a?.nombre || "Alumno"),
             materia: "",
             tipo: "",
-            resultado: "",
-            nota_numerica: "",
+            calificacion: "",
             cuatrimestre: cuatris?.[0] ?? 1,
             fecha: hoyISO(),
             incluir: true,
@@ -178,8 +167,7 @@ export default function CargarNotasRapidas() {
         const canSet = (v, cur) => (fill.reemplazarTodo || !cur ? v : cur)
         if (fill.materia) next.materia = canSet(fill.materia, r.materia)
         if (fill.tipo) next.tipo = canSet(fill.tipo, r.tipo)
-        if (fill.resultado) next.resultado = canSet(fill.resultado, r.resultado)
-        if (fill.nota_numerica) next.nota_numerica = canSet(fill.nota_numerica, r.nota_numerica)
+        if (fill.calificacion) next.calificacion = canSet(fill.calificacion, r.calificacion)
         if (fill.cuatrimestre) next.cuatrimestre = Number(canSet(fill.cuatrimestre, r.cuatrimestre))
         if (fill.fecha) next.fecha = canSet(fill.fecha, r.fecha)
         return next
@@ -193,21 +181,24 @@ export default function CargarNotasRapidas() {
 
     const invalid = seleccionadas.filter((r) => {
       if (!r.id || !r.materia || !r.tipo || !r.cuatrimestre) return true
-      if (!r.resultado && !String(r.nota_numerica || "").trim()) return true
-      if (String(r.nota_numerica || "").trim() && parseNotaNumerica(r.nota_numerica) == null) return true
+      const calificacion = normalizeCalificacionValue(r.calificacion)
+      if (!calificacion) return true
+      if (!ESTADOS_CALIFICACION.has(calificacion) && parseNotaNumerica(calificacion) == null) return true
       return false
     })
 
     if (invalid.length) {
-      setError("Completa materia, tipo, cuatrimestre y al menos resultado o nota numerica valida (1..10) en cada fila.")
+      setError("Completa materia, tipo, cuatrimestre y una calificacion valida en cada fila.")
       return
     }
 
     setSaving(true)
     try {
       const notas = seleccionadas.map((r) => {
-        const num = parseNotaNumerica(r.nota_numerica)
-        const resultado = String(r.resultado || "").trim().toUpperCase()
+        const calificacion = normalizeCalificacionValue(r.calificacion)
+        const isEstado = ESTADOS_CALIFICACION.has(calificacion)
+        const num = isEstado ? null : parseNotaNumerica(calificacion)
+        const resultado = isEstado ? calificacion : ""
         const calificacionLegacy = resultado || (num != null ? String(num) : "")
         return {
           alumno_id: r.id,
@@ -278,7 +269,7 @@ export default function CargarNotasRapidas() {
             </select>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
             <select className="rounded border px-3 py-2" value={fill.materia} onChange={(e) => setFill((f) => ({ ...f, materia: e.target.value }))}>
               <option value="">Materia</option>
               {materias.map((m) => (
@@ -291,22 +282,12 @@ export default function CargarNotasRapidas() {
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
-            <select className="rounded border px-3 py-2" value={fill.resultado} onChange={(e) => setFill((f) => ({ ...f, resultado: e.target.value }))}>
-              <option value="">Resultado</option>
-              {resultados.map((r) => (
-                <option key={r.id} value={r.id}>{r.id} - {r.label}</option>
+            <select className="rounded border px-3 py-2" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
+              <option value="">Calificacion</option>
+              {calificaciones.map((r) => (
+                <option key={r.id} value={r.id}>{r.label}</option>
               ))}
             </select>
-            <input
-              type="number"
-              step="0.01"
-              min="1"
-              max="10"
-              placeholder="Nota numerica"
-              className="rounded border px-3 py-2"
-              value={fill.nota_numerica}
-              onChange={(e) => setFill((f) => ({ ...f, nota_numerica: e.target.value }))}
-            />
             <select className="rounded border px-3 py-2" value={fill.cuatrimestre} onChange={(e) => setFill((f) => ({ ...f, cuatrimestre: e.target.value }))}>
               <option value="">Cuatrimestre</option>
               {cuatris.map((c) => (
@@ -340,8 +321,7 @@ export default function CargarNotasRapidas() {
                 <th className="border-b px-3 py-2">Alumno</th>
                 <th className="border-b px-3 py-2">Materia</th>
                 <th className="border-b px-3 py-2">Tipo</th>
-                <th className="border-b px-3 py-2">Resultado</th>
-                <th className="border-b px-3 py-2">Nota numerica</th>
+                <th className="border-b px-3 py-2">Calificacion</th>
                 <th className="border-b px-3 py-2">Cuatr.</th>
                 <th className="border-b px-3 py-2">Fecha</th>
               </tr>
@@ -370,21 +350,10 @@ export default function CargarNotasRapidas() {
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.resultado} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, resultado: e.target.value } : x)))}>
+                    <select className="w-full rounded border px-2 py-1" value={r.calificacion} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, calificacion: e.target.value } : x)))}>
                       <option value=""></option>
-                      {resultados.map((opt) => <option key={opt.id} value={opt.id}>{opt.id} - {opt.label}</option>)}
+                      {calificaciones.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                     </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      max="10"
-                      className="w-full rounded border px-2 py-1"
-                      value={r.nota_numerica}
-                      onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, nota_numerica: e.target.value } : x)))}
-                    />
                   </td>
                   <td className="px-3 py-2">
                     <select className="w-full rounded border px-2 py-1" value={r.cuatrimestre} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, cuatrimestre: Number(e.target.value) } : x)))}>
@@ -405,7 +374,7 @@ export default function CargarNotasRapidas() {
               <Save className="mr-2 h-4 w-4" /> {saving ? "Guardando..." : "Guardar seleccionadas"}
             </Button>
             <div className="text-xs text-slate-500">
-              Debes completar resultado o nota numerica en cada fila seleccionada.
+              Debes completar una calificacion valida en cada fila seleccionada.
             </div>
           </div>
         </CardContent>

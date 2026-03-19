@@ -9,7 +9,7 @@ from django.db.models.functions import TruncMonth, Trim, Upper
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .contexto import resolve_alumno_for_user
 from .models import Alumno, Nota

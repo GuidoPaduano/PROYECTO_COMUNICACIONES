@@ -18,7 +18,7 @@ from rest_framework.decorators import (
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .models import Alumno, Sancion, Notificacion
 from .serializers import SancionPublicSerializer
@@ -96,6 +96,17 @@ def _is_docente_o_preceptor(user) -> bool:
         groups = [g.name.lower() for g in user.groups.all()]
         joined = " ".join(groups)
         return ("preceptor" in joined) or ("profesor" in joined) or ("docente" in joined)
+    except Exception:
+        return False
+
+
+def _authorize_padre_or_admin(user, alumno: Alumno) -> bool:
+    try:
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        if getattr(user, "is_superuser", False):
+            return True
+        return getattr(alumno, "padre_id", None) == getattr(user, "id", None)
     except Exception:
         return False
 
@@ -347,3 +358,55 @@ def sancion_detalle(request, pk: int):
 
     sanc.delete()
     return Response(status=204)
+
+
+@csrf_exempt
+@api_view(["GET", "POST", "PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def firmar_sancion(request, pk: int):
+    try:
+        sanc = Sancion.objects.select_related("alumno").get(pk=pk)
+    except Sancion.DoesNotExist:
+        return Response({"detail": "Sanción no encontrada."}, status=404)
+
+    if not _authorize_padre_or_admin(request.user, sanc.alumno):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    if request.method == "GET":
+        return Response(
+            {
+                "id": sanc.id,
+                "alumno_id": sanc.alumno_id,
+                "firmada": bool(getattr(sanc, "firmada", False)),
+                "firmada_en": sanc.firmada_en.isoformat() if getattr(sanc, "firmada_en", None) else None,
+            },
+            status=200,
+        )
+
+    if bool(getattr(sanc, "firmada", False)):
+        return Response(
+            {
+                "detail": "La sanción ya fue firmada.",
+                "id": sanc.id,
+                "alumno_id": sanc.alumno_id,
+                "firmada": True,
+                "firmada_en": sanc.firmada_en.isoformat() if getattr(sanc, "firmada_en", None) else None,
+            },
+            status=400,
+        )
+
+    sanc.firmada = True
+    sanc.firmada_en = timezone.now()
+    sanc.firmada_por = request.user
+    sanc.save(update_fields=["firmada", "firmada_en", "firmada_por"])
+
+    return Response(
+        {
+            "id": sanc.id,
+            "alumno_id": sanc.alumno_id,
+            "firmada": True,
+            "firmada_en": sanc.firmada_en.isoformat() if sanc.firmada_en else None,
+        },
+        status=200,
+    )

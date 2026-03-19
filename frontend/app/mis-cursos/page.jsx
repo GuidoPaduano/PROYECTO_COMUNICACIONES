@@ -32,6 +32,7 @@ export default function MisCursosPage() {
   useAuthGuard()
 
   const [error, setError] = useState("")
+  const [loading, setLoading] = useState(true)
   const [cursos, setCursos] = useState([])
   const cursosValidos = useMemo(() => filterCursosValidos(cursos), [cursos])
 
@@ -67,6 +68,8 @@ export default function MisCursosPage() {
         setCursos(filterCursosValidos(list))
       } catch {
         setError("No se pudieron cargar los cursos.")
+      } finally {
+        setLoading(false)
       }
     })()
   }, [])
@@ -80,7 +83,11 @@ export default function MisCursosPage() {
         <div className="surface-card surface-card-pad text-red-600">{error}</div>
       )}
 
-      {cursosValidos.length === 0 ? (
+      {loading ? (
+        <div className="surface-card surface-card-pad text-gray-600">
+          Cargando cursos...
+        </div>
+      ) : cursosValidos.length === 0 ? (
         <div className="surface-card surface-card-pad text-gray-600">
           No tenes cursos asignados.
         </div>

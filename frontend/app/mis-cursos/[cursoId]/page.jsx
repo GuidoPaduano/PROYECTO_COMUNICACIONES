@@ -44,6 +44,7 @@ export default function CursoDetallePage({ params }) {
   const [cursoNombre, setCursoNombre] = useState(String(cursoId))
   const [alumnos, setAlumnos] = useState([])
   const [error, setError] = useState("")
+  const [loadingAlumnos, setLoadingAlumnos] = useState(true)
   const [busqueda, setBusqueda] = useState("")
 
   const [openAdd, setOpenAdd] = useState(false)
@@ -117,6 +118,7 @@ export default function CursoDetallePage({ params }) {
   }, [cursoId])
 
   async function loadAlumnos() {
+    setLoadingAlumnos(true)
     try {
       const res = await authFetch(`/alumnos/?curso=${encodeURIComponent(cursoId)}`)
       const j = await res.json().catch(() => ({}))
@@ -127,6 +129,8 @@ export default function CursoDetallePage({ params }) {
       setAlumnos(j?.alumnos || [])
     } catch {
       setError("No se pudieron cargar los alumnos.")
+    } finally {
+      setLoadingAlumnos(false)
     }
   }
 
@@ -208,7 +212,11 @@ export default function CursoDetallePage({ params }) {
         <div className="surface-card surface-card-pad text-red-600">{error}</div>
       )}
 
-      {alumnosFiltrados.length === 0 ? (
+      {loadingAlumnos ? (
+        <div className="surface-card surface-card-pad text-gray-600">
+          Cargando alumnos...
+        </div>
+      ) : alumnosFiltrados.length === 0 ? (
         <div className="surface-card surface-card-pad text-gray-600">
           No se encontraron alumnos para este curso.
         </div>

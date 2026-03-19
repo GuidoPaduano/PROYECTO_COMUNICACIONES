@@ -24,6 +24,7 @@ import {
   CalendarDays,
   Pencil,
   Download,
+  Loader2,
 } from "lucide-react"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -68,6 +69,12 @@ const ALUMNO_DATA_CACHE_TTL_MS = 5 * 60 * 1000
 const NOTAS_CACHE_PREFIX = "alumno_notas_cache:"
 const SANCIONES_CACHE_PREFIX = "alumno_sanciones_cache:"
 const ASISTENCIAS_CACHE_PREFIX = "alumno_asistencias_cache:"
+const NOTA_TIPOS = ["Examen", "Trabajo Práctico", "Participación", "Tarea"]
+const NOTA_RESULTADOS = [
+  { value: "TEA", label: "TEA" },
+  { value: "TEP", label: "TEP" },
+  { value: "TED", label: "TED" },
+]
 
 function safeGetLS(key) {
   try {
@@ -471,6 +478,96 @@ async function toggleJustificada(asistenciaId, nextValue) {
   return last
 }
 
+async function firmarAsistencia(asistenciaId) {
+  const id = String(asistenciaId ?? "").trim()
+  if (!id) {
+    return { ok: false, status: 0, data: { detail: "Sin ID de asistencia." } }
+  }
+
+  const tries = [
+    `/api/asistencias/${encodeURIComponent(id)}/firmar/`,
+    `/api/asistencias/${encodeURIComponent(id)}/firmar`,
+    `/asistencias/${encodeURIComponent(id)}/firmar/`,
+    `/asistencias/${encodeURIComponent(id)}/firmar`,
+  ]
+  const methods = ["POST", "PATCH"]
+  let last = { ok: false, status: 500, data: { detail: "No se pudo firmar la inasistencia." } }
+
+  for (const url of tries) {
+    for (const method of methods) {
+      try {
+        const r = await fetchJSON(url, { method })
+        if (r.ok) return r
+        last = r
+        if (r.status === 404 || r.status === 405) continue
+        return r
+      } catch {}
+    }
+  }
+
+  return last
+}
+
+async function firmarSancion(sancionId) {
+  const id = String(sancionId ?? "").trim()
+  if (!id) {
+    return { ok: false, status: 0, data: { detail: "Sin ID de sanción." } }
+  }
+
+  const tries = [
+    `/api/sanciones/${encodeURIComponent(id)}/firmar/`,
+    `/api/sanciones/${encodeURIComponent(id)}/firmar`,
+    `/sanciones/${encodeURIComponent(id)}/firmar/`,
+    `/sanciones/${encodeURIComponent(id)}/firmar`,
+  ]
+  const methods = ["POST", "PATCH"]
+  let last = { ok: false, status: 500, data: { detail: "No se pudo firmar la sanción." } }
+
+  for (const url of tries) {
+    for (const method of methods) {
+      try {
+        const r = await fetchJSON(url, { method })
+        if (r.ok) return r
+        last = r
+        if (r.status === 404 || r.status === 405) continue
+        return r
+      } catch {}
+    }
+  }
+
+  return last
+}
+
+async function firmarNota(notaId) {
+  const id = String(notaId ?? "").trim()
+  if (!id) {
+    return { ok: false, status: 0, data: { detail: "Sin ID de nota." } }
+  }
+
+  const tries = [
+    `/api/notas/${encodeURIComponent(id)}/firmar/`,
+    `/api/notas/${encodeURIComponent(id)}/firmar`,
+    `/notas/${encodeURIComponent(id)}/firmar/`,
+    `/notas/${encodeURIComponent(id)}/firmar`,
+  ]
+  const methods = ["POST", "PATCH"]
+  let last = { ok: false, status: 500, data: { detail: "No se pudo firmar la nota." } }
+
+  for (const url of tries) {
+    for (const method of methods) {
+      try {
+        const r = await fetchJSON(url, { method })
+        if (r.ok) return r
+        last = r
+        if (r.status === 404 || r.status === 405) continue
+        return r
+      } catch {}
+    }
+  }
+
+  return last
+}
+
 async function updateDetalleAsistencia(asistenciaId, detalle) {
   const id = String(asistenciaId ?? "").trim()
   if (!id) {
@@ -544,6 +641,23 @@ function fmtFecha(iso) {
     })
   } catch {
     return s
+  }
+}
+
+function fmtFechaHora(iso) {
+  if (!iso) return "—"
+  try {
+    const d = new Date(String(iso))
+    if (Number.isNaN(d.getTime())) return String(iso)
+    return d.toLocaleString("es-AR", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  } catch {
+    return String(iso)
   }
 }
 
@@ -636,6 +750,22 @@ function notaCuatr(nota) {
   return null
 }
 
+function isFirmadaFromAny(item) {
+  if (!item || typeof item !== "object") return false
+  return Boolean(
+    item.firmada ??
+      item.firmado ??
+      item.signed ??
+      item.is_firmada ??
+      item.isFirmada ??
+      false
+  )
+}
+
+function normalizeNotaNumericaInput(value) {
+  return String(value ?? "").replace(",", ".")
+}
+
 /* ------------------------------------------------------------
    Página: PERFIL del alumno (Resumen + Notas + Sanciones + Asistencias)
 ------------------------------------------------------------ */
@@ -708,6 +838,23 @@ function AlumnoPerfilPageInner() {
     error: "",
     saving: false,
   })
+  const [notaModal, setNotaModal] = useState({
+    open: false,
+    notaId: null,
+    materia: "",
+    tipo: "",
+    resultado: "",
+    nota_numerica: "",
+    cuatrimestre: "1",
+    fecha: "",
+    observaciones: "",
+    error: "",
+    saving: false,
+  })
+  const [savingNotaId, setSavingNotaId] = useState(null)
+  const [signingNotaId, setSigningNotaId] = useState(null)
+  const [signingSancionId, setSigningSancionId] = useState(null)
+  const [signingAsistenciaId, setSigningAsistenciaId] = useState(null)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -888,8 +1035,10 @@ function AlumnoPerfilPageInner() {
   const isPadre = (hasGroup("padres") || hasGroup("padre")) && !me?.is_superuser
   const isAlumno = (hasGroup("alumnos") || hasGroup("alumno")) && !me?.is_superuser
   const isPreceptor = hasGroup("preceptores") || hasGroup("preceptor")
+  const canEditNotas = !!me && (me?.is_superuser || hasGroup("profesores") || hasGroup("profesor"))
   const canJustifyAsistencias =
     !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
+  const canSignByPadre = !!me && (me?.is_superuser || isPadre)
   const canTransferAlumno =
     !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
   const meLoaded = !!me
@@ -1317,6 +1466,132 @@ function AlumnoPerfilPageInner() {
     })
 
     closeDetalleModal()
+  }
+
+  const openNotaModal = (nota) => {
+    setNotaModal({
+      open: true,
+      notaId: nota?.id ?? null,
+      materia: String(nota?.materia || ""),
+      tipo: String(nota?.tipo || ""),
+      resultado: String(nota?.resultado || ""),
+      nota_numerica: String(nota?.nota_numerica ?? ""),
+      cuatrimestre: String(notaCuatr(nota) || "1"),
+      fecha: String(nota?.fecha || ""),
+      observaciones: String(nota?.observaciones || nota?.comentarios || ""),
+      error: "",
+      saving: false,
+    })
+  }
+
+  const closeNotaModal = () => {
+    setNotaModal({
+      open: false,
+      notaId: null,
+      materia: "",
+      tipo: "",
+      resultado: "",
+      nota_numerica: "",
+      cuatrimestre: "1",
+      fecha: "",
+      observaciones: "",
+      error: "",
+      saving: false,
+    })
+  }
+
+  const handleGuardarNota = async () => {
+    if (!notaModal.notaId || notaModal.saving) return
+
+    const draft = { ...notaModal }
+    const notaNumerica = normalizeNotaNumericaInput(notaModal.nota_numerica).trim()
+    if (!notaModal.materia || !notaModal.tipo || !notaModal.cuatrimestre) {
+      setNotaModal((prev) => ({ ...prev, error: "Completá materia, tipo y cuatrimestre." }))
+      return
+    }
+    if (!notaModal.resultado && !notaNumerica) {
+      setNotaModal((prev) => ({
+        ...prev,
+        error: "Completá resultado o nota numérica.",
+      }))
+      return
+    }
+
+    setNotaModal((prev) => ({ ...prev, saving: true, error: "" }))
+    const targetNotaId = draft.notaId
+    const payload = {
+      materia: draft.materia,
+      tipo: draft.tipo,
+      resultado: draft.resultado || null,
+      nota_numerica: notaNumerica || null,
+      calificacion: draft.resultado || notaNumerica || "",
+      cuatrimestre: Number(draft.cuatrimestre),
+      fecha: draft.fecha || null,
+      observaciones: draft.observaciones,
+    }
+    const previousNotas = Array.isArray(notas) ? notas : []
+    const previousNota = previousNotas.find((item) => String(item?.id) === String(targetNotaId))
+    const optimisticNota = previousNota
+      ? {
+          ...previousNota,
+          ...payload,
+          id: previousNota.id,
+        }
+      : null
+
+    if (optimisticNota) {
+      setNotas((prev) =>
+        (Array.isArray(prev) ? prev : []).map((item) =>
+          String(item?.id) === String(targetNotaId) ? optimisticNota : item
+        )
+      )
+    }
+    setSavingNotaId(String(targetNotaId))
+    closeNotaModal()
+
+    const r = await fetchJSON(`/calificaciones/notas/${targetNotaId}/`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    })
+
+    if (!r.ok) {
+      const detail =
+        r.data?.detail ||
+        Object.values(r.data?.errors || {})
+          .flat()
+          .join(" ") ||
+        `Error (HTTP ${r.status || "?"})`
+      if (previousNota) {
+        setNotas((prev) =>
+          (Array.isArray(prev) ? prev : []).map((item) =>
+            String(item?.id) === String(targetNotaId) ? previousNota : item
+          )
+        )
+      }
+      setSavingNotaId(null)
+      setNotaModal({
+        ...draft,
+        open: true,
+        error: detail,
+        saving: false,
+      })
+      return
+    }
+
+    const notaActualizada = r.data?.nota || payload
+
+    setNotas((prev) =>
+      (Array.isArray(prev) ? prev : []).map((item) =>
+        String(item?.id) === String(targetNotaId)
+          ? {
+              ...item,
+              ...notaActualizada,
+              observaciones: notaActualizada.observaciones,
+            }
+          : item
+      )
+    )
+    setSavingNotaId(null)
   }
 
   const nombreAlumno = useMemo(() => {
@@ -2371,11 +2646,15 @@ function AlumnoPerfilPageInner() {
                             <th className="py-2 pr-4">Tipo</th>
                             <th className="py-2 pr-4">Calificación</th>
                             <th className="py-2 pr-4">Comentarios</th>
+                            {canSignByPadre ? <th className="py-2 pr-4">Firma</th> : null}
+                            {canEditNotas ? <th className="py-2 pr-4 text-right">Editar</th> : null}
                           </tr>
                         </thead>
                         <tbody>
                           {notasFiltradas.map((n, i) => {
                             const cuatr = notaCuatr(n)
+                            const firmada = isFirmadaFromAny(n)
+                            const firmadaEn = n?.firmada_en || n?.firmado_en || null
                             return (
                               <tr key={n.id || i} className="border-b last:border-b-0">
                                 <td className="py-2 pr-4">
@@ -2392,6 +2671,71 @@ function AlumnoPerfilPageInner() {
                                 <td className="py-2 pr-4">
                                   {n.observaciones || n.comentarios || "—"}
                                 </td>
+                                {canSignByPadre ? (
+                                  <td className="py-2 pr-4">
+                                    {firmada ? (
+                                      <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-emerald-300 bg-emerald-50 text-emerald-800">
+                                        Firmada {firmadaEn ? `- ${fmtFecha(firmadaEn)}` : ""}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          setSigningNotaId(String(n.id || ""))
+                                          const r = await firmarNota(n.id)
+                                          setSigningNotaId(null)
+                                          if (!r.ok) {
+                                            alert(
+                                              r.data?.detail ||
+                                                `Error (HTTP ${r.status || "?"})`
+                                            )
+                                            return
+                                          }
+
+                                          setNotas((prev) => {
+                                            const list = Array.isArray(prev) ? prev : []
+                                            const next = list.map((x) =>
+                                              String(x?.id || "") !== String(n.id || "")
+                                                ? x
+                                                : {
+                                                    ...x,
+                                                    firmada: true,
+                                                    firmada_en:
+                                                      r.data?.firmada_en || new Date().toISOString(),
+                                                  }
+                                            )
+                                            setCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId, next)
+                                            return next
+                                          })
+                                        }}
+                                        disabled={String(signingNotaId || "") === String(n.id || "")}
+                                        className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                      >
+                                        {String(signingNotaId || "") === String(n.id || "")
+                                          ? "Firmando..."
+                                          : "Firmar"}
+                                      </button>
+                                    )}
+                                  </td>
+                                ) : null}
+                                {canEditNotas ? (
+                                  <td className="py-2 pr-4 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => openNotaModal(n)}
+                                      disabled={String(savingNotaId || "") === String(n.id || "")}
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                                      aria-label="Editar nota"
+                                      title="Editar nota"
+                                    >
+                                      {String(savingNotaId || "") === String(n.id || "") ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Pencil className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                  </td>
+                                ) : null}
                               </tr>
                             )
                           })}
@@ -2484,31 +2828,87 @@ function AlumnoPerfilPageInner() {
                     <div className="overflow-x-auto">
                       <table className="w-full table-fixed text-sm">
                         <colgroup>
-                          <col className="w-[18%]" />
-                          <col className="w-[56%]" />
-                          <col className="w-[26%]" />
+                          <col className={canSignByPadre ? "w-[18%]" : "w-[20%]"} />
+                          <col className={canSignByPadre ? "w-[42%]" : "w-[50%]"} />
+                          <col className={canSignByPadre ? "w-[20%]" : "w-[30%]"} />
+                          {canSignByPadre ? <col className="w-[20%]" /> : null}
                         </colgroup>
                         <thead>
                           <tr className="text-left text-gray-600 border-b">
                             <th className="py-2 pr-4">Fecha</th>
                             <th className="py-2 pr-4">Motivo</th>
                             <th className="py-2 pr-4">Docente</th>
+                            {canSignByPadre ? <th className="py-2 pr-4">Firma</th> : null}
                           </tr>
                         </thead>
                         <tbody>
-                          {sancionesFiltradas.map((s, i) => (
-                            <tr key={s.id || i} className="border-b last:border-b-0">
-                              <td className="py-2 pr-4">
-                                {fmtFecha(s.fecha || s.created_at)}
-                              </td>
-                              <td className="py-2 pr-4 break-words">
-                                {s.motivo || s.detalle || s.descripcion || "-"}
-                              </td>
-                              <td className="py-2 pr-4">
-                                {s.docente || s.creado_por || "-"}
-                              </td>
-                            </tr>
-                          ))}
+                          {sancionesFiltradas.map((s, i) => {
+                            const firmada = isFirmadaFromAny(s)
+                            const firmadaEn = s?.firmada_en || s?.firmado_en || null
+                            return (
+                              <tr key={s.id || i} className="border-b last:border-b-0">
+                                <td className="py-2 pr-4">
+                                  {fmtFecha(s.fecha || s.created_at)}
+                                </td>
+                                <td className="py-2 pr-4 break-words">
+                                  {s.motivo || s.detalle || s.descripcion || "-"}
+                                </td>
+                                <td className="py-2 pr-4">
+                                  {s.docente || s.creado_por || "-"}
+                                </td>
+                                {canSignByPadre ? (
+                                  <td className="py-2 pr-4">
+                                    {firmada ? (
+                                      <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-emerald-300 bg-emerald-50 text-emerald-800">
+                                        Firmada {firmadaEn ? `- ${fmtFecha(firmadaEn)}` : ""}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          setSigningSancionId(String(s.id || ""))
+                                          const r = await firmarSancion(s.id)
+                                          setSigningSancionId(null)
+                                          if (!r.ok) {
+                                            alert(
+                                              r.data?.detail ||
+                                                `Error (HTTP ${r.status || "?"})`
+                                            )
+                                            return
+                                          }
+
+                                          setSanciones((prev) => {
+                                            const list = Array.isArray(prev) ? prev : []
+                                            const next = list.map((x) => {
+                                              if (String(x?.id || "") !== String(s.id || "")) return x
+                                              return {
+                                                ...x,
+                                                firmada: true,
+                                                firmada_en:
+                                                  r.data?.firmada_en || new Date().toISOString(),
+                                              }
+                                            })
+                                            setCachedList(
+                                              SANCIONES_CACHE_PREFIX,
+                                              alumnoCacheId,
+                                              next
+                                            )
+                                            return next
+                                          })
+                                        }}
+                                        disabled={String(signingSancionId || "") === String(s.id || "")}
+                                        className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                      >
+                                        {String(signingSancionId || "") === String(s.id || "")
+                                          ? "Firmando..."
+                                          : "Firmar"}
+                                      </button>
+                                    )}
+                                  </td>
+                                ) : null}
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -2605,7 +3005,8 @@ function AlumnoPerfilPageInner() {
                           <col className="w-[14%]" />
                           <col className="w-[12%]" />
                           <col className="w-[16%]" />
-                          <col className="w-[40%]" />
+                          <col className="w-[18%]" />
+                          <col className="w-[22%]" />
                         </colgroup>
                         <thead>
                           <tr className="text-left text-gray-600 border-b">
@@ -2613,6 +3014,7 @@ function AlumnoPerfilPageInner() {
                             <th className="py-2 pr-4">Asistencia</th>
                             <th className="py-2 pr-4">Estado</th>
                             <th className="py-2 pr-4">Justificada</th>
+                            <th className="py-2 pr-4">Firma</th>
                             <th className="py-2 pr-4">Detalle</th>
                           </tr>
                         </thead>
@@ -2621,12 +3023,17 @@ function AlumnoPerfilPageInner() {
                             const tipoRaw = asistenciaTipoFromAny(a)
                             const tipoNorm = normalizeAsistenciaTipo(tipoRaw) || "clases"
                             const rowId = getAsistenciaId(a) || `${i}`
+                            const asistenciaId = getAsistenciaId(a)
                             const est = estadoTexto(asistenciaEstadoFromAny(a))
+                            const puedeFirmarAsistencia =
+                              est === "Ausente" || est === "Tarde"
                             const puedeDetalle =
                               canJustifyAsistencias &&
                               (est === "Ausente" || est === "Tarde")
                             const detalleTexto =
                               a.detalle || a.observaciones || a.observacion || ""
+                            const firmada = isFirmadaFromAny(a)
+                            const firmadaEn = a?.firmada_en || a?.firmado_en || null
 
                             return (
                               <tr key={rowId} className="border-b last:border-b-0">
@@ -2641,10 +3048,8 @@ function AlumnoPerfilPageInner() {
                                 <td className="py-2 pr-4">{est}</td>
                                 <td className="py-2 pr-4">
                                   {(() => {
-                                    const can = est === "Ausente" || est === "Tarde"
-                                    if (!can) return "—"
+                                    if (!puedeFirmarAsistencia) return "—"
                                     const just = isJustificadaFromAny(a)
-                                    const asistenciaId = getAsistenciaId(a)
 
                                     // 🔒 Solo el preceptor (o admin) puede justificar.
                                     if (!canJustifyAsistencias) {
@@ -2702,6 +3107,64 @@ function AlumnoPerfilPageInner() {
 })()}
                                 </td>
                                 <td className="py-2 pr-4">
+                                  {canSignByPadre && puedeFirmarAsistencia ? (
+                                    firmada ? (
+                                      <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-emerald-300 bg-emerald-50 text-emerald-800">
+                                        Firmada {firmadaEn ? `- ${fmtFecha(firmadaEn)}` : ""}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          setSigningAsistenciaId(String(asistenciaId || rowId))
+                                          const r = await firmarAsistencia(asistenciaId)
+                                          setSigningAsistenciaId(null)
+                                          if (!r.ok) {
+                                            alert(
+                                              r.data?.detail ||
+                                                `Error (HTTP ${r.status || "?"})`
+                                            )
+                                            return
+                                          }
+
+                                          setAsistencias((prev) => {
+                                            const list = Array.isArray(prev) ? prev : []
+                                            const next = list.map((x) => {
+                                              const xid = getAsistenciaId(x)
+                                              if (String(xid) !== String(asistenciaId)) return x
+                                              return {
+                                                ...x,
+                                                firmada: true,
+                                                firmada_en:
+                                                  r.data?.firmada_en || new Date().toISOString(),
+                                              }
+                                            })
+                                            setCachedList(
+                                              ASISTENCIAS_CACHE_PREFIX,
+                                              alumnoCacheId,
+                                              next
+                                            )
+                                            return next
+                                          })
+                                        }}
+                                        disabled={
+                                          !asistenciaId ||
+                                          String(signingAsistenciaId || "") ===
+                                            String(asistenciaId || rowId)
+                                        }
+                                        className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                                      >
+                                        {String(signingAsistenciaId || "") ===
+                                        String(asistenciaId || rowId)
+                                          ? "Firmando..."
+                                          : "Firmar"}
+                                      </button>
+                                    )
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td className="py-2 pr-4">
                                   <div className="flex items-start gap-2">
                                     <span
                                       className={`min-w-0 flex-1 break-words ${
@@ -2741,6 +3204,123 @@ function AlumnoPerfilPageInner() {
           </>
         )}
       </div>
+
+      <Dialog
+        open={notaModal.open}
+        onOpenChange={(open) => (!open ? closeNotaModal() : null)}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar nota</DialogTitle>
+            <DialogDescription>
+              Modifica la calificación cargada para este alumno.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <Label>Materia</Label>
+              <select
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={notaModal.materia}
+                onChange={(e) => setNotaModal((prev) => ({ ...prev, materia: e.target.value }))}
+              >
+                <option value="">Seleccionar</option>
+                {materiasCat.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Tipo</Label>
+              <select
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={notaModal.tipo}
+                onChange={(e) => setNotaModal((prev) => ({ ...prev, tipo: e.target.value }))}
+              >
+                <option value="">Seleccionar</option>
+                {NOTA_TIPOS.map((tipo) => (
+                  <option key={tipo} value={tipo}>
+                    {tipo}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Calificacion</Label>
+              <select
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={notaModal.resultado}
+                onChange={(e) => setNotaModal((prev) => ({ ...prev, resultado: e.target.value }))}
+              >
+                <option value="">Sin entregar</option>
+                {NOTA_RESULTADOS.map((resultado) => (
+                  <option key={resultado.value} value={resultado.value}>
+                    {resultado.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Nota numérica</Label>
+              <input
+                type="number"
+                step="0.01"
+                min="1"
+                max="10"
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={notaModal.nota_numerica}
+                onChange={(e) =>
+                  setNotaModal((prev) => ({ ...prev, nota_numerica: e.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <Label>Cuatrimestre</Label>
+              <select
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={notaModal.cuatrimestre}
+                onChange={(e) =>
+                  setNotaModal((prev) => ({ ...prev, cuatrimestre: e.target.value }))
+                }
+              >
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </div>
+            <div>
+              <Label>Fecha</Label>
+              <input
+                type="date"
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                value={notaModal.fecha}
+                onChange={(e) => setNotaModal((prev) => ({ ...prev, fecha: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Comentarios</Label>
+            <Textarea
+              value={notaModal.observaciones}
+              onChange={(e) =>
+                setNotaModal((prev) => ({ ...prev, observaciones: e.target.value }))
+              }
+              className="min-h-[120px]"
+              placeholder="Comentario opcional sobre la nota"
+            />
+            {notaModal.error ? (
+              <p className="text-sm text-red-600">{notaModal.error}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button onClick={closeNotaModal}>Cancelar</Button>
+            <Button onClick={handleGuardarNota} disabled={notaModal.saving}>
+              {notaModal.saving ? "Guardando..." : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={detalleModal.open}

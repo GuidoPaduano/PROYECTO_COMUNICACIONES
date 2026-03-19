@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import secrets
 from dotenv import load_dotenv
 import dj_database_url  # 👉 Asegurate de tenerlo en requirements.txt
 from corsheaders.defaults import default_headers  # ✅ para extender headers permitidos en CORS
@@ -22,11 +23,14 @@ def _split_env_list(var_name: str, default_list: list[str]) -> list[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 # SECRET_KEY para producción desde variable de entorno (o valor por defecto si no está)
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-+*^tqw7091lf!2qengz$$auv-l!=8-7ua1d7vuc3s%f5gga*!v')
-
-# DEBUG desde variable de entorno (por defecto True para desarrollo)
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOW_VERCEL_ORIGINS = os.environ.get("ALLOW_VERCEL_ORIGINS", "False") == "True"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = secrets.token_urlsafe(50)
+    else:
+        raise Exception("DJANGO_SECRET_KEY no configurado.")
 
 # Frontend (para links de reset de contraseña)
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "").strip()
@@ -51,7 +55,7 @@ ALLOWED_HOSTS = os.environ.get(
 
 # En desarrollo, permitir cualquier Host para evitar errores 400 al acceder por IP LAN
 if DEBUG:
-    ALLOWED_HOSTS = ['*']
+    ALLOWED_HOSTS = list({*ALLOWED_HOSTS, "localhost", "127.0.0.1", "0.0.0.0"})
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -124,7 +128,12 @@ if 'ENGINE' not in DATABASES['default']:
         "Git Bash / Linux: export DATABASE_URL=postgres://usuario:contraseña@host:puerto/dbname"
     )
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
@@ -163,7 +172,7 @@ if ALLOW_VERCEL_ORIGINS:
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'calificaciones.jwt_auth.CookieJWTAuthentication',
     ),
     'DEFAULT_THROTTLE_RATES': {
         'anon': '5/min',
@@ -184,6 +193,14 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+JWT_ACCESS_COOKIE_NAME = os.environ.get("JWT_ACCESS_COOKIE_NAME", "access_token")
+JWT_REFRESH_COOKIE_NAME = os.environ.get("JWT_REFRESH_COOKIE_NAME", "refresh_token")
+JWT_COOKIE_PATH = os.environ.get("JWT_COOKIE_PATH", "/")
+JWT_COOKIE_DOMAIN = os.environ.get("JWT_COOKIE_DOMAIN", "").strip() or None
+JWT_COOKIE_SAMESITE = os.environ.get("JWT_COOKIE_SAMESITE", "Lax")
+JWT_COOKIE_SECURE = os.environ.get("JWT_COOKIE_SECURE", "True" if not DEBUG else "False") == "True"
+JWT_ACCESS_COOKIE_AGE = int(os.environ.get("JWT_ACCESS_COOKIE_AGE", str(int(SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()))))
+JWT_REFRESH_COOKIE_AGE = int(os.environ.get("JWT_REFRESH_COOKIE_AGE", str(int(SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()))))
 
 # ✅ CORS
 CORS_ALLOWED_ORIGINS = [
@@ -231,6 +248,13 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # (Opcional) Forzar HTTPS en prod
 SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+SECURE_REFERRER_POLICY = "same-origin"
 
 # Alertas academicas por notas
 ALERTAS_ACADEMICAS_VENTANA_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_VENTANA_DIAS", "45"))

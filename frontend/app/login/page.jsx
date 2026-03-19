@@ -28,14 +28,15 @@ export default function LoginPage() {
       const res = await fetch(`${API_BASE}/token/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setError(data?.detail || "Usuario o clave incorrecto")
       } else {
-        const data = await res.json()
-        setTokens(data.access, data.refresh)
+        await res.json().catch(() => ({}))
+        setTokens()
         router.replace("/dashboard")
       }
     } catch {

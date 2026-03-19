@@ -6,6 +6,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from django.utils.dateparse import parse_date
+from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
 from django.db.models import Q
@@ -20,7 +21,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .models import Alumno, Asistencia, Notificacion
 from .utils_cursos import filtrar_cursos_validos
@@ -55,6 +56,12 @@ def _can_justify(user) -> bool:
         return True
     # En el proyecto aparecen ambos nombres en distintos lugares
     return _user_in_group(user, "Preceptores", "Preceptor")
+
+
+def _can_sign_asistencia(user, alumno: Alumno) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    return getattr(alumno, "padre_id", None) == getattr(user, "id", None)
 
 
 # =========================================================
@@ -1064,6 +1071,8 @@ def justificar_asistencia(request, pk: int):
             "presente": bool(obj.presente),
             "tarde": bool(getattr(obj, "tarde", False)),
             "justificada": bool(getattr(obj, "justificada", False)),
+            "firmada": bool(getattr(obj, "firmada", False)),
+            "firmada_en": obj.firmada_en.isoformat() if getattr(obj, "firmada_en", None) else None,
             "falta_valor": falta_valor,
         })
 
@@ -1118,7 +1127,63 @@ def justificar_asistencia(request, pk: int):
         "presente": bool(obj.presente),
         "tarde": bool(getattr(obj, "tarde", False)),
         "justificada": bool(getattr(obj, "justificada", False)),
+        "firmada": bool(getattr(obj, "firmada", False)),
+        "firmada_en": obj.firmada_en.isoformat() if getattr(obj, "firmada_en", None) else None,
         "falta_valor": falta_valor,
+    })
+
+
+@api_view(["GET", "POST", "PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser, FormParser, MultiPartParser])
+def firmar_asistencia(request, pk: int):
+    try:
+        obj = Asistencia.objects.select_related("alumno").get(pk=pk)
+    except Asistencia.DoesNotExist:
+        return _err("Asistencia no encontrada.", status=404)
+
+    if not _can_sign_asistencia(getattr(request, "user", None), obj.alumno):
+        return _err("No tenés permisos para firmar esta asistencia.", status=403)
+
+    if request.method == "GET":
+        return _ok_response({
+            "id": obj.id,
+            "alumno_id": obj.alumno_id,
+            "fecha": str(obj.fecha),
+            "tipo_asistencia": obj.tipo_asistencia,
+            "firmada": bool(getattr(obj, "firmada", False)),
+            "firmada_en": obj.firmada_en.isoformat() if getattr(obj, "firmada_en", None) else None,
+        })
+
+    es_presente = bool(obj.presente) and (not bool(getattr(obj, "tarde", False)))
+    if es_presente:
+        return _err("No se puede firmar un presente.", 400)
+
+    if bool(getattr(obj, "firmada", False)):
+        return _err(
+            "La inasistencia ya fue firmada.",
+            400,
+            {
+                "id": obj.id,
+                "alumno_id": obj.alumno_id,
+                "firmada": True,
+                "firmada_en": obj.firmada_en.isoformat() if getattr(obj, "firmada_en", None) else None,
+            },
+        )
+
+    obj.firmada = True
+    obj.firmada_en = timezone.now()
+    obj.firmada_por = request.user
+    obj.save(update_fields=["firmada", "firmada_en", "firmada_por"])
+
+    return _ok_response({
+        "id": obj.id,
+        "alumno_id": obj.alumno_id,
+        "fecha": str(obj.fecha),
+        "tipo_asistencia": obj.tipo_asistencia,
+        "firmada": True,
+        "firmada_en": obj.firmada_en.isoformat() if obj.firmada_en else None,
     })
 
 
@@ -1253,6 +1318,8 @@ def asistencias_por_alumno(request, alumno_id=None):
             "presente": bool(a.presente),
             "tarde": bool(getattr(a, "tarde", False)),
             "justificada": bool(getattr(a, "justificada", False)),
+            "firmada": bool(getattr(a, "firmada", False)),
+            "firmada_en": a.firmada_en.isoformat() if getattr(a, "firmada_en", None) else None,
             "falta_valor": 0.0 if bool(getattr(a, "justificada", False)) else (1.0 if (not bool(a.presente)) else (0.5 if bool(getattr(a, "tarde", False)) else 0.0)),
             "observacion": getattr(a, "observacion", "") or "",
         })
@@ -1309,6 +1376,8 @@ def asistencias_por_curso_y_fecha(request):
             "presente": bool(a.presente),
             "tarde": bool(getattr(a, "tarde", False)),
             "justificada": bool(getattr(a, "justificada", False)),
+            "firmada": bool(getattr(a, "firmada", False)),
+            "firmada_en": a.firmada_en.isoformat() if getattr(a, "firmada_en", None) else None,
             "falta_valor": 0.0 if bool(getattr(a, "justificada", False)) else (1.0 if (not bool(a.presente)) else (0.5 if bool(getattr(a, "tarde", False)) else 0.0)),
             "observacion": getattr(a, "observacion", "") or "",
         })

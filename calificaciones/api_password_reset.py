@@ -4,7 +4,9 @@ import os
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.translation import gettext as _
@@ -120,6 +122,11 @@ def password_reset_confirm(request):
 
     if not default_token_generator.check_token(user, token):
         return Response({"detail": _("Link inválido o expirado.")}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        validate_password(password, user=user)
+    except ValidationError as exc:
+        return Response({"detail": list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
     user.set_password(password)
     user.save(update_fields=["password"])

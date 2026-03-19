@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from typing import Optional
 
+from django.utils import timezone
+
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .models import Alumno, Nota
 from .serializers import NotaPublicSerializer
@@ -147,6 +149,13 @@ def _notas_response(alumno: Alumno):
     )
 
 
+def _authorize_padre_or_admin(request, alumno: Alumno) -> bool:
+    user = request.user
+    if getattr(user, "is_superuser", False):
+        return True
+    return getattr(alumno, "padre_id", None) == user.id
+
+
 def _get_alumno_from_query_params(request) -> Optional[Alumno]:
     """
     Soporta estas variantes:
@@ -228,3 +237,52 @@ def notas_por_codigo(request, id_alumno: str):
         return Response({"detail": "No autorizado"}, status=403)
 
     return _notas_response(alumno)
+
+
+@api_view(["GET", "POST", "PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def firmar_nota(request, pk: int):
+    try:
+        nota = Nota.objects.select_related("alumno").get(pk=pk)
+    except Nota.DoesNotExist:
+        return Response({"detail": "Nota no encontrada"}, status=404)
+
+    if not _authorize_padre_or_admin(request, nota.alumno):
+        return Response({"detail": "No autorizado"}, status=403)
+
+    if request.method == "GET":
+        return Response(
+            {
+                "id": nota.id,
+                "alumno_id": nota.alumno_id,
+                "firmada": bool(getattr(nota, "firmada", False)),
+                "firmada_en": nota.firmada_en.isoformat() if getattr(nota, "firmada_en", None) else None,
+            }
+        )
+
+    if bool(getattr(nota, "firmada", False)):
+        return Response(
+            {
+                "detail": "La nota ya fue firmada.",
+                "id": nota.id,
+                "alumno_id": nota.alumno_id,
+                "firmada": True,
+                "firmada_en": nota.firmada_en.isoformat() if getattr(nota, "firmada_en", None) else None,
+            },
+            status=400,
+        )
+
+    nota.firmada = True
+    nota.firmada_en = timezone.now()
+    nota.firmada_por = request.user
+    nota.save(update_fields=["firmada", "firmada_en", "firmada_por"])
+
+    return Response(
+        {
+            "id": nota.id,
+            "alumno_id": nota.alumno_id,
+            "firmada": True,
+            "firmada_en": nota.firmada_en.isoformat() if nota.firmada_en else None,
+        }
+    )
