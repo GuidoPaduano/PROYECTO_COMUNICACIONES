@@ -5,9 +5,16 @@ __pycache__/
 # Entorno virtual
 venv/
 .env
+frontend/.env.local
 
 # Base de datos local (si usás SQLite alguna vez)
 *.sqlite3
+test_*.sqlite3
+db.sqlite3
+
+# Datos sensibles / dumps locales
+calificaciones.json
+Copia de 25 - Libretas de calificaciones - *.csv
 
 # Archivos de Django generados
 staticfiles/
@@ -20,5 +27,7 @@ Thumbs.db
 # Node / Next (repo root)
 node_modules/
 .next/
+frontend/node_modules/
+frontend/.next/
 out/
 build/

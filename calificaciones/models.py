@@ -136,6 +136,15 @@ class Nota(models.Model):
     cuatrimestre = models.IntegerField(choices=[(1, "1"), (2, "2")])
     fecha = models.DateField(default=timezone.now)
     observaciones = models.TextField(blank=True, null=True)
+    firmada = models.BooleanField(default=False, db_index=True)
+    firmada_en = models.DateTimeField(null=True, blank=True)
+    firmada_por = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notas_firmadas",
+    )
 
     class Meta:
         ordering = ["-fecha", "-id"]
@@ -210,6 +219,15 @@ class Sancion(models.Model):
     detalle = models.TextField(blank=True, null=True)
     fecha = models.DateField(default=timezone.now)
     docente = models.CharField(max_length=100, blank=True, null=True)
+    firmada = models.BooleanField(default=False, db_index=True)
+    firmada_en = models.DateTimeField(null=True, blank=True)
+    firmada_por = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sanciones_firmadas",
+    )
 
     class Meta:
         ordering = ["-fecha", "-id"]
@@ -268,6 +286,15 @@ class Asistencia(models.Model):
     justificada = models.BooleanField(default=False, db_index=True)
     observacion = models.CharField(max_length=255, blank=True, null=True)
     creado_por = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    firmada = models.BooleanField(default=False, db_index=True)
+    firmada_en = models.DateTimeField(null=True, blank=True)
+    firmada_por = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="asistencias_firmadas",
+    )
 
     # âœ… default=timezone.now evita prompts de auto_now_add en tablas con filas existentes
     created_at = models.DateTimeField(default=timezone.now)

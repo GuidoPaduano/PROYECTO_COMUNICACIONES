@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .models import Alumno, Evento
 

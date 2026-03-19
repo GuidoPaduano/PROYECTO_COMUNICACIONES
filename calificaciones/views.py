@@ -3,6 +3,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse, JsonResponse
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.password_validation import validate_password
 from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import ValidationError
 from django import forms
@@ -14,7 +15,7 @@ from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.decorators import (
     action, api_view, authentication_classes, permission_classes, parser_classes, throttle_classes
@@ -35,6 +36,7 @@ from .constants import MATERIAS
 from .contexto import resolve_alumno_for_user
 from django.contrib.auth import logout as dj_logout, update_session_auth_hash
 from django.contrib.auth import get_user_model
+from .auth_api import clear_auth_cookies
 
 import json
 import logging
@@ -493,6 +495,21 @@ def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     return obtener_curso_del_preceptor(user) == curso_alumno
 
 
+def _preceptor_can_access_curso(user, curso: str) -> bool:
+    curso = (curso or "").strip()
+    if not curso:
+        return False
+
+    if PreceptorCurso is not None:
+        try:
+            if PreceptorCurso.objects.filter(preceptor=user, curso=curso).exists():
+                return True
+        except Exception:
+            pass
+
+    return obtener_curso_del_preceptor(user) == curso
+
+
 def _profesor_cursos_asignados(user):
     if ProfesorCurso is None:
         return []
@@ -522,6 +539,41 @@ def _profesor_can_access_alumno(user, alumno: Alumno) -> bool:
     if not curso_alumno:
         return False
     return _profesor_can_access_curso(user, curso_alumno)
+
+
+def _can_access_course_roster(request, curso: str) -> bool:
+    user = request.user
+    if getattr(user, "is_superuser", False):
+        return True
+    if _has_role(request, "Preceptores"):
+        return _preceptor_can_access_curso(user, curso)
+    if _has_role(request, "Profesores"):
+        return _profesor_can_access_curso(user, curso)
+    return False
+
+
+def _can_access_alumno_data(request, alumno: Alumno) -> bool:
+    user = request.user
+    if getattr(user, "is_superuser", False):
+        return True
+    if getattr(alumno, "padre_id", None) == getattr(user, "id", None):
+        return True
+    if _has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, alumno):
+        return True
+    if _has_role(request, "Profesores") and _profesor_can_access_alumno(user, alumno):
+        return True
+
+    try:
+        if getattr(alumno, "usuario_id", None) == user.id:
+            return True
+    except Exception:
+        pass
+
+    try:
+        resolution = resolve_alumno_for_user(user)
+        return bool(resolution.alumno and resolution.alumno.id == alumno.id)
+    except Exception:
+        return False
 
 
 # =========================================================
@@ -923,9 +975,8 @@ def alumnos_por_curso(request):
     if not curso:
         return Response({"detail": "ParÃ¡metro 'curso' es requerido."}, status=400)
 
-    if _has_role(request, "Profesores") and not request.user.is_superuser:
-        if not _profesor_can_access_curso(request.user, curso):
-            return Response({"detail": "No autorizado para ese curso."}, status=403)
+    if not _can_access_course_roster(request, curso):
+        return Response({"detail": "No autorizado para ese curso."}, status=403)
 
     # âœ… FIX: si Alumno no tiene apellido, no explota
     if _has_model_field(Alumno, "apellido"):
@@ -958,9 +1009,8 @@ def alumnos_por_curso_path(request, curso: str):
     if not curso:
         return Response({"detail": "curso vacÃ­o."}, status=400)
 
-    if _has_role(request, "Profesores") and not request.user.is_superuser:
-        if not _profesor_can_access_curso(request.user, curso):
-            return Response({"detail": "No autorizado para ese curso."}, status=403)
+    if not _can_access_course_roster(request, curso):
+        return Response({"detail": "No autorizado para ese curso."}, status=403)
 
     if _has_model_field(Alumno, "apellido"):
         qs = Alumno.objects.filter(curso=curso).order_by("apellido", "nombre")
@@ -1607,6 +1657,8 @@ def ver_mensajes(request):
 @login_required
 def generar_boletin_pdf(request, alumno_id):
     alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
+    if not _can_access_alumno_data(request, alumno):
+        return HttpResponse("No tenÃ©s permiso para ver este boletÃ­n.", status=403)
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="boletin_{alumno.nombre}.pdf'
     p = canvas.Canvas(response)
@@ -2069,7 +2121,7 @@ def mi_perfil(request):
 # =========================================================
 @csrf_exempt
 @api_view(["POST"])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def auth_logout(request):
     """
@@ -2085,7 +2137,7 @@ def auth_logout(request):
     # Limpieza defensiva de cookies tÃ­picas
     resp.delete_cookie("sessionid")
     resp.delete_cookie("csrftoken")
-    return resp
+    return clear_auth_cookies(resp)
 
 
 # =========================================================
@@ -2106,11 +2158,13 @@ def auth_change_password(request):
     if not current or not new:
         return Response({"detail": "CompletÃ¡ la contraseÃ±a actual y la nueva."}, status=400)
 
-    if len(new) < 6:
-        return Response({"detail": "La contraseÃ±a nueva debe tener al menos 6 caracteres."}, status=400)
-
     if not user.check_password(current):
         return Response({"detail": "La contraseÃ±a actual no coincide."}, status=400)
+
+    try:
+        validate_password(new, user=user)
+    except ValidationError as exc:
+        return Response({"detail": list(exc.messages)}, status=400)
 
     user.set_password(new)
     user.save(update_fields=["password"])

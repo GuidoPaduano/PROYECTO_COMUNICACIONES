@@ -66,6 +66,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
     fecha = serializers.DateField(required=False, allow_null=True)
+    observaciones = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = Nota
@@ -78,6 +79,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
             "nota_numerica",
             "cuatrimestre",
             "fecha",
+            "observaciones",
         ]
 
     def validate_calificacion(self, value):
@@ -103,9 +105,13 @@ class NotaCreateSerializer(serializers.ModelSerializer):
         return iv
 
     def validate(self, attrs):
-        calificacion = str(attrs.get("calificacion") or "").strip().upper()
-        resultado = attrs.get("resultado")
-        nota_numerica = attrs.get("nota_numerica")
+        current_calificacion = getattr(self.instance, "calificacion", "") if self.instance else ""
+        current_resultado = getattr(self.instance, "resultado", None) if self.instance else None
+        current_nota_numerica = getattr(self.instance, "nota_numerica", None) if self.instance else None
+
+        calificacion = str(attrs.get("calificacion", current_calificacion) or "").strip().upper()
+        resultado = attrs.get("resultado", current_resultado)
+        nota_numerica = attrs.get("nota_numerica", current_nota_numerica)
 
         if calificacion:
             # Compatibilidad: si calificacion legacy trae TEA/TEP/TED, poblar resultado
@@ -149,6 +155,24 @@ class NotaCreateSerializer(serializers.ModelSerializer):
         nota.save()
         return nota
 
+    def update(self, instance, validated_data):
+        fecha = validated_data.pop("fecha", None)
+        update_fields = []
+        for key, value in validated_data.items():
+            setattr(instance, key, value)
+            update_fields.append(key)
+        if fecha is not None:
+            try:
+                instance.fecha = fecha
+                update_fields.append("fecha")
+            except Exception:
+                pass
+        if update_fields:
+            instance.save(update_fields=list(dict.fromkeys(update_fields)))
+        else:
+            instance.save()
+        return instance
+
 
 class NotaSerializer(serializers.ModelSerializer):
     """
@@ -173,6 +197,9 @@ class NotaSerializer(serializers.ModelSerializer):
             "nota_numerica",
             "cuatrimestre",
             "fecha",
+            "observaciones",
+            "firmada",
+            "firmada_en",
         ]
 
     def get_resultado_display(self, obj):
@@ -238,6 +265,9 @@ class NotaPublicSerializer(serializers.ModelSerializer):
             "nota_numerica",
             "cuatrimestre",
             "fecha",
+            "observaciones",
+            "firmada",
+            "firmada_en",
         )
 
     def get_resultado_display(self, obj):
@@ -279,6 +309,8 @@ class SancionPublicSerializer(serializers.ModelSerializer):
             "mensaje",
             "creado_por",
             "creado_en",
+            "firmada",
+            "firmada_en",
         ]
 
     def get_alumno_nombre(self, obj):

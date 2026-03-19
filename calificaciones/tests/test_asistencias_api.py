@@ -191,3 +191,50 @@ class AsistenciasApiTests(TestCase):
                 umbral=10,
             ).exists()
         )
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class FirmaAsistenciaApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+        self.padre = User.objects.create_user(username="padre_firma_asis", password="test1234")
+        self.otro = User.objects.create_user(username="otro_firma_asis", password="test1234")
+        self.alumno = _make_alumno("Uma", "Rossi", "LEG880", curso="1A", padre=self.padre)
+        self.asistencia = Asistencia.objects.create(
+            alumno=self.alumno,
+            fecha=date(2026, 3, 12),
+            tipo_asistencia="clases",
+            presente=False,
+        )
+
+    def test_padre_puede_firmar_inasistencia_una_vez(self):
+        self.client.force_authenticate(user=self.padre)
+
+        res = self.client.post(f"/api/asistencias/{self.asistencia.id}/firmar/", format="json")
+
+        self.assertEqual(res.status_code, 200)
+        self.asistencia.refresh_from_db()
+        self.assertTrue(self.asistencia.firmada)
+        self.assertEqual(self.asistencia.firmada_por_id, self.padre.id)
+        self.assertIsNotNone(self.asistencia.firmada_en)
+
+    def test_padre_no_puede_firmar_inasistencia_dos_veces(self):
+        self.client.force_authenticate(user=self.padre)
+        first = self.client.post(f"/api/asistencias/{self.asistencia.id}/firmar/", format="json")
+        self.assertEqual(first.status_code, 200)
+
+        second = self.client.post(f"/api/asistencias/{self.asistencia.id}/firmar/", format="json")
+
+        self.assertEqual(second.status_code, 400)
+        self.asistencia.refresh_from_db()
+        self.assertTrue(self.asistencia.firmada)
+
+    def test_otro_usuario_no_puede_firmar_inasistencia(self):
+        self.client.force_authenticate(user=self.otro)
+
+        res = self.client.post(f"/api/asistencias/{self.asistencia.id}/firmar/", format="json")
+
+        self.assertEqual(res.status_code, 403)
+        self.asistencia.refresh_from_db()
+        self.assertFalse(self.asistencia.firmada)

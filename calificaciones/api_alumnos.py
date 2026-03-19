@@ -13,7 +13,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import JSONParser
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .models import Alumno
 from .utils_cursos import filtrar_cursos_validos, is_curso_valido

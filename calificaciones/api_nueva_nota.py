@@ -123,6 +123,25 @@ def _filtrar_cursos_para_profesor(user, cursos):
     return [c for c in cursos if (c.get("id") if isinstance(c, dict) else c) in asignados_set]
 
 
+def _profesor_puede_editar_nota(user, nota: Nota) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    try:
+        if not user.groups.filter(name__in=["Profesores", "Profesor"]).exists():
+            return False
+    except Exception:
+        return False
+
+    curso_alumno = getattr(getattr(nota, "alumno", None), "curso", None)
+    if not curso_alumno:
+        return False
+
+    asignados = _cursos_profesor_asignados(user)
+    if not asignados:
+        return True
+    return curso_alumno in set(asignados)
+
+
 # ---------- WhoAmI ----------
 class WhoAmI(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -144,7 +163,14 @@ class WhoAmI(APIView):
 
         # Contexto de usuario (robusto/retrocompatible) para que el front pueda
         # resolver "quién es el alumno" sin depender de vínculos frágiles.
-        ctx = build_context_for_user(u, groups)
+        try:
+            ctx = build_context_for_user(u, groups)
+        except Exception:
+            logger.exception(
+                "WhoAmI: error construyendo contexto para user_id=%s",
+                getattr(u, "id", None),
+            )
+            ctx = {}
 
         # Vista previa (superusuario): si simula un rol y no hay contexto real, proveo un fallback razonable.
         if preview_role and getattr(u, "is_superuser", False):
@@ -531,6 +557,29 @@ class CrearNota(APIView):
                 resp["notif_error"] = notif_error
             return Response(resp, status=status.HTTP_201_CREATED)
         return Response({"ok": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class EditarNota(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, nota_id, *args, **kwargs):
+        try:
+            nota = Nota.objects.select_related("alumno").get(pk=nota_id)
+        except Nota.DoesNotExist:
+            return Response({"detail": "Nota no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _profesor_puede_editar_nota(request.user, nota):
+            return Response({"detail": "No tenés permiso para editar esta nota."}, status=status.HTTP_403_FORBIDDEN)
+
+        payload = _normalizar_nota_payload(request.data)
+        payload["alumno"] = nota.alumno_id
+
+        serializer = NotaCreateSerializer(instance=nota, data=payload, partial=True)
+        if not serializer.is_valid():
+            return Response({"ok": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        nota = serializer.save()
+        return Response({"ok": True, "nota": NotaCreateSerializer(nota).data}, status=status.HTTP_200_OK)
 
 
 # ---------- Crear varias notas (bulk JSON) ----------

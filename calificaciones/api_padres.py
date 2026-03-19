@@ -4,7 +4,7 @@ from django.http import JsonResponse, HttpResponseForbidden
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .models import Alumno, Nota
 

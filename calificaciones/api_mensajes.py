@@ -10,7 +10,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from django.core.exceptions import FieldDoesNotExist
 from django.utils import timezone

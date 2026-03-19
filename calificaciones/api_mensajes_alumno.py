@@ -11,7 +11,7 @@ from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, parser_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from rest_framework.response import Response
 
 from .models import Alumno, Mensaje, Notificacion

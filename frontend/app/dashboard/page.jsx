@@ -283,6 +283,49 @@ async function resolveAlumnoRouteId(me, previewRole) {
   return await fetchAlumnoIdSelfFallback(previewRole)
 }
 
+async function fetchProfileWithFallback(fetcher) {
+  const candidates = ["/auth/whoami/", "/perfil_api/"]
+  let lastError = ""
+
+  for (const url of candidates) {
+    try {
+      const res = await fetcher(url)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        lastError = data?.detail || data?.error || `Error ${res.status}`
+        continue
+      }
+
+      if (url === "/perfil_api/") {
+        const user = data?.user || {}
+        return {
+          id: user?.id,
+          username: user?.username || "",
+          first_name: user?.first_name || "",
+          last_name: user?.last_name || "",
+          full_name:
+            [user?.first_name || "", user?.last_name || ""].filter(Boolean).join(" ").trim() ||
+            user?.username ||
+            "",
+          email: user?.email || "",
+          groups: Array.isArray(user?.grupos) ? user.grupos : [],
+          rol: user?.rol || "",
+          is_superuser: !!user?.is_superuser,
+          alumno: data?.alumno || null,
+          hijos: Array.isArray(data?.alumnos_del_padre) ? data.alumnos_del_padre : [],
+          alumno_resolution: data?.alumno_resolution || null,
+        }
+      }
+
+      return data
+    } catch {
+      lastError = "No se pudo obtener el perfil"
+    }
+  }
+
+  throw new Error(lastError || "No se pudo obtener el perfil")
+}
+
 export default function DashboardPage() {
   useAuthGuard()
 
@@ -443,15 +486,11 @@ const [mensajeSan, setMensajeSan] = useState("")
   useEffect(() => {
     ;(async () => {
       try {
-        const res = await pfetch("/auth/whoami/")
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          setError(data?.detail || `Error ${res.status}`)
-          return
-        }
+        const data = await fetchProfileWithFallback(pfetch)
         setMe(data)
-      } catch {
-        setError("No se pudo obtener el perfil")
+        setError("")
+      } catch (err) {
+        setError(err?.message || "No se pudo obtener el perfil")
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
