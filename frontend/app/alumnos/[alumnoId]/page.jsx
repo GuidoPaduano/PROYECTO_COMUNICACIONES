@@ -1039,6 +1039,8 @@ function AlumnoPerfilPageInner() {
   const canJustifyAsistencias =
     !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
   const canSignByPadre = !!me && (me?.is_superuser || isPadre)
+  const canViewFirmaEstado =
+    !!me && (me?.is_superuser || me?.is_staff || isPreceptor || isPadre)
   const canTransferAlumno =
     !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
   const meLoaded = !!me
@@ -2646,7 +2648,7 @@ function AlumnoPerfilPageInner() {
                             <th className="py-2 pr-4">Tipo</th>
                             <th className="py-2 pr-4">Calificación</th>
                             <th className="py-2 pr-4">Comentarios</th>
-                            {canSignByPadre ? <th className="py-2 pr-4">Firma</th> : null}
+                            {canViewFirmaEstado ? <th className="py-2 pr-4">Firma</th> : null}
                             {canEditNotas ? <th className="py-2 pr-4 text-right">Editar</th> : null}
                           </tr>
                         </thead>
@@ -2671,13 +2673,13 @@ function AlumnoPerfilPageInner() {
                                 <td className="py-2 pr-4">
                                   {n.observaciones || n.comentarios || "—"}
                                 </td>
-                                {canSignByPadre ? (
+                                {canViewFirmaEstado ? (
                                   <td className="py-2 pr-4">
                                     {firmada ? (
                                       <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-emerald-300 bg-emerald-50 text-emerald-800">
                                         Firmada {firmadaEn ? `- ${fmtFecha(firmadaEn)}` : ""}
                                       </span>
-                                    ) : (
+                                    ) : canSignByPadre ? (
                                       <button
                                         type="button"
                                         onClick={async () => {
@@ -2715,6 +2717,10 @@ function AlumnoPerfilPageInner() {
                                           ? "Firmando..."
                                           : "Firmar"}
                                       </button>
+                                    ) : (
+                                      <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-amber-300 bg-amber-50 text-amber-800">
+                                        Pendiente
+                                      </span>
                                     )}
                                   </td>
                                 ) : null}
@@ -3107,12 +3113,12 @@ function AlumnoPerfilPageInner() {
 })()}
                                 </td>
                                 <td className="py-2 pr-4">
-                                  {canSignByPadre && puedeFirmarAsistencia ? (
+                                  {canViewFirmaEstado && puedeFirmarAsistencia ? (
                                     firmada ? (
                                       <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-emerald-300 bg-emerald-50 text-emerald-800">
                                         Firmada {firmadaEn ? `- ${fmtFecha(firmadaEn)}` : ""}
                                       </span>
-                                    ) : (
+                                    ) : canSignByPadre ? (
                                       <button
                                         type="button"
                                         onClick={async () => {
@@ -3159,9 +3165,15 @@ function AlumnoPerfilPageInner() {
                                           ? "Firmando..."
                                           : "Firmar"}
                                       </button>
+                                    ) : (
+                                      <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-amber-300 bg-amber-50 text-amber-800">
+                                        Pendiente
+                                      </span>
                                     )
-                                  ) : (
+                                  ) : canViewFirmaEstado ? (
                                     "—"
+                                  ) : (
+                                    null
                                   )}
                                 </td>
                                 <td className="py-2 pr-4">

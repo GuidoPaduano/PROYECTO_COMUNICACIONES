@@ -140,7 +140,7 @@ export default function Profile() {
           email: data?.user?.email || "",
           position: data?.user?.rol || "",
           department: data?.curso_preceptor
-            ? `Preceptor de: ${data.curso_preceptor}`
+            ? `${data.curso_preceptor}`
             : data?.alumno
             ? `Alumno: ${data.alumno.curso}`
             : data?.alumnos_del_padre && data.alumnos_del_padre.length
@@ -267,7 +267,7 @@ export default function Profile() {
         email: api?.user?.email || "",
         position: api?.user?.rol || "",
         department: api?.curso_preceptor
-          ? `Preceptor de: ${api.curso_preceptor}`
+          ? `${api.curso_preceptor}`
           : api?.alumno
           ? `Alumno: ${api.alumno.curso}`
           : api?.alumnos_del_padre && api.alumnos_del_padre.length
@@ -376,7 +376,7 @@ export default function Profile() {
         email: data?.user?.email || "",
         position: data?.user?.rol || "",
         department: data?.curso_preceptor
-          ? `Preceptor de: ${data.curso_preceptor}`
+          ? `${data.curso_preceptor}`
           : data?.alumno
           ? `Alumno: ${data.alumno.curso}`
           : data?.alumnos_del_padre && data.alumnos_del_padre.length

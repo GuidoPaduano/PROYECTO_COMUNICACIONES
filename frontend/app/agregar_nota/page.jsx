@@ -38,6 +38,26 @@ function normalizeCalificacionValue(value) {
   return String(value ?? "").trim().replace(",", ".").toUpperCase()
 }
 
+function formatBulkErrors(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) return ""
+
+  const first = errors[0]
+  const fields = first && typeof first === "object" ? first.errors : null
+  if (!fields || typeof fields !== "object") return ""
+
+  const messages = Object.entries(fields)
+    .flatMap(([field, items]) =>
+      (Array.isArray(items) ? items : [items])
+        .filter(Boolean)
+        .map((msg) => `${field}: ${String(msg)}`)
+    )
+    .slice(0, 3)
+
+  if (messages.length === 0) return ""
+  const fila = Number.isInteger(first?.index) ? `Fila ${first.index + 1}: ` : ""
+  return `${fila}${messages.join(" | ")}`
+}
+
 function pickId(a) {
   return a?.id ?? a?.pk ?? a?.id_alumno ?? null
 }
@@ -218,7 +238,12 @@ export default function CargarNotasRapidas() {
       })
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(payload?.detail || payload?.error || `HTTP ${res.status}`)
+        throw new Error(
+          formatBulkErrors(payload?.errors) ||
+            payload?.detail ||
+            payload?.error ||
+            `HTTP ${res.status}`
+        )
       }
 
       const creadas = Array.isArray(payload?.created) ? payload.created.length : notas.length

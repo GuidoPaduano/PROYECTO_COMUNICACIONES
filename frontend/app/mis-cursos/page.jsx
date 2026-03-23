@@ -23,9 +23,16 @@ const CURSOS_VALIDOS = new Set([
 
 function filterCursosValidos(list) {
   return list.filter((c) => {
-    const id = String(c?.id ?? c?.value ?? c ?? "").trim()
+    const id = String(c?.id ?? c?.curso ?? c?.value ?? c ?? "").trim()
     return CURSOS_VALIDOS.has(id)
   })
+}
+
+function parseCursosPayload(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.results)) return payload.results
+  if (Array.isArray(payload?.cursos)) return payload.cursos
+  return []
 }
 
 export default function MisCursosPage() {
@@ -40,22 +47,49 @@ export default function MisCursosPage() {
     ;(async () => {
       try {
         let list = []
+        let isPreceptor = false
 
-        const r1 = await authFetch("/cursos/")
-        if (r1.ok) {
-          const data = await r1.json().catch(() => ({}))
-          list = Array.isArray(data) ? data : data?.results || []
+        try {
+          const who = await authFetch("/auth/whoami/")
+          if (who.ok) {
+            const data = await who.json().catch(() => ({}))
+            const groups = Array.isArray(data?.groups) ? data.groups : []
+            isPreceptor = groups.some((g) => String(g || "").toLowerCase().includes("precep"))
+          }
+        } catch {}
+
+        const preferredEndpoints = [
+          "/preceptores/mis-cursos/",
+          "/preceptor/cursos/",
+          "/preceptor/asistencias/cursos/",
+          "/cursos/mis-cursos/",
+        ]
+
+        for (const url of preferredEndpoints) {
+          const res = await authFetch(url)
+          if (!res.ok) continue
+          const data = await res.json().catch(() => ({}))
+          list = parseCursosPayload(data)
+          if (list.length > 0) break
         }
 
-        if (list.length === 0) {
-          const r2 = await authFetch("/cursos/list/")
-          if (r2.ok) {
-            const data = await r2.json().catch(() => ({}))
-            list = Array.isArray(data) ? data : data?.results || []
+        if (!isPreceptor && list.length === 0) {
+          const r1 = await authFetch("/cursos/")
+          if (r1.ok) {
+            const data = await r1.json().catch(() => ({}))
+            list = parseCursosPayload(data)
           }
         }
 
-        if (list.length === 0) {
+        if (!isPreceptor && list.length === 0) {
+          const r2 = await authFetch("/cursos/list/")
+          if (r2.ok) {
+            const data = await r2.json().catch(() => ({}))
+            list = parseCursosPayload(data)
+          }
+        }
+
+        if (!isPreceptor && list.length === 0) {
           const res = await authFetch("/notas/catalogos/")
           const j = await res.json().catch(() => ({}))
           if (!res.ok) {
@@ -74,7 +108,7 @@ export default function MisCursosPage() {
     })()
   }, [])
 
-  const getCursoId = (c) => c?.id ?? c?.value ?? c
+  const getCursoId = (c) => c?.id ?? c?.curso ?? c?.value ?? c
   const getCursoNombre = (c) => c?.nombre ?? c?.label ?? String(getCursoId(c))
 
   return (
