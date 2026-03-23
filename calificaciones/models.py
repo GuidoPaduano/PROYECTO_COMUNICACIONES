@@ -55,9 +55,6 @@ class Alumno(models.Model):
         ('1A', '1A'), ('1B', '1B'),
         ('2A', '2A'), ('2B', '2B'),
         ('3A', '3A'), ('3B', '3B'),
-        ('4A', '4A'), ('4B', '4B'),
-        ('5A', '5A'), ('5B', '5B'),
-        ('6A', '6A'), ('6B', '6B'),
 
         # Formato largo (legacy)
         ('4ECO', '4ECO'), ('4NAT', '4NAT'),
@@ -84,24 +81,24 @@ class Alumno(models.Model):
 
 class Nota(models.Model):
     MATERIAS = [
-        ('Lengua', 'Lengua'),
-        ('MatemÃ¡tica', 'MatemÃ¡tica'),
-        ('Ciencias', 'Ciencias'),
-        ('Historia', 'Historia'),
-        ('GeografÃ­a', 'GeografÃ­a'),
-        ('InglÃ©s', 'InglÃ©s'),
-        ('EducaciÃ³n FÃ­sica', 'EducaciÃ³n FÃ­sica'),
-        ('MÃºsica', 'MÃºsica'),
-        ('PlÃ¡stica', 'PlÃ¡stica'),
-        ('Catequesis', 'Catequesis'),
-        ('InformÃ¡tica', 'InformÃ¡tica'),
+        ("Lengua", "Lengua"),
+        ("Matem\u00e1tica", "Matem\u00e1tica"),
+        ("Ciencias", "Ciencias"),
+        ("Historia", "Historia"),
+        ("Geograf\u00eda", "Geograf\u00eda"),
+        ("Ingl\u00e9s", "Ingl\u00e9s"),
+        ("Educaci\u00f3n F\u00edsica", "Educaci\u00f3n F\u00edsica"),
+        ("M\u00fasica", "M\u00fasica"),
+        ("Pl\u00e1stica", "Pl\u00e1stica"),
+        ("Catequesis", "Catequesis"),
+        ("Inform\u00e1tica", "Inform\u00e1tica"),
     ]
 
     TIPOS = [
-        ('Examen', 'Examen'),
-        ('Trabajo PrÃ¡ctico', 'Trabajo PrÃ¡ctico'),
-        ('ParticipaciÃ³n', 'ParticipaciÃ³n'),
-        ('Tarea', 'Tarea'),
+        ("Examen", "Examen"),
+        ("Trabajo Pr\u00e1ctico", "Trabajo Pr\u00e1ctico"),
+        ("Participaci\u00f3n", "Participaci\u00f3n"),
+        ("Tarea", "Tarea"),
     ]
     RESULTADO_CHOICES = [
         ("TEA", "Aprobado"),

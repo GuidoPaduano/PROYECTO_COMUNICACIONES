@@ -1,5 +1,6 @@
 # calificaciones/api_nueva_nota.py
 from decimal import Decimal, InvalidOperation
+import unicodedata
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -77,6 +78,51 @@ def _parse_decimal_optional(value):
     if parsed < Decimal("1") or parsed > Decimal("10"):
         return None
     return parsed.quantize(Decimal("0.01"))
+
+
+def _normalize_catalog_text(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    replacements = {
+        "Ã¡": "a",
+        "Ã©": "e",
+        "Ã­": "i",
+        "Ã³": "o",
+        "Ãº": "u",
+        "Ã": "A",
+        "Ã‰": "E",
+        "Ã": "I",
+        "Ã“": "O",
+        "Ãš": "U",
+        "Ã±": "n",
+        "Ã‘": "N",
+        "Ã¼": "u",
+        "Ãœ": "U",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+
+    normalized = unicodedata.normalize("NFKD", text)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(normalized.upper().split())
+
+
+def _build_choice_alias_map(*choice_groups):
+    alias_map = {}
+    for group in choice_groups:
+        for item in group or []:
+            if isinstance(item, (list, tuple)) and item:
+                raw_value = item[0]
+            else:
+                raw_value = item
+
+            value = str(raw_value or "").strip()
+            if not value:
+                continue
+            alias_map.setdefault(_normalize_catalog_text(value), value)
+    return alias_map
 
 
 def get_materias_catalogo():
@@ -612,8 +658,15 @@ class CrearNotasMasivo(APIView):
         # ------------------------
         # 0) Helpers locales
         # ------------------------
-        allowed_materias = {c[0] for c in getattr(Nota, 'MATERIAS', [])} or None
-        allowed_tipos = {c[0] for c in getattr(Nota, 'TIPOS', [])} or None
+        allowed_materias_map = _build_choice_alias_map(
+            getattr(Nota, "MATERIAS", []),
+            get_materias_catalogo(),
+        )
+        allowed_tipos_map = _build_choice_alias_map(
+            getattr(Nota, "TIPOS", []),
+            getattr(Nota, "TIPO_NOTA_CHOICES", []),
+            _tipos_por_defecto(),
+        )
 
         def _get_alumno_key(item):
             if not isinstance(item, dict):
@@ -707,16 +760,22 @@ class CrearNotasMasivo(APIView):
             fecha_raw = item.get('fecha', None)
 
             row_err = {}
+            materia_canon = allowed_materias_map.get(_normalize_catalog_text(materia)) if materia else None
+            tipo_canon = allowed_tipos_map.get(_normalize_catalog_text(tipo)) if tipo else None
 
             if not materia:
                 row_err.setdefault('materia', []).append('Materia requerida.')
-            elif allowed_materias is not None and materia not in allowed_materias:
-                row_err.setdefault('materia', []).append('Materia inválida.')
+            elif allowed_materias_map and materia_canon is None:
+                row_err.setdefault('materia', []).append('Materia invalida.')
+            else:
+                materia = materia_canon or materia
 
             if not tipo:
                 row_err.setdefault('tipo', []).append('Tipo requerido.')
-            elif allowed_tipos is not None and tipo not in allowed_tipos:
-                row_err.setdefault('tipo', []).append('Tipo inválido.')
+            elif allowed_tipos_map and tipo_canon is None:
+                row_err.setdefault('tipo', []).append('Tipo invalido.')
+            else:
+                tipo = tipo_canon or tipo
 
             if resultado and resultado not in {"TEA", "TEP", "TED"}:
                 row_err.setdefault("resultado", []).append("Resultado invalido. Usa TEA, TEP o TED.")
