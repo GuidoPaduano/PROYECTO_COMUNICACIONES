@@ -20,6 +20,8 @@ def post_login_redirect(request):
             return redirect('pasar_asistencia')
         except Exception:
             return redirect('index')
+    if u.groups.filter(name='Directivos').exists():
+        return redirect('index')
 
     # Alumnos → a su panel actual
     if u.groups.filter(name='Alumnos').exists():

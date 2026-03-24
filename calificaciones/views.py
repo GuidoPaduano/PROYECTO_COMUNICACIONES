@@ -336,13 +336,13 @@ def _get_preview_role(request):
     """
     Devuelve un rol de vista previa si el usuario es superusuario y pidiÃ³ simular un rol.
     Lee `view_as` (querystring) o el header `X-Preview-Role`.
-    Valores vÃ¡lidos: 'Profesores', 'Preceptores', 'Padres', 'Alumnos'.
+    Valores vÃ¡lidos: 'Profesores', 'Preceptores', 'Directivos', 'Padres', 'Alumnos'.
     """
     try:
         role = (request.GET.get("view_as") or request.headers.get("X-Preview-Role") or "").strip()
     except Exception:
         role = ""
-    valid = {"Profesores", "Preceptores", "Padres", "Alumnos"}
+    valid = {"Profesores", "Preceptores", "Directivos", "Padres", "Alumnos"}
     if role in valid and getattr(request.user, "is_superuser", False):
         return role
     return None
@@ -411,7 +411,7 @@ def obtener_curso_del_preceptor(usuario):
 def _rol_principal(user):
     if getattr(user, "is_superuser", False):
         return "superusuario"
-    for g in ("Profesores", "Padres", "Alumnos", "Preceptores"):
+    for g in ("Directivos", "Profesores", "Padres", "Alumnos", "Preceptores"):
         if user.groups.filter(name=g).exists():
             return g
     return "â€”"
@@ -545,6 +545,8 @@ def _can_access_course_roster(request, curso: str) -> bool:
     user = request.user
     if getattr(user, "is_superuser", False):
         return True
+    if _has_role(request, "Directivos"):
+        return True
     if _has_role(request, "Preceptores"):
         return _preceptor_can_access_curso(user, curso)
     if _has_role(request, "Profesores"):
@@ -555,6 +557,8 @@ def _can_access_course_roster(request, curso: str) -> bool:
 def _can_access_alumno_data(request, alumno: Alumno) -> bool:
     user = request.user
     if getattr(user, "is_superuser", False):
+        return True
+    if _has_role(request, "Directivos"):
         return True
     if getattr(alumno, "padre_id", None) == getattr(user, "id", None):
         return True
@@ -630,7 +634,7 @@ def index(request):
     # Usa roles efectivos (respetan vista previa)
     if _has_role(request, 'Padres'):
         return render(request, 'calificaciones/index.html')
-    elif _has_role(request, 'Profesores') or request.user.is_superuser:
+    elif _has_role(request, 'Profesores', 'Directivos') or request.user.is_superuser:
         return render(request, 'calificaciones/index.html')
     else:
         return HttpResponse("No tienes permiso.", status=403)
@@ -701,8 +705,8 @@ def perfil_api(request):
                 hijos = Alumno.objects.filter(padre_id=a0.padre_id).order_by('curso', 'nombre')
                 alumnos_del_padre = [_alumno_to_dict(x) for x in hijos]
 
-    # Preceptor
-    if "Preceptores" in grupos:
+    # Preceptor / Directivo
+    if "Preceptores" in grupos or "Directivos" in grupos:
         try:
             a0 = Alumno.objects.order_by('curso').first()
             if a0 and a0.curso:
@@ -848,12 +852,17 @@ def mi_curso(request):
 
         curso = getattr(alumno, "curso", None) if alumno else None
 
-    # 3) Preceptor
-    if curso is None and "Preceptores" in grupos:
+    # 3) Preceptor / Directivo
+    if curso is None and ("Preceptores" in grupos or "Directivos" in grupos):
         curso = obtener_curso_del_preceptor(user)
         if (curso is None) and preview_role and user.is_superuser:
             a0 = Alumno.objects.order_by("curso", "id").first()
             curso = getattr(a0, "curso", None) if a0 else None
+        if curso is None and "Directivos" in grupos:
+            try:
+                curso = Alumno.CURSOS[0][0] if getattr(Alumno, "CURSOS", None) else None
+            except Exception:
+                curso = None
 
     # 4) Superuser sin vista previa: permitir querystring o fallback
     if curso is None and user.is_superuser and not preview_role:
@@ -920,10 +929,14 @@ def preceptor_cursos(request):
     if user.is_superuser:
         cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
         cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
-    elif _has_role(request, 'Preceptores'):
+    elif _has_role(request, 'Preceptores', 'Directivos'):
         cid = obtener_curso_del_preceptor(user)
-        nombre = dict(getattr(Alumno, "CURSOS", [])).get(cid, cid)
-        cursos = [{"id": cid, "nombre": nombre}] if cid else []
+        if _has_role(request, 'Directivos'):
+            cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
+            cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
+        else:
+            nombre = dict(getattr(Alumno, "CURSOS", [])).get(cid, cid)
+            cursos = [{"id": cid, "nombre": nombre}] if cid else []
     else:
         cursos = []
     return Response(cursos)
@@ -1068,7 +1081,10 @@ def alumno_detalle(request, alumno_id):
                 is_alumno_mismo = True
         except Exception:
             pass
-    is_preceptor_ok = (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, a))
+    is_preceptor_ok = (
+        _has_role(request, "Directivos")
+        or (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, a))
+    )
 
     if not (is_padre or is_prof_or_super or is_alumno_mismo or is_preceptor_ok):
         return Response({"detail": "No autorizado"}, status=403)
@@ -1119,7 +1135,10 @@ def alumno_notas(request, alumno_id):
             pass
 
     # âœ… NUEVO: sumar Preceptores (pero solo si tienen el curso asignado)
-    is_preceptor_ok = (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, alumno))
+    is_preceptor_ok = (
+        _has_role(request, "Directivos")
+        or (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, alumno))
+    )
     is_prof_ok = (_has_role(request, "Profesores") and _profesor_can_access_alumno(user, alumno))
 
     # AutorizaciÃ³n: superuser, profesores, preceptor por curso, padre o el propio alumno
@@ -2058,7 +2077,10 @@ def perfil_alumno(request, alumno_id):
             pass
 
     # âœ… NUEVO: permitir preceptor si el curso coincide
-    is_preceptor_ok = (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(request.user, alumno))
+    is_preceptor_ok = (
+        _has_role(request, "Directivos")
+        or (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(request.user, alumno))
+    )
 
     if not (is_padre or is_prof_or_super or is_alumno_mismo or is_preceptor_ok):
         return HttpResponse("No tenÃ©s permiso para ver este perfil.", status=403)

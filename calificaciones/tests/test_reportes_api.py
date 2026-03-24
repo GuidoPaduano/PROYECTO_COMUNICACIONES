@@ -147,3 +147,31 @@ class ReportesApiTests(TestCase):
         self.assertIn("TEA_count", primer_mes)
         self.assertIn("TEP_count", primer_mes)
         self.assertIn("TED_count", primer_mes)
+
+    def test_directivo_puede_ver_reportes_de_cualquier_curso(self):
+        directivo = _make_user("directivo_test", ["Directivos"])
+
+        alumno = Alumno.objects.create(
+            nombre="Nora",
+            apellido="Silva",
+            id_alumno="N001",
+            curso="3B",
+        )
+        Nota.objects.create(
+            alumno=alumno,
+            materia="Historia",
+            tipo="Examen",
+            resultado="TEA",
+            calificacion="TEA",
+            cuatrimestre=1,
+            fecha=date(2026, 3, 2),
+        )
+
+        self.client.force_authenticate(user=directivo)
+        res = self.client.get("/api/reportes/curso/3B/", follow=True)
+        self.assertEqual(res.status_code, 200)
+
+        body = res.json()
+        self.assertEqual(body["rol"], "Directivos")
+        self.assertEqual(body["curso"], "3B")
+        self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)

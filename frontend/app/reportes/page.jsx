@@ -14,6 +14,7 @@ function normalizeRole(me) {
   if (groups.includes("Padres")) return "Padres"
   if (groups.includes("Alumnos") || groups.includes("Alumno")) return "Alumnos"
   if (groups.includes("Profesores")) return "Profesores"
+  if (groups.includes("Directivos") || groups.includes("Directivo")) return "Directivos"
   if (groups.includes("Preceptores") || groups.includes("Preceptor")) return "Preceptores"
   return "SinRol"
 }
@@ -168,9 +169,10 @@ export default function ReportesPage() {
   const isPadre = role === "Padres"
   const isAlumno = role === "Alumnos"
   const isProfesor = role === "Profesores"
+  const isDirectivo = role === "Directivos"
   const isPreceptor = role === "Preceptores"
   const isSuper = role === "Superuser"
-  const usaCurso = isProfesor || isPreceptor || isSuper
+  const usaCurso = isProfesor || isPreceptor || isDirectivo || isSuper
 
   useEffect(() => {
     let alive = true
@@ -228,7 +230,7 @@ export default function ReportesPage() {
 
   useEffect(() => {
     if (profileLoading) return
-    if (!(isPadre || isAlumno || isProfesor || isPreceptor || isSuper)) return
+    if (!(isPadre || isAlumno || isProfesor || isPreceptor || isDirectivo || isSuper)) return
     if (usaCurso && !cursoSel) return
 
     let alive = true
@@ -276,7 +278,7 @@ export default function ReportesPage() {
     return () => {
       alive = false
     }
-  }, [profileLoading, isPadre, isAlumno, isProfesor, isPreceptor, isSuper, usaCurso, cursoSel, alumnoSel, cuatrimestre])
+  }, [profileLoading, isPadre, isAlumno, isProfesor, isPreceptor, isDirectivo, isSuper, usaCurso, cursoSel, alumnoSel, cuatrimestre])
 
   const resumen = report?.resumen_notas || { total_evaluaciones: 0, conteos_por_estado: { TEA: 0, TEP: 0, TED: 0 }, porcentajes_por_estado: { TEA: 0, TEP: 0, TED: 0 } }
   const porMateria = Array.isArray(report?.por_materia) ? report.por_materia : []

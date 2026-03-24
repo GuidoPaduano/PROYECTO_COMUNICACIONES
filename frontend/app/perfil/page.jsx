@@ -27,11 +27,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { INBOX_EVENT } from "../_lib/inbox";
 import { NotificationBell } from "@/components/notification-bell";
 import { authFetch, logout, useAuthGuard } from "../_lib/auth";
+import { useUnreadMessages } from "../_lib/useUnreadMessages";
 
-const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LOGO_SRC = "/imagenes/tecnova(1).png"
 
 export default function Profile() {
   useAuthGuard();
@@ -51,7 +51,7 @@ export default function Profile() {
   });
 
   // ===== Mensajería: badge de no leídos =====
-  const [unreadCount, setUnreadCount] = useState(0);
+  const unreadCount = useUnreadMessages();
 
   // ===== FIX: Vincular Alumno ↔ Usuario por legajo (id_alumno) =====
   const [legajo, setLegajo] = useState("");
@@ -70,41 +70,6 @@ export default function Profile() {
   const [toast, setToast] = useState(null);
   const toastTimerRef = useRef(null);
   const logoutTimerRef = useRef(null);
-
-  // Carga y refresco del contador de no leídos (igual que otras vistas)
-  useEffect(() => {
-    let alive = true;
-    let timer = null;
-
-    const loadUnread = async () => {
-      try {
-        // ✅ FIX: no usar "/api/..." con authFetch (evita /api/api/...)
-        const res = await authFetch("/mensajes/unread_count/");
-        if (!res.ok) return;
-
-        const j = await res.json().catch(() => ({}));
-        if (alive && typeof j?.count === "number") setUnreadCount(j.count);
-      } catch {
-        // silencio, se vuelve a intentar en el próximo tick
-      }
-    };
-
-    loadUnread();
-    timer = setInterval(loadUnread, 60000);
-
-    const onInboxEvent = () => loadUnread();
-    if (typeof window !== "undefined") {
-      window.addEventListener(INBOX_EVENT, onInboxEvent);
-    }
-
-    return () => {
-      alive = false;
-      if (timer) clearInterval(timer);
-      if (typeof window !== "undefined") {
-        window.removeEventListener(INBOX_EVENT, onInboxEvent);
-      }
-    };
-  }, []);
 
   // Fetch al perfil API (Django) usando authFetch
   useEffect(() => {
@@ -461,7 +426,7 @@ export default function Profile() {
               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
                 <img
                   src={LOGO_SRC}
-                  alt="Escuela Santa Teresa"
+                  alt="Escuela Tecnova"
                   className="h-full w-full object-contain"
                 />
               </div>

@@ -202,12 +202,26 @@ export default function HiloMensajesPage() {
     setSending(true)
     setSendMsg("")
     const payload = { mensaje_id: replyToId, asunto: replyAsunto || "Re:", contenido: replyText.trim() }
+    const formPayload = new FormData()
+    formPayload.append("mensaje_id", String(payload.mensaje_id))
+    formPayload.append("asunto", payload.asunto)
+    formPayload.append("contenido", payload.contenido)
+
     let ok = false, lastErr = ""
-    for (const url of ["/api/mensajes/responder/", "/mensajes/responder/"]) {
-      const r = await fetchJSON(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+    for (const attempt of [
+      {
         body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+      },
+      {
+        body: formPayload,
+        headers: { Accept: "application/json" },
+      },
+    ]) {
+      const r = await fetchJSON("/mensajes/responder/", {
+        method: "POST",
+        headers: attempt.headers,
+        body: attempt.body,
       })
       if (r.ok) { ok = true; break }
       lastErr = r?.data?.detail || r?.text || `HTTP ${r?.status}`

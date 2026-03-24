@@ -53,6 +53,8 @@ def _role_label(user) -> str:
         return "Alumnos"
     if "Profesores" in groups:
         return "Profesores"
+    if "Directivos" in groups or "Directivo" in groups:
+        return "Directivos"
     if "Preceptores" in groups or "Preceptor" in groups:
         return "Preceptores"
     return "SinRol"
@@ -409,11 +411,13 @@ def reportes_por_curso(request, curso: str):
     curso_norm = _normalize_curso(curso)
     cuatrimestre = _normalize_cuatrimestre(request.GET.get("cuatrimestre"))
 
-    if role not in ("Profesores", "Preceptores", "Superuser"):
+    if role not in ("Profesores", "Preceptores", "Directivos", "Superuser"):
         return Response({"detail": "No autorizado para este reporte."}, status=403)
 
     if role == "Profesores":
         cursos_habilitados = _resolve_profesor_cursos(user)
+    elif role == "Directivos":
+        cursos_habilitados = sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
     elif role == "Preceptores":
         cursos_habilitados = _resolve_preceptor_cursos(user)
     else:

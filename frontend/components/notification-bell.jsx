@@ -17,6 +17,7 @@ import {
 
 import { authFetch } from "@/app/_lib/auth"
 import { INBOX_EVENT } from "@/app/_lib/inbox"
+import { getUnreadSnapshot, subscribeUnread } from "@/app/_lib/unread-store"
 
 /**
  * Campanita reutilizable (NOTIFICACIONES del sistema).
@@ -32,7 +33,7 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
   const router = useRouter()
   const [autoItems, setAutoItems] = useState([])
   const [loading, setLoading] = useState(false)
-  const [notifCount, setNotifCount] = useState(0)
+  const [notifCount, setNotifCount] = useState(() => getUnreadSnapshot().notifications)
   const [markAllLoading, setMarkAllLoading] = useState(false)
   const [open, setOpen] = useState(false)
 
@@ -414,43 +415,9 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
   }
 
   useEffect(() => {
-    let timer = null
-    let alive = true
-    const isPageVisible = () =>
-      typeof document === "undefined" || document.visibilityState === "visible"
-
-    const run = async () => {
-      if (!alive || !isPageVisible()) return
-      await loadNotifCount()
-      await loadPreview()
-    }
-
-    run()
-    timer = setInterval(run, 120000)
-
-    const handler = () => run()
-    const visibilityHandler = () => {
-      if (isPageVisible()) run()
-    }
-    if (typeof window !== "undefined") {
-      window.addEventListener(INBOX_EVENT, handler)
-    }
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", visibilityHandler)
-    }
-
-    return () => {
-      alive = false
-      if (timer) clearInterval(timer)
-      if (typeof window !== "undefined") {
-        window.removeEventListener(INBOX_EVENT, handler)
-      }
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", visibilityHandler)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, maxPreview])
+    if (Array.isArray(items)) return
+    return subscribeUnread((next) => setNotifCount(Number(next?.notifications || 0)))
+  }, [items])
 
   return (
     <DropdownMenu
@@ -458,7 +425,6 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
       onOpenChange={(next) => {
         setOpen(next)
         if (next) {
-          loadNotifCount()
           loadPreview()
         }
       }}

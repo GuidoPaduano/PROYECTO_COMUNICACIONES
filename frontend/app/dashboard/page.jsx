@@ -36,7 +36,7 @@ import { Textarea } from "@/components/ui/textarea"
 
 import ComposeComunicadoFamilia from "../mensajes/_compose-comunicado-familia"
 
-const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores"]
+const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores", "Directivos"]
 const PREVIEW_KEY = "preview_role"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 const LAST_HIJO_KEY = "mis_hijos_last_alumno"
@@ -343,48 +343,6 @@ export default function DashboardPage() {
     return authFetch(url, { ...options, headers })
   }
 
-  const [unreadCount, setUnreadCount] = useState(0)
-
-  useEffect(() => {
-    let alive = true
-    let timer = null
-    const isPageVisible = () =>
-      typeof document === "undefined" || document.visibilityState === "visible"
-
-    const loadUnread = async () => {
-      if (!isPageVisible()) return
-      try {
-        let res = await pfetch("/mensajes/unread_count/")
-        if (!res.ok) res = await pfetch("/api/mensajes/unread_count/")
-        if (!res.ok) return
-        const j = await res.json().catch(() => ({}))
-        if (alive && typeof j?.count === "number") setUnreadCount(j.count)
-      } catch {}
-    }
-
-    loadUnread()
-    timer = setInterval(loadUnread, 120000)
-
-    const handler = () => loadUnread()
-    const visibilityHandler = () => {
-      if (isPageVisible()) loadUnread()
-    }
-    if (typeof window !== "undefined") window.addEventListener(INBOX_EVENT, handler)
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", visibilityHandler)
-    }
-
-    return () => {
-      alive = false
-      if (timer) clearInterval(timer)
-      if (typeof window !== "undefined") window.removeEventListener(INBOX_EVENT, handler)
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", visibilityHandler)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewRole])
-
   const [openInd, setOpenInd] = useState(false)
   const [openGrp, setOpenGrp] = useState(false)
   const [openSan, setOpenSan] = useState(false)
@@ -487,6 +445,10 @@ const [mensajeSan, setMensajeSan] = useState("")
     ;(async () => {
       try {
         const data = await fetchProfileWithFallback(pfetch)
+        if (data?.is_superuser && !previewRole) {
+          window.location.replace("/admin")
+          return
+        }
         setMe(data)
         setError("")
       } catch (err) {
@@ -824,7 +786,7 @@ setMensajeSan("")
   const showProfesor = showAll || effectiveGroups.includes("Profesores")
   const showAlumno = showAll || effectiveGroups.includes("Alumnos")
   const showPadre = showAll || effectiveGroups.includes("Padres")
-  const showPreceptor = showAll || effectiveGroups.includes("Preceptores")
+  const showPreceptor = showAll || effectiveGroups.includes("Preceptores") || effectiveGroups.includes("Directivos")
   const showDocenteCursos = showProfesor || showPreceptor
   const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor
   const isAlumnoOrPadreOnly = (showAlumno || showPadre) && !showProfesor && !showPreceptor
@@ -1229,6 +1191,14 @@ setMensajeSan("")
           />
         ) : showProfesor ? (
             <ProfesorInicio
+              eventos={eventosProfesor}
+              eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
+              hasCurso={!!profesorCursoSel}
+              cursoSel={profesorCursoSel}
+              onCursoChange={setProfesorCursoSel}
+              cursos={cursos}
+              getCursoId={getCursoId}
+              getCursoNombre={getCursoNombre}
               mensajes={mensajesHome}
               mensajesLoading={mensajesHomeLoading}
               myId={myId}
@@ -1238,10 +1208,11 @@ setMensajeSan("")
               eventos={eventosProfesor}
               eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
               hasCurso={!!profesorCursoSel}
-              alertas={preceptorAlertas}
-              alertasLoading={preceptorAlertasLoading}
-              alertasInasistencias={preceptorAlertasInasistencias}
-              alertasInasistenciasLoading={preceptorAlertasInasistenciasLoading}
+              cursoSel={profesorCursoSel}
+              onCursoChange={setProfesorCursoSel}
+              cursos={cursos}
+              getCursoId={getCursoId}
+              getCursoNombre={getCursoNombre}
               mensajes={mensajesHome}
               mensajesLoading={mensajesHomeLoading}
               myId={myId}
@@ -1689,7 +1660,20 @@ function ProximosEventosCard({
   countLabel,
   titleText,
   subtitleText,
+  cursos,
+  cursoSel,
+  onCursoChange,
+  getCursoId,
+  getCursoNombre,
+  selectorLabel,
 }) {
+  const showSelector =
+    Array.isArray(cursos) &&
+    cursos.length > 0 &&
+    typeof onCursoChange === "function" &&
+    typeof getCursoId === "function" &&
+    typeof getCursoNombre === "function"
+
   return (
     <Card className="surface-card">
       <CardContent className="surface-card-pad flex flex-col gap-4">
@@ -1707,6 +1691,27 @@ function ProximosEventosCard({
             </div>
           </div>
         </div>
+
+        {showSelector ? (
+          <div>
+            <Label htmlFor="dashboard-eventos-curso">
+              {selectorLabel || "Curso"}
+            </Label>
+            <select
+              id="dashboard-eventos-curso"
+              className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+              value={cursoSel || ""}
+              onChange={(e) => onCursoChange(e.target.value)}
+            >
+              <option value="">Seleccioná un curso…</option>
+              {cursos.map((c) => (
+                <option key={getCursoId(c)} value={getCursoId(c)}>
+                  {getCursoNombre(c)}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
 
         <div>
           {!hasCurso ? (
@@ -1788,10 +1793,34 @@ function AlumnoInicio({
   )
 }
 
-function ProfesorInicio({ mensajes, mensajesLoading, myId }) {
+function ProfesorInicio({
+  eventos,
+  eventosLoading,
+  hasCurso,
+  cursoSel,
+  onCursoChange,
+  cursos,
+  getCursoId,
+  getCursoNombre,
+  mensajes,
+  mensajesLoading,
+  myId,
+}) {
   return (
     <section>
       <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <ProximosEventosCard
+          eventos={eventos}
+          eventosLoading={eventosLoading}
+          hasCurso={hasCurso}
+          noCursoText="Seleccioná un curso para ver eventos."
+          cursos={cursos}
+          cursoSel={cursoSel}
+          onCursoChange={onCursoChange}
+          getCursoId={getCursoId}
+          getCursoNombre={getCursoNombre}
+        />
+
         <Card className="surface-card">
           <CardContent className="surface-card-pad flex flex-col gap-4">
             <div className="flex items-center gap-3">
@@ -1826,21 +1855,27 @@ function ProfesorInicio({ mensajes, mensajesLoading, myId }) {
             </CardContent>
         </Card>
 
-        <MensajesRecientesCard
-          mensajes={mensajes}
-          loading={mensajesLoading}
-          myId={myId}
-        />
+        <div className="lg:col-span-2">
+          <MensajesRecientesCard
+            mensajes={mensajes}
+            loading={mensajesLoading}
+            myId={myId}
+          />
+        </div>
       </div>
     </section>
   )
 }
 
 function PreceptorInicio({
-  alertas,
-  alertasLoading,
-  alertasInasistencias,
-  alertasInasistenciasLoading,
+  eventos,
+  eventosLoading,
+  hasCurso,
+  cursoSel,
+  onCursoChange,
+  cursos,
+  getCursoId,
+  getCursoNombre,
   mensajes,
   mensajesLoading,
   myId,
@@ -1848,11 +1883,18 @@ function PreceptorInicio({
   return (
     <section>
       <div className="w-full max-w-7xl mx-auto flex flex-col gap-6">
+        <ProximosEventosCard
+          eventos={eventos}
+          eventosLoading={eventosLoading}
+          hasCurso={hasCurso}
+          noCursoText="Seleccioná un curso para ver eventos."
+          cursos={cursos}
+          cursoSel={cursoSel}
+          onCursoChange={onCursoChange}
+          getCursoId={getCursoId}
+          getCursoNombre={getCursoNombre}
+        />
         <MensajesRecientesCard mensajes={mensajes} loading={mensajesLoading} myId={myId} />
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-          <AlertasAcademicasCard alertas={alertas} loading={alertasLoading} />
-          <AlertasInasistenciasCard alertas={alertasInasistencias} loading={alertasInasistenciasLoading} />
-        </div>
       </div>
     </section>
   )

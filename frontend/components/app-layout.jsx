@@ -15,13 +15,14 @@ import {
   MessageSquare,
   NotebookText,
   Plus,
+  Shield,
   User,
   Users,
 } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
-import { authFetch, useAuthGuard } from "@/app/_lib/auth"
+import { authFetch, getPreviewRole, useAuthGuard } from "@/app/_lib/auth"
 
 const ROUTE_META = [
   {
@@ -100,6 +101,12 @@ const ROUTE_META = [
     icon: <BarChart3 className="w-5 h-5 text-indigo-500" />,
   },
   {
+    match: (p) => p.startsWith("/admin"),
+    title: () => "Administracion",
+    subtitle: "Herramientas de control y configuracion avanzada.",
+    icon: <Shield className="w-5 h-5 text-indigo-500" />,
+  },
+  {
     match: (p) => p.startsWith("/mensajes"),
     title: () => "Mensajes",
     subtitle: "Bandeja de entrada y enviados.",
@@ -160,6 +167,27 @@ function shouldHideHeader(roles, isSuper, pathname) {
   return isAlumnoOnly
 }
 
+function isRestrictedSuperuserPath(pathname) {
+  const value = String(pathname || "")
+  if (!value || value.startsWith("/admin") || value.startsWith("/perfil")) return false
+  return (
+    value === "/dashboard" ||
+    value.startsWith("/mis-cursos") ||
+    value.startsWith("/pasar_asistencia") ||
+    value.startsWith("/calendario") ||
+    value.startsWith("/mis-notas") ||
+    value.startsWith("/mis-sanciones") ||
+    value.startsWith("/mis-asistencias") ||
+    value.startsWith("/mis-hijos") ||
+    value.startsWith("/reportes") ||
+    value.startsWith("/mensajes") ||
+    value.startsWith("/alumnos") ||
+    value.startsWith("/agregar_nota") ||
+    value.startsWith("/gestion_alumnos") ||
+    value.startsWith("/historial_notas")
+  )
+}
+
 function ProtectedShell({ children, pathname }) {
   const isPublic = useMemo(() => {
     const browserPath =
@@ -199,13 +227,16 @@ function ProtectedShell({ children, pathname }) {
           setIsSuper(!!data?.is_superuser)
           setIsStaff(!!data?.is_staff)
           setRolesReady(true)
+          if (!!data?.is_superuser && !getPreviewRole() && isRestrictedSuperuserPath(pathname)) {
+            window.location.replace("/admin")
+          }
         }
       } catch {}
     })()
     return () => {
       alive = false
     }
-  }, [isPublic])
+  }, [isPublic, pathname])
 
   const meta = useMemo(() => resolveMeta(pathname, userLabel), [pathname, userLabel])
   const hideHeader = useMemo(
@@ -215,7 +246,10 @@ function ProtectedShell({ children, pathname }) {
   const canAgregarAlumno = useMemo(() => {
     if (isSuper || isStaff) return true
     const names = Array.isArray(roles) ? roles : []
-    return names.some((r) => String(r || "").toLowerCase().includes("precep"))
+    return names.some((r) => {
+      const role = String(r || "").toLowerCase()
+      return role.includes("precep") || role.includes("directiv")
+    })
   }, [roles, isSuper, isStaff])
   const actions = useMemo(() => {
     if (pathname.startsWith("/mis-cursos/")) {

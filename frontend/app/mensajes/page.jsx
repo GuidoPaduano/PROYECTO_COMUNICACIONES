@@ -44,7 +44,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 
-const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LOGO_SRC = "/imagenes/tecnova(1).png"
 
 /* ======================== Utils ======================== */
 function fmtFecha(input) {
@@ -512,27 +512,38 @@ export default function MensajesPage() {
       contenido: replyTexto.trim(),
     }
 
-    const tries = ["/mensajes/responder/"]
+    const formPayload = new FormData()
+    formPayload.append("mensaje_id", String(payload.mensaje_id))
+    formPayload.append("asunto", payload.asunto)
+    formPayload.append("contenido", payload.contenido)
+
+    const tries = [
+      {
+        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+      },
+      {
+        body: formPayload,
+        headers: { Accept: "application/json" },
+      },
+    ]
 
     let ok = false,
       lastErr = "",
       threadId = null
-    for (const url of tries) {
+    for (const attempt of tries) {
       try {
-        const r = await authFetch(url, {
+        const r = await fetchJSON("/mensajes/responder/", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify(payload),
+          headers: attempt.headers,
+          body: attempt.body,
         })
         if (r.ok) {
-          try {
-            const data = await r.json()
-            threadId = data?.thread_id || msgSel?.thread_id || null
-          } catch {}
+          threadId = r.data?.thread_id || msgSel?.thread_id || null
           ok = true
           break
         }
-        lastErr = `HTTP ${r.status}`
+        lastErr = r?.data?.detail || r?.text || `HTTP ${r?.status}`
       } catch (e) {
         lastErr = e?.message || "Error de red"
       }
@@ -1209,7 +1220,7 @@ function Topbar({ userLabel, unreadCount }) {
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
               <img
                 src={LOGO_SRC}
-                alt="Escuela Santa Teresa"
+                alt="Escuela Tecnova"
                 className="h-full w-full object-contain"
               />
             </div>

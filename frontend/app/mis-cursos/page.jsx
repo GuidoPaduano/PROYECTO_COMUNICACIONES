@@ -54,7 +54,10 @@ export default function MisCursosPage() {
           if (who.ok) {
             const data = await who.json().catch(() => ({}))
             const groups = Array.isArray(data?.groups) ? data.groups : []
-            isPreceptor = groups.some((g) => String(g || "").toLowerCase().includes("precep"))
+            isPreceptor = groups.some((g) => {
+              const name = String(g || "").toLowerCase()
+              return name.includes("precep") || name.includes("directiv")
+            })
           }
         } catch {}
 

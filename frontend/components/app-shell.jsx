@@ -14,6 +14,7 @@ import {
   MessageSquare,
   PanelsTopLeft,
   Menu,
+  Shield,
   User,
   Users,
   NotebookText,
@@ -22,16 +23,18 @@ import {
 
 import { NotificationBell } from "@/components/notification-bell"
 import { cn } from "@/_lib/utils"
+import { getPreviewRole } from "@/app/_lib/auth"
 import { useUnreadMessages } from "@/app/_lib/useUnreadMessages"
 
-const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LOGO_SRC = "/imagenes/tecnova(1).png"
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Inicio", icon: Home, public: true },
   {
     href: "/mis-cursos",
     label: "Cursos",
     icon: NotebookText,
-    show: ({ roles, isSuper }) => isSuper || roles.has("profesores") || roles.has("preceptores"),
+    show: ({ roles, isSuper }) =>
+      isSuper || roles.has("profesores") || roles.has("preceptores") || roles.has("directivos"),
   },
   {
     href: "/pasar_asistencia",
@@ -71,9 +74,16 @@ const NAV_ITEMS = [
     show: ({ roles, isSuper }) =>
       isSuper ||
       roles.has("profesores") ||
+      roles.has("directivos") ||
       roles.has("preceptores") ||
       roles.has("padres") ||
       roles.has("alumnos"),
+  },
+  {
+    href: "/admin",
+    label: "Admin",
+    icon: Shield,
+    show: ({ isSuper }) => isSuper,
   },
   { href: "/mensajes", label: "Mensajes", icon: MessageSquare, public: true },
   { href: "/perfil", label: "Perfil", icon: User, public: true },
@@ -107,6 +117,7 @@ export function AppShell({
     pathname?.startsWith("/alumnos") &&
     (fromParam === "mis-hijos" || fromParam === "/mis-hijos")
   const fallbackUnread = useUnreadMessages()
+  const adminOnlyMode = useMemo(() => isSuper && !getPreviewRole(), [isSuper])
   const roleSet = useMemo(() => {
     if (!Array.isArray(roles)) return new Set()
     return new Set(roles.map((r) => String(r || "").toLowerCase()).filter(Boolean))
@@ -114,6 +125,7 @@ export function AppShell({
   const roleLabel = useMemo(() => {
     if (roleSet.has("padres")) return "Padre"
     if (roleSet.has("profesores")) return "Profesor"
+    if (roleSet.has("directivos")) return "Directivo"
     if (roleSet.has("preceptores")) return "Preceptor"
     if (roleSet.has("alumnos")) return "Alumno"
     return isSuper ? "Administrador" : ""
@@ -123,12 +135,15 @@ export function AppShell({
   const hideHeaderForAlumnoDetail =
     pathname?.startsWith("/alumnos/") && pathname !== "/alumnos"
   const navItems = useMemo(() => {
+    if (rolesReady && adminOnlyMode) {
+      return NAV_ITEMS.filter((item) => item.href === "/admin" || item.href === "/perfil")
+    }
     return NAV_ITEMS.filter((item) => {
       if (!rolesReady) return item.public
       if (!item.show) return true
       return item.show({ roles: roleSet, isSuper })
     })
-  }, [roleSet, rolesReady, isSuper])
+  }, [adminOnlyMode, roleSet, rolesReady, isSuper])
 
   const activeHref = useMemo(() => {
     if (!pathname) return ""
@@ -169,18 +184,20 @@ export function AppShell({
       {!hideSidebar && (
         <aside className={cn("app-sidebar", sidebarOpen && "app-sidebar--open")}>
           <div className="sidebar-top">
-            <Link href="/dashboard" className="sidebar-brand" prefetch>
+            <Link href={adminOnlyMode ? "/admin" : "/dashboard"} className="sidebar-brand" prefetch>
               <div className="sidebar-logo">
-                <img src={LOGO_SRC} alt="Logo" className="h-full w-full object-contain" />
+                <img src={LOGO_SRC} alt="Escuela Tecnova" className="h-full w-full object-contain" />
               </div>
               <div>
                 <p className="text-xs text-slate-300 leading-tight">Escuela</p>
-                <p className="text-sm font-semibold text-white leading-tight">Santa Teresa</p>
+                <p className="text-sm font-semibold text-white leading-tight">Tecnova</p>
               </div>
             </Link>
-            <div className="sidebar-bell">
-              <NotificationBell />
-            </div>
+            {!adminOnlyMode ? (
+              <div className="sidebar-bell">
+                <NotificationBell />
+              </div>
+            ) : null}
           </div>
 
           <nav className="sidebar-nav">
@@ -196,7 +213,7 @@ export function AppShell({
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.label}</span>
-                  {item.href === "/mensajes" && messageBadge > 0 && (
+                  {item.href === "/mensajes" && !adminOnlyMode && messageBadge > 0 && (
                     <span className="sidebar-pill">{messageBadge > 99 ? "99+" : messageBadge}</span>
                   )}
                 </Link>

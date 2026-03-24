@@ -13,6 +13,7 @@ import {
 import { useSearchParams, useRouter, useParams } from "next/navigation"
 import { useAuthGuard, authFetch } from "../../_lib/auth"
 import { INBOX_EVENT } from "../../_lib/inbox" // ✅ NUEVO: evento unificado inbox
+import { useUnreadMessages } from "../../_lib/useUnreadMessages"
 import {
   ChevronLeft,
   ChevronDown,
@@ -56,7 +57,7 @@ import ComposeMensajeAlumno from "./_compose-alumno"
 import TransferAlumno from "./_transfer-alumno"
 import { NotificationBell } from "@/components/notification-bell"
 
-const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LOGO_SRC = "/imagenes/tecnova(1).png"
 
 /* ======================== Fix Mis Hijos: persistencia tab ======================== */
 const MIS_HIJOS_LAST_TAB_KEY = "mis_hijos_last_tab"
@@ -800,7 +801,7 @@ function AlumnoPerfilPageInner() {
     [me]
   )
 
-  const [unreadCount, setUnreadCount] = useState(0)
+  const unreadCount = useUnreadMessages()
 
   // ✅ PADRE: selector de hijo/a dentro del perfil
   const [hijos, setHijos] = useState([])
@@ -890,7 +891,7 @@ function AlumnoPerfilPageInner() {
     }
   }, [debugEnabled, alumnoid])
 
-  // Perfil + badge no leídos
+  // Perfil
   useEffect(() => {
     let alive = true
 
@@ -899,31 +900,8 @@ function AlumnoPerfilPageInner() {
       if (alive && who.ok) setMe(who.data)
     })()
 
-    const loadUnread = async () => {
-      const r = await fetchJSON("/mensajes/unread_count/")
-      if (!alive) return
-      if (r.ok && typeof r.data?.count === "number") setUnreadCount(r.data.count)
-    }
-
-    // ✅ carga inicial
-    loadUnread()
-
-    // ✅ NUEVO: refrescar al vuelo cuando se envía/lee un mensaje (evento unificado + legacy)
-    const onInboxChanged = () => loadUnread()
-    try {
-      window.addEventListener(INBOX_EVENT, onInboxChanged)
-      window.addEventListener("inbox-changed", onInboxChanged) // legacy
-    } catch {}
-
-    const t = setInterval(loadUnread, 60000)
-
     return () => {
       alive = false
-      clearInterval(t)
-      try {
-        window.removeEventListener(INBOX_EVENT, onInboxChanged)
-        window.removeEventListener("inbox-changed", onInboxChanged)
-      } catch {}
     }
   }, [])
 
@@ -1034,7 +1012,7 @@ function AlumnoPerfilPageInner() {
   const hasGroup = (name) => groupSet.has(String(name).toLowerCase())
   const isPadre = (hasGroup("padres") || hasGroup("padre")) && !me?.is_superuser
   const isAlumno = (hasGroup("alumnos") || hasGroup("alumno")) && !me?.is_superuser
-  const isPreceptor = hasGroup("preceptores") || hasGroup("preceptor")
+  const isPreceptor = hasGroup("preceptores") || hasGroup("preceptor") || hasGroup("directivos") || hasGroup("directivo")
   const canEditNotas = !!me && (me?.is_superuser || hasGroup("profesores") || hasGroup("profesor"))
   const canJustifyAsistencias =
     !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
@@ -3051,7 +3029,26 @@ function AlumnoPerfilPageInner() {
                                     {asistenciaTipoLabel(tipoNorm)}
                                   </span>
                                 </td>
-                                <td className="py-2 pr-4">{est}</td>
+                                <td className="py-2 pr-4">
+                                  {(() => {
+                                    const statusClass =
+                                      est === "Presente"
+                                        ? "border border-emerald-300 bg-emerald-50 text-emerald-800"
+                                        : est === "Tarde"
+                                        ? "border border-amber-300 bg-amber-50 text-amber-800"
+                                        : est === "Ausente"
+                                        ? "border border-rose-200 bg-rose-50 text-rose-700"
+                                        : "border border-slate-200 bg-slate-50 text-slate-700"
+
+                                    return (
+                                      <span
+                                        className={`inline-flex items-center px-3 py-1 rounded-md text-sm font-medium ${statusClass}`}
+                                      >
+                                        {est}
+                                      </span>
+                                    )
+                                  })()}
+                                </td>
                                 <td className="py-2 pr-4">
                                   {(() => {
                                     if (!puedeFirmarAsistencia) return "—"
@@ -3392,7 +3389,7 @@ function Topbar({
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
               <img
                 src={LOGO_SRC}
-                alt="Escuela Santa Teresa"
+                alt="Escuela Tecnova"
                 className="h-full w-full object-contain"
               />
             </div>

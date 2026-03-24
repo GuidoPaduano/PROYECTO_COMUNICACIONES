@@ -41,7 +41,7 @@ export function clearTokens() {
   try { sessionStore()?.removeItem(AUTH_MARKER_KEY) } catch {}
 }
 
-export const ALL_ROLES = ["Profesores", "Preceptores", "Padres", "Alumnos"]
+export const ALL_ROLES = ["Profesores", "Preceptores", "Directivos", "Padres", "Alumnos"]
 
 export function getPreviewRole() {
   try { return localStorage.getItem("preview_role") || "" } catch { return "" }

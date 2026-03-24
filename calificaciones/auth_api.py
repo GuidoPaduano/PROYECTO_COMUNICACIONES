@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -91,6 +92,9 @@ class SafeTokenObtainPairView(APIView):
             )
         except (InvalidToken, TokenError) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+        except (AuthenticationFailed, ValidationError) as exc:
+            detail = getattr(exc, "detail", None) or "Credenciales inválidas"
+            return Response({"detail": detail}, status=status.HTTP_401_UNAUTHORIZED)
         except Exception:
             logger.exception("Error en /api/token/")
             return Response({"detail": "Error interno al generar el token"}, status=500)

@@ -106,6 +106,9 @@ def _authorize_alumno(request, alumno: Alumno) -> bool:
     if getattr(user, "is_superuser", False):
         return True
 
+    if user.groups.filter(name__in=["Directivos", "Directivo"]).exists():
+        return True
+
     if user.groups.filter(name="Profesores").exists():
         return _profesor_can_access_alumno(user, alumno)
 

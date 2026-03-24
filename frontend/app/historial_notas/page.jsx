@@ -34,7 +34,7 @@ import {
 import { NotificationBell } from "@/components/notification-bell"
 import { useUnreadCount } from "../_lib/useUnreadCount"
 
-const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LOGO_SRC = "/imagenes/tecnova(1).png"
 
 /* ===== Constantes ===== */
 const ALL = "__ALL__"
@@ -455,7 +455,7 @@ function Topbar({ unreadCount, me }) {
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
               <img
                 src={LOGO_SRC}
-                alt="Escuela Santa Teresa"
+                alt="Escuela Tecnova"
                 className="h-full w-full object-contain"
               />
             </div>

@@ -16,7 +16,7 @@ except Exception:
 
 def _is_preceptor(user) -> bool:
     try:
-        if user.groups.filter(name__in=["Preceptores", "Preceptor"]).exists():
+        if user.groups.filter(name__in=["Preceptores", "Preceptor", "Directivos", "Directivo"]).exists():
             return True
     except Exception:
         pass

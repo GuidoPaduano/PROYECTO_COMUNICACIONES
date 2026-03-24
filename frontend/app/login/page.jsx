@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { API_BASE, clearTokens, setTokens } from "../_lib/auth"
+import { API_BASE, authFetch, clearTokens, setTokens } from "../_lib/auth"
 
 
 
@@ -37,7 +37,13 @@ export default function LoginPage() {
       } else {
         await res.json().catch(() => ({}))
         setTokens()
-        router.replace("/dashboard")
+        try {
+          const meRes = await authFetch("/auth/whoami/")
+          const me = await meRes.json().catch(() => ({}))
+          router.replace(me?.is_superuser ? "/admin" : "/dashboard")
+        } catch {
+          router.replace("/dashboard")
+        }
       }
     } catch {
       setError("No se pudo conectar con el servidor")
