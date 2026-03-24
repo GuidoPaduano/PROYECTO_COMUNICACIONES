@@ -120,6 +120,10 @@ class SafeTokenRefreshView(APIView):
         except (InvalidToken, TokenError) as exc:
             response = Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
             return clear_auth_cookies(response)
+        except (AuthenticationFailed, ValidationError) as exc:
+            detail = getattr(exc, "detail", None) or "Refresh token invalido"
+            response = Response({"detail": detail}, status=status.HTTP_401_UNAUTHORIZED)
+            return clear_auth_cookies(response)
         except Exception:
             logger.exception("Error en /api/token/refresh/")
             response = Response({"detail": "Error interno al refrescar el token"}, status=500)
@@ -163,6 +167,10 @@ class SafeTokenBlacklistView(APIView):
             return clear_auth_cookies(response)
         except (InvalidToken, TokenError) as exc:
             response = Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+            return clear_auth_cookies(response)
+        except (AuthenticationFailed, ValidationError) as exc:
+            detail = getattr(exc, "detail", None) or "Refresh token invalido"
+            response = Response({"detail": detail}, status=status.HTTP_401_UNAUTHORIZED)
             return clear_auth_cookies(response)
         except Exception:
             logger.exception("Error en /api/token/blacklist/")
