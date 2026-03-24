@@ -7,6 +7,7 @@ from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from django.db.models import Count, Max, Q
 
 from .models import AlertaAcademica, AlertaInasistencia, Asistencia
+from .alerts import reconciliar_alertas_academicas
 
 try:
     from .models_preceptores import PreceptorCurso  # type: ignore
@@ -63,6 +64,7 @@ def preceptor_alertas_academicas(request):
             return Response({"results": [], "count": 0}, status=200)
 
     limit = _parse_limit(request)
+    reconciliar_alertas_academicas(cursos=cursos)
     base_qs = AlertaAcademica.objects.filter(estado="activa")
     if cursos is not None:
         base_qs = base_qs.filter(alumno__curso__in=cursos)

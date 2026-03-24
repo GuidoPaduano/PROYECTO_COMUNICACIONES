@@ -138,6 +138,88 @@ def _trigger_caida_brusca(notas_ventana: list[Nota]) -> bool:
     return suba >= 0.35
 
 
+def _alertas_qs_para_nota(nota: Nota):
+    return AlertaAcademica.objects.filter(
+        alumno=nota.alumno,
+        materia=nota.materia,
+    )
+
+
+def _build_notas_ventana(*, alumno, materia: str, cuatrimestre, hoy):
+    ventana_dias = _cfg_int("ALERTAS_ACADEMICAS_VENTANA_DIAS", 45)
+    desde = hoy - timedelta(days=ventana_dias)
+    qs = Nota.objects.filter(
+        alumno=alumno,
+        materia=materia,
+        fecha__gte=desde,
+        fecha__lte=hoy,
+    )
+    if cuatrimestre in (1, 2):
+        qs = qs.filter(cuatrimestre=cuatrimestre)
+    return list(qs.order_by("-fecha", "-id")), desde
+
+
+def _estado_actual_alerta(*, alumno, materia: str, cuatrimestre, hoy):
+    notas_ventana, desde = _build_notas_ventana(
+        alumno=alumno,
+        materia=materia,
+        cuatrimestre=cuatrimestre,
+        hoy=hoy,
+    )
+    nota_actual = notas_ventana[0] if notas_ventana else None
+    riesgo, n_validas = _riesgo_ponderado(notas_ventana, hoy)
+    trigger_a = nota_es_ted(nota_actual) if nota_actual is not None else False
+    trigger_b = _trigger_racha(nota_actual, notas_ventana) if nota_actual is not None else False
+    trigger_c = riesgo >= 0.65 and n_validas >= 3
+    trigger_d = _trigger_caida_brusca(notas_ventana)
+    return {
+        "desde": desde,
+        "riesgo": round(riesgo, 3),
+        "n_validas": n_validas,
+        "trigger_a": trigger_a,
+        "trigger_b": trigger_b,
+        "trigger_c": trigger_c,
+        "trigger_d": trigger_d,
+        "active": bool(trigger_a or trigger_b or trigger_c or trigger_d),
+        "nota_actual": nota_actual,
+    }
+
+
+def reconciliar_alertas_academicas(*, cursos=None):
+    hoy = timezone.localdate()
+    base_qs = AlertaAcademica.objects.filter(estado="activa").select_related("alumno")
+    if cursos is not None:
+        base_qs = base_qs.filter(alumno__curso__in=list(cursos))
+
+    cerradas = 0
+    revisadas = set()
+    for alerta in base_qs.order_by("-creada_en", "-id"):
+        alumno = getattr(alerta, "alumno", None)
+        alumno_id = getattr(alumno, "id", None)
+        if alumno_id is None:
+            continue
+        key = (int(alumno_id), str(getattr(alerta, "materia", "") or ""), getattr(alerta, "cuatrimestre", None))
+        if key in revisadas:
+            continue
+        revisadas.add(key)
+
+        estado = _estado_actual_alerta(
+            alumno=alumno,
+            materia=key[1],
+            cuatrimestre=key[2],
+            hoy=hoy,
+        )
+        if estado["active"]:
+            continue
+
+        cerradas += _alertas_qs_para_nota(alerta).filter(
+            cuatrimestre=key[2],
+            estado="activa",
+        ).update(estado="cerrada")
+
+    return {"revisadas": len(revisadas), "cerradas": int(cerradas)}
+
+
 def _severidad_binaria(*, trigger_a: bool, trigger_b: bool, trigger_c: bool, trigger_d: bool) -> int:
     return 1 if (trigger_a or trigger_b or trigger_c or trigger_d) else 0
 
@@ -243,29 +325,36 @@ def _enviar_email_alerta(*, alumno, destinatarios, severidad: int, riesgo: float
 
 def evaluar_alerta_nota(*, nota: Nota, actor=None) -> dict[str, Any]:
     hoy = timezone.localdate()
-    ventana_dias = _cfg_int("ALERTAS_ACADEMICAS_VENTANA_DIAS", 45)
     cooldown_dias = _cfg_int("ALERTAS_ACADEMICAS_COOLDOWN_DIAS", 7)
     escalado_dias = _cfg_int("ALERTAS_ACADEMICAS_ESCALADO_DIAS", 14)
-    desde = hoy - timedelta(days=ventana_dias)
-
-    qs = Nota.objects.filter(
+    current = _estado_actual_alerta(
         alumno=nota.alumno,
         materia=nota.materia,
-        fecha__gte=desde,
-        fecha__lte=hoy,
+        cuatrimestre=getattr(nota, "cuatrimestre", None),
+        hoy=hoy,
     )
-    if getattr(nota, "cuatrimestre", None) in (1, 2):
-        qs = qs.filter(cuatrimestre=nota.cuatrimestre)
-    notas_ventana = list(qs.order_by("-fecha", "-id"))
+    notas_ventana, desde = _build_notas_ventana(
+        alumno=nota.alumno,
+        materia=nota.materia,
+        cuatrimestre=getattr(nota, "cuatrimestre", None),
+        hoy=hoy,
+    )
 
-    riesgo, n_validas = _riesgo_ponderado(notas_ventana, hoy)
-    trigger_a = nota_es_ted(nota)
-    trigger_b = _trigger_racha(nota, notas_ventana)
-    trigger_c = riesgo >= 0.65 and n_validas >= 3
-    trigger_d = _trigger_caida_brusca(notas_ventana)
+    riesgo = current["riesgo"]
+    n_validas = current["n_validas"]
+    trigger_a = current["trigger_a"]
+    trigger_b = current["trigger_b"]
+    trigger_c = current["trigger_c"]
+    trigger_d = current["trigger_d"]
 
     if not (trigger_a or trigger_b or trigger_c or trigger_d):
-        return {"created": False, "reason": "no_trigger", "riesgo": round(riesgo, 3)}
+        cerradas = _alertas_qs_para_nota(nota).filter(estado="activa").update(estado="cerrada")
+        return {
+            "created": False,
+            "reason": "no_trigger",
+            "riesgo": round(riesgo, 3),
+            "closed": int(cerradas or 0),
+        }
 
     severidad = _severidad_binaria(
         trigger_a=trigger_a,
@@ -276,11 +365,7 @@ def evaluar_alerta_nota(*, nota: Nota, actor=None) -> dict[str, Any]:
     if severidad <= 0:
         return {"created": False, "reason": "no_severity", "riesgo": round(riesgo, 3)}
 
-    last = (
-        AlertaAcademica.objects.filter(alumno=nota.alumno, materia=nota.materia)
-        .order_by("-creada_en", "-id")
-        .first()
-    )
+    last = _alertas_qs_para_nota(nota).order_by("-creada_en", "-id").first()
     if last is not None:
         dias = (hoy - (getattr(last, "fecha_evento", hoy) or hoy)).days
         if dias < cooldown_dias:
