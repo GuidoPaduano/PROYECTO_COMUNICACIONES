@@ -38,7 +38,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { NotificationBell } from "@/components/notification-bell"
 
-// selector shadcn para elegir hijo (si es padre) y curso (si es preceptor)
+// selector shadcn para elegir hijo (si es padre) y curso (si es preceptor/directivo)
 import {
   Select,
   SelectContent,
@@ -47,7 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-const LOGO_SRC = "/imagenes/Santa%20teresa%20logo.png"
+const LOGO_SRC = "/imagenes/tecnova(1).png"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 const LAST_HIJO_KEY = "mis_hijos_last_alumno"
 const fetchCache = new Map()
@@ -158,6 +158,7 @@ export default function CalendarioEscolarPage() {
   const isPreceptor = useMemo(() => grupos.includes("Preceptores"), [grupos])
   const isProfesor = useMemo(() => grupos.includes("Profesores"), [grupos])
   const isDirectivo = useMemo(() => grupos.includes("Directivos"), [grupos])
+  const canSelectCurso = useMemo(() => isPreceptor || isDirectivo, [isPreceptor, isDirectivo])
 
   // UI
   const [error, setError] = useState("")
@@ -280,7 +281,7 @@ export default function CalendarioEscolarPage() {
         }
 
         // Preceptor: cursos se cargan desde catálogo global (todos los cursos)
-        if (groups.includes("Preceptores")) {
+        if (groups.includes("Preceptores") || groups.includes("Directivos")) {
           setPreceptorCursosLoaded(true)
         }
       } catch {
@@ -341,14 +342,14 @@ export default function CalendarioEscolarPage() {
 
   // Preceptor: permitir ver todos los cursos (no solo asignados)
   useEffect(() => {
-    if (!isPreceptor) return
+    if (!canSelectCurso) return
     const list = allCursosList.map((c) => ({ id: c, nombre: c }))
     setPreceptorCursos(list)
     setPreceptorCursosLoaded(true)
     if (!selectedCurso && list.length > 0) {
       setSelectedCurso(list[0].id)
     }
-  }, [isPreceptor, allCursosList, selectedCurso])
+  }, [canSelectCurso, allCursosList, selectedCurso])
 
   // catálogos (cursos / tipos)
   useEffect(() => {
@@ -397,7 +398,7 @@ export default function CalendarioEscolarPage() {
         }
 
         // Preceptor: siempre mostrar cursos válidos globales
-        if (isPreceptor) {
+        if (canSelectCurso) {
           list = Array.from(CURSOS_VALIDOS)
         }
 
@@ -412,7 +413,7 @@ export default function CalendarioEscolarPage() {
       } catch {}
       setCursosLoaded(true)
     })()
-  }, [isPreceptor])
+  }, [canSelectCurso])
 
   // helpers
   function refetchEvents() {
@@ -440,7 +441,7 @@ export default function CalendarioEscolarPage() {
     setCrearError("")
     setCrear((v) => ({
       ...v,
-      curso: isPreceptor ? (v.curso === "ALL" ? "ALL" : String(selectedCurso || v.curso || "")) : v.curso,
+      curso: canSelectCurso ? (v.curso === "ALL" ? "ALL" : String(selectedCurso || v.curso || "")) : v.curso,
     }))
     setOpenCrear(true)
   }
@@ -454,10 +455,10 @@ export default function CalendarioEscolarPage() {
 
   // si cambia curso del preceptor, refetch automático
   useEffect(() => {
-    if (!isPreceptor) return
+    if (!canSelectCurso) return
     if (!selectedCurso) return
     refetchEvents()
-  }, [isPreceptor, selectedCurso])
+  }, [canSelectCurso, selectedCurso])
 
   useEffect(() => {
     if (!isProfesor) return
@@ -480,10 +481,10 @@ export default function CalendarioEscolarPage() {
     if (isAlumno && !alumnoCursoChecked) return false
 
     // si es preceptor, esperar a que termine de cargar cursos
-    if (isPreceptor && !preceptorCursosLoaded) return false
+    if (canSelectCurso && !preceptorCursosLoaded) return false
 
     return true
-  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, isPreceptor, preceptorCursosLoaded])
+  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, canSelectCurso, preceptorCursosLoaded])
 
   // ✅ FIX: limpiar tooltips colgados (evita que “aparezcan fantasmas” en otras páginas)
   function cleanupTooltips() {
@@ -543,7 +544,7 @@ export default function CalendarioEscolarPage() {
               return
             }
             url = `/eventos/?curso=${encodeURIComponent(alumnoCurso)}&desde=${desde}&hasta=${hasta}`
-          } else if (isPreceptor) {
+          } else if (canSelectCurso) {
             if (!selectedCurso) {
               const msg =
                 "Seleccioná un curso para ver el calendario."
@@ -719,7 +720,7 @@ export default function CalendarioEscolarPage() {
     selectedKid,
     isAlumno,
     alumnoCurso,
-    isPreceptor,
+    canSelectCurso,
     selectedCurso,
   ])
 
@@ -752,8 +753,8 @@ export default function CalendarioEscolarPage() {
     if (creating) return
     setCreating(true)
     try {
-      const cursoToSend = (crear.curso || "").trim() || (isPreceptor ? String(selectedCurso || "") : "")
-      if (isPreceptor && !cursoToSend) {
+      const cursoToSend = (crear.curso || "").trim() || (canSelectCurso ? String(selectedCurso || "") : "")
+      if (canSelectCurso && !cursoToSend) {
         throw new Error(
           "Seleccioná un curso o 'Todos los cursos' para crear el evento."
         )
@@ -806,8 +807,8 @@ export default function CalendarioEscolarPage() {
     setError("")
     setOkMsg("")
     try {
-      const cursoToSend = (editar.curso || "").trim() || (isPreceptor ? String(selectedCurso || "") : "")
-      if (isPreceptor && !cursoToSend) {
+      const cursoToSend = (editar.curso || "").trim() || (canSelectCurso ? String(selectedCurso || "") : "")
+      if (canSelectCurso && !cursoToSend) {
         throw new Error(
           "El evento necesita un curso. Seleccioná un curso asignado al preceptor."
         )
@@ -878,7 +879,7 @@ export default function CalendarioEscolarPage() {
               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
                 <img
                   src={LOGO_SRC}
-                  alt="Escuela Santa Teresa"
+                  alt="Escuela Tecnova"
                   className="h-full w-full object-contain"
                 />
               </div>
@@ -998,7 +999,7 @@ export default function CalendarioEscolarPage() {
           </Card>
         )}
 
-        {isPreceptor && (
+        {canSelectCurso && (
           <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
             <CardContent className="p-6">
               {!preceptorCursosLoaded ? (
@@ -1034,7 +1035,7 @@ export default function CalendarioEscolarPage() {
                 </div>
               ) : (
                 <div className="text-sm text-gray-700">
-                  <span className="font-semibold">Preceptor:</span> no hay cursos disponibles.
+                  <span className="font-semibold">{isDirectivo ? "Directivo" : "Preceptor"}:</span> no hay cursos disponibles.
                   <span className="block text-gray-600 mt-1">
                     Pedile al administrador que cargue cursos en el catálogo.
                   </span>
@@ -1138,10 +1139,10 @@ export default function CalendarioEscolarPage() {
                 className="border rounded-md px-3 py-2 bg-white"
                 value={crear.curso}
                 onChange={(e) => setCrear((v) => ({ ...v, curso: e.target.value }))}
-                disabled={isPreceptor && crear.curso === "ALL"}
+                disabled={canSelectCurso && crear.curso === "ALL"}
               >
                 <option value="">—</option>
-                {isPreceptor ? (
+                {canSelectCurso ? (
                   <>
                     {allCursosList.map((c) => (
                       <option key={c} value={c}>
@@ -1157,7 +1158,7 @@ export default function CalendarioEscolarPage() {
                   ))
                 )}
               </select>
-              {isPreceptor && (
+              {canSelectCurso && (
                 <label className="inline-flex items-center gap-3 text-sm text-gray-600">
                   <button
                     type="button"
@@ -1254,7 +1255,7 @@ export default function CalendarioEscolarPage() {
                 onChange={(e) => setEditar((v) => ({ ...v, curso: e.target.value }))}
               >
                 <option value="">—</option>
-                {isPreceptor
+                {canSelectCurso
                   ? preceptorCursos.map((c) => {
                       const id = String(c?.id ?? "").trim()
                       if (!id) return null

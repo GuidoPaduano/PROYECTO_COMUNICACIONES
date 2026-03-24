@@ -1007,7 +1007,7 @@ def mensajes_marcar_thread_leidos(request, thread_id: str):
 @api_view(["POST"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
-@parser_classes([JSONParser])
+@parser_classes([JSONParser, FormParser, MultiPartParser])
 def responder_mensaje(request):
     flags = _flags()
     try:

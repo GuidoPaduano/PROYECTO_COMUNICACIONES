@@ -94,7 +94,7 @@ def _is_preceptor_user(user) -> bool:
     try:
         if user is None:
             return False
-        return user.groups.filter(name__in=["Preceptores", "Preceptor"]).exists()
+        return user.groups.filter(name__in=["Preceptores", "Preceptor", "Directivos", "Directivo"]).exists()
     except Exception:
         return False
 

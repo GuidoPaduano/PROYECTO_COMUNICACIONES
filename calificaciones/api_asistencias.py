@@ -51,11 +51,10 @@ def _user_in_group(user, *names: str) -> bool:
 
 
 def _can_justify(user) -> bool:
-    """Solo Preceptores (y superuser/staff) pueden justificar."""
+    """Preceptores/Directivos (y superuser/staff) pueden justificar."""
     if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
         return True
-    # En el proyecto aparecen ambos nombres en distintos lugares
-    return _user_in_group(user, "Preceptores", "Preceptor")
+    return _user_in_group(user, "Preceptores", "Preceptor", "Directivos", "Directivo")
 
 
 def _can_sign_asistencia(user, alumno: Alumno) -> bool:
@@ -456,6 +455,13 @@ def _cursos_de_usuario(user) -> List[str]:
 
     if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
         return todos
+
+    try:
+        grupos = {g.name.strip() for g in user.groups.all()}
+        if "Directivos" in grupos or "Directivo" in grupos:
+            return todos
+    except Exception:
+        pass
 
     asignados: List[str] = []
 

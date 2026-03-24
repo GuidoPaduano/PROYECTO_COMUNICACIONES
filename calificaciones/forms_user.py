@@ -15,6 +15,7 @@ class CustomUserCreationForm(UserCreationForm):
             ('Padres', 'Padre/Madre/Tutor'),
             ('Profesores', 'Profesor/a'),
             ('Preceptores', 'Preceptor/a'),
+            ('Directivos', 'Directivo/a'),
         ],
         help_text="Asigna automáticamente el usuario a este grupo."
     )
