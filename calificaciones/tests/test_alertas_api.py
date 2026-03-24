@@ -96,3 +96,39 @@ class AlertasAcademicasApiTests(TestCase):
         row = body["results"][0]
         self.assertEqual(row["alumno"]["id"], self.alumno.id)
         self.assertEqual(row["alumno"]["curso"], "1A")
+
+    def test_mejora_en_la_misma_materia_cierra_alerta_activa(self):
+        res_bad = self._post_nota(resultado="TED", calificacion="TED", fecha_iso="2026-03-01", materia="Lengua")
+        self.assertEqual(res_bad.status_code, 201)
+        self.assertEqual(AlertaAcademica.objects.filter(estado="activa").count(), 1)
+
+        res_good = self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso="2026-03-02", materia="Lengua")
+        self.assertEqual(res_good.status_code, 201)
+
+        alerta = AlertaAcademica.objects.get()
+        self.assertEqual(alerta.estado, "cerrada")
+
+        self.client.force_authenticate(user=self.preceptor)
+        res = self.client.get("/api/preceptor/alertas-academicas/?limit=10")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["count"], 0)
+
+    def test_endpoint_cierra_alerta_vieja_si_ya_no_hay_trigger(self):
+        self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso="2026-03-01", materia="Lengua")
+        AlertaAcademica.objects.create(
+            alumno=self.alumno,
+            materia="Lengua",
+            cuatrimestre=1,
+            severidad=1,
+            riesgo_ponderado="1.000",
+            triggers={"materia": "Lengua", "A_TED_critico": True},
+            estado="activa",
+        )
+
+        self.client.force_authenticate(user=self.preceptor)
+        res = self.client.get("/api/preceptor/alertas-academicas/?limit=10")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["count"], 0)
+        self.assertEqual(AlertaAcademica.objects.filter(estado="activa").count(), 0)

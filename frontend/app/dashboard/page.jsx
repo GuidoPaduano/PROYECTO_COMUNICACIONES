@@ -786,10 +786,11 @@ setMensajeSan("")
   const showProfesor = showAll || effectiveGroups.includes("Profesores")
   const showAlumno = showAll || effectiveGroups.includes("Alumnos")
   const showPadre = showAll || effectiveGroups.includes("Padres")
-  const showPreceptor = showAll || effectiveGroups.includes("Preceptores") || effectiveGroups.includes("Directivos")
-  const showDocenteCursos = showProfesor || showPreceptor
-  const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor
-  const isAlumnoOrPadreOnly = (showAlumno || showPadre) && !showProfesor && !showPreceptor
+  const showPreceptor = showAll || effectiveGroups.includes("Preceptores")
+  const showDirectivo = showAll || effectiveGroups.includes("Directivos")
+  const showDocenteCursos = showProfesor || showPreceptor || showDirectivo
+  const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor && !showDirectivo
+  const isAlumnoOrPadreOnly = (showAlumno || showPadre) && !showProfesor && !showPreceptor && !showDirectivo
   const showLegacyDashboardCards = false
 
   useEffect(() => {
@@ -973,7 +974,7 @@ setMensajeSan("")
   }, [showPadre, padreKidId, previewRole])
 
   useEffect(() => {
-    if (!showPadre && !showAlumno && !showPreceptor && !showProfesor) return
+    if (!showPadre && !showAlumno && !showPreceptor && !showDirectivo && !showProfesor) return
     let alive = true
     ;(async () => {
       setMensajesHomeLoading(true)
@@ -1016,7 +1017,7 @@ setMensajeSan("")
     return () => {
       alive = false
     }
-  }, [showPadre, showAlumno, showPreceptor, showProfesor, previewRole])
+  }, [showPadre, showAlumno, showPreceptor, showDirectivo, showProfesor, previewRole])
 
   useEffect(() => {
     if (!showPreceptor) return
@@ -1203,7 +1204,7 @@ setMensajeSan("")
               mensajesLoading={mensajesHomeLoading}
               myId={myId}
             />
-        ) : showPreceptor ? (
+        ) : showPreceptor || showDirectivo ? (
             <PreceptorInicio
               eventos={eventosProfesor}
               eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
@@ -1215,6 +1216,11 @@ setMensajeSan("")
               getCursoNombre={getCursoNombre}
               mensajes={mensajesHome}
               mensajesLoading={mensajesHomeLoading}
+              showAlerts={showPreceptor}
+              alertas={preceptorAlertas}
+              alertasLoading={preceptorAlertasLoading}
+              alertasInasistencias={preceptorAlertasInasistencias}
+              alertasInasistenciasLoading={preceptorAlertasInasistenciasLoading}
               myId={myId}
             />
         ) : showPadre ? (
@@ -1878,11 +1884,42 @@ function PreceptorInicio({
   getCursoNombre,
   mensajes,
   mensajesLoading,
+  showAlerts,
+  alertas,
+  alertasLoading,
+  alertasInasistencias,
+  alertasInasistenciasLoading,
   myId,
 }) {
+  if (showAlerts) {
+    return (
+      <section>
+        <div className="w-full max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+          <ProximosEventosCard
+            eventos={eventos}
+            eventosLoading={eventosLoading}
+            hasCurso={hasCurso}
+            noCursoText="SeleccionÃ¡ un curso para ver eventos."
+            cursos={cursos}
+            cursoSel={cursoSel}
+            onCursoChange={onCursoChange}
+            getCursoId={getCursoId}
+            getCursoNombre={getCursoNombre}
+          />
+          <MensajesRecientesCard mensajes={mensajes} loading={mensajesLoading} myId={myId} />
+          <AlertasAcademicasCard alertas={alertas} loading={alertasLoading} />
+          <AlertasInasistenciasCard
+            alertas={alertasInasistencias}
+            loading={alertasInasistenciasLoading}
+          />
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section>
-      <div className="w-full max-w-7xl mx-auto flex flex-col gap-6">
+      <div className="w-full max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
         <ProximosEventosCard
           eventos={eventos}
           eventosLoading={eventosLoading}
