@@ -1938,6 +1938,8 @@ function PreceptorInicio({
 }
 
 function AlertasAcademicasCard({ alertas, loading }) {
+  const visibleAlertas = Array.isArray(alertas) ? alertas.slice(0, 5) : []
+
   return (
     <Card className="surface-card">
       <CardContent className="surface-card-pad flex flex-col gap-4">
@@ -1957,7 +1959,7 @@ function AlertasAcademicasCard({ alertas, loading }) {
           <p className="text-sm text-slate-500">No hay alumnos en alerta academica.</p>
         ) : (
           <div className="space-y-3">
-            {alertas.map((it, idx) => {
+            {visibleAlertas.map((it, idx) => {
               const a = it?.alumno || {}
               const nombre = [String(a?.apellido || "").trim(), String(a?.nombre || "").trim()]
                 .filter(Boolean)

@@ -1012,15 +1012,17 @@ function AlumnoPerfilPageInner() {
   const hasGroup = (name) => groupSet.has(String(name).toLowerCase())
   const isPadre = (hasGroup("padres") || hasGroup("padre")) && !me?.is_superuser
   const isAlumno = (hasGroup("alumnos") || hasGroup("alumno")) && !me?.is_superuser
-  const isPreceptor = hasGroup("preceptores") || hasGroup("preceptor") || hasGroup("directivos") || hasGroup("directivo")
+  const isPreceptor = hasGroup("preceptores") || hasGroup("preceptor")
+  const isDirectivo = hasGroup("directivos") || hasGroup("directivo")
   const canEditNotas = !!me && (me?.is_superuser || hasGroup("profesores") || hasGroup("profesor"))
   const canJustifyAsistencias =
     !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
   const canSignByPadre = !!me && (me?.is_superuser || isPadre)
+  const canEditAsistenciaDetalle = canSignByPadre
   const canViewFirmaEstado =
-    !!me && (me?.is_superuser || me?.is_staff || isPreceptor || isPadre)
+    !!me && (me?.is_superuser || me?.is_staff || isPreceptor || isDirectivo || isPadre)
   const canTransferAlumno =
-    !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
+    !!me && (me?.is_superuser || me?.is_staff || isPreceptor || isDirectivo)
   const meLoaded = !!me
   const rolesReady = meLoaded
   const hidePadreNavAndMessage = isFromMisHijos || isPadre
@@ -3011,9 +3013,7 @@ function AlumnoPerfilPageInner() {
                             const est = estadoTexto(asistenciaEstadoFromAny(a))
                             const puedeFirmarAsistencia =
                               est === "Ausente" || est === "Tarde"
-                            const puedeDetalle =
-                              canJustifyAsistencias &&
-                              (est === "Ausente" || est === "Tarde")
+                            const puedeDetalle = canEditAsistenciaDetalle
                             const detalleTexto =
                               a.detalle || a.observaciones || a.observacion || ""
                             const firmada = isFirmadaFromAny(a)

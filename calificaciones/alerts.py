@@ -166,6 +166,14 @@ def _estado_actual_alerta(*, alumno, materia: str, cuatrimestre, hoy):
         cuatrimestre=cuatrimestre,
         hoy=hoy,
     )
+    return _estado_actual_alerta_from_notas(
+        notas_ventana=notas_ventana,
+        desde=desde,
+        hoy=hoy,
+    )
+
+
+def _estado_actual_alerta_from_notas(*, notas_ventana: list[Nota], desde, hoy):
     nota_actual = notas_ventana[0] if notas_ventana else None
     riesgo, n_validas = _riesgo_ponderado(notas_ventana, hoy)
     trigger_a = nota_es_ted(nota_actual) if nota_actual is not None else False
@@ -323,20 +331,19 @@ def _enviar_email_alerta(*, alumno, destinatarios, severidad: int, riesgo: float
     return enviados
 
 
-def evaluar_alerta_nota(*, nota: Nota, actor=None) -> dict[str, Any]:
+def evaluar_alerta_nota(*, nota: Nota, actor=None, send_email: bool = True) -> dict[str, Any]:
     hoy = timezone.localdate()
     cooldown_dias = _cfg_int("ALERTAS_ACADEMICAS_COOLDOWN_DIAS", 7)
     escalado_dias = _cfg_int("ALERTAS_ACADEMICAS_ESCALADO_DIAS", 14)
-    current = _estado_actual_alerta(
+    notas_ventana, desde = _build_notas_ventana(
         alumno=nota.alumno,
         materia=nota.materia,
         cuatrimestre=getattr(nota, "cuatrimestre", None),
         hoy=hoy,
     )
-    notas_ventana, desde = _build_notas_ventana(
-        alumno=nota.alumno,
-        materia=nota.materia,
-        cuatrimestre=getattr(nota, "cuatrimestre", None),
+    current = _estado_actual_alerta_from_notas(
+        notas_ventana=notas_ventana,
+        desde=desde,
         hoy=hoy,
     )
 
@@ -405,13 +412,15 @@ def evaluar_alerta_nota(*, nota: Nota, actor=None) -> dict[str, Any]:
         trigger_map=trigger_map,
         alerta_id=alerta.id,
     )
-    emails = _enviar_email_alerta(
-        alumno=nota.alumno,
-        destinatarios=destinatarios,
-        severidad=severidad,
-        riesgo=riesgo,
-        trigger_map=trigger_map,
-    )
+    emails = 0
+    if send_email:
+        emails = _enviar_email_alerta(
+            alumno=nota.alumno,
+            destinatarios=destinatarios,
+            severidad=severidad,
+            riesgo=riesgo,
+            trigger_map=trigger_map,
+        )
 
     return {
         "created": True,

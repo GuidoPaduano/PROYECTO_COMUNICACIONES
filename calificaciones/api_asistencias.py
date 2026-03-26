@@ -5,6 +5,7 @@ from datetime import date as date_cls
 import json
 from typing import Any, Dict, List, Optional
 
+from django.conf import settings
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from django.db import transaction
@@ -51,16 +52,22 @@ def _user_in_group(user, *names: str) -> bool:
 
 
 def _can_justify(user) -> bool:
-    """Preceptores/Directivos (y superuser/staff) pueden justificar."""
+    """Preceptores (y superuser/staff) pueden justificar."""
     if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
         return True
-    return _user_in_group(user, "Preceptores", "Preceptor", "Directivos", "Directivo")
+    return _user_in_group(user, "Preceptores", "Preceptor")
 
 
 def _can_sign_asistencia(user, alumno: Alumno) -> bool:
     if getattr(user, "is_superuser", False):
         return True
     return getattr(alumno, "padre_id", None) == getattr(user, "id", None)
+
+
+def _can_edit_asistencia_detalle(user, alumno: Alumno) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    return _can_sign_asistencia(user, alumno)
 
 
 # =========================================================
@@ -743,14 +750,15 @@ def registrar_asistencias(request):
                 )
             except Exception:
                 pass
-            try:
-                evaluar_alertas_inasistencia_por_alumnos(
-                    alumno_ids=sorted(set(res.get("afectados") or [])),
-                    tipo_asistencia=tipo_asistencia,
-                    actor=getattr(request, "user", None),
-                )
-            except Exception:
-                pass
+            if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
+                try:
+                    evaluar_alertas_inasistencia_por_alumnos(
+                        alumno_ids=sorted(set(res.get("afectados") or [])),
+                        tipo_asistencia=tipo_asistencia,
+                        actor=getattr(request, "user", None),
+                    )
+                except Exception:
+                    pass
 
             items_out: List[Dict[str, Any]] = []
             if return_items and alumno_ids:
@@ -865,14 +873,15 @@ def registrar_asistencias(request):
             )
         except Exception:
             pass
-        try:
-            evaluar_alertas_inasistencia_por_alumnos(
-                alumno_ids=sorted(set(res.get("afectados") or [])),
-                tipo_asistencia=tipo_asistencia,
-                actor=getattr(request, "user", None),
-            )
-        except Exception:
-            pass
+        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
+            try:
+                evaluar_alertas_inasistencia_por_alumnos(
+                    alumno_ids=sorted(set(res.get("afectados") or [])),
+                    tipo_asistencia=tipo_asistencia,
+                    actor=getattr(request, "user", None),
+                )
+            except Exception:
+                pass
 
         items_out: List[Dict[str, Any]] = []
         if return_items:
@@ -1017,15 +1026,16 @@ def registrar_asistencias(request):
         except Exception:
             errores += 1
 
-    try:
-        for tipo_eval, ids_eval in afectados_ids_por_tipo.items():
-            evaluar_alertas_inasistencia_por_alumnos(
-                alumno_ids=sorted(ids_eval),
-                tipo_asistencia=tipo_eval,
-                actor=getattr(request, "user", None),
-            )
-    except Exception:
-        pass
+    if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
+        try:
+            for tipo_eval, ids_eval in afectados_ids_por_tipo.items():
+                evaluar_alertas_inasistencia_por_alumnos(
+                    alumno_ids=sorted(ids_eval),
+                    tipo_asistencia=tipo_eval,
+                    actor=getattr(request, "user", None),
+                )
+        except Exception:
+            pass
 
     return _ok_response({
         "guardadas": guardadas,
@@ -1113,15 +1123,16 @@ def justificar_asistencia(request, pk: int):
 
     setattr(obj, "justificada", nueva)
     obj.save(update_fields=["justificada"])
-    try:
-        evaluar_alerta_inasistencia(
-            alumno=obj.alumno,
-            tipo_asistencia=getattr(obj, "tipo_asistencia", "clases"),
-            actor=getattr(request, "user", None),
-            asistencia=obj,
-        )
-    except Exception:
-        pass
+    if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
+        try:
+            evaluar_alerta_inasistencia(
+                alumno=obj.alumno,
+                tipo_asistencia=getattr(obj, "tipo_asistencia", "clases"),
+                actor=getattr(request, "user", None),
+                asistencia=obj,
+            )
+        except Exception:
+            pass
 
     falta_valor = 0.0 if nueva else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0))
 
@@ -1213,25 +1224,19 @@ def editar_detalle_asistencia(request, pk: int):
     Respuesta:
       { id, observacion, detalle, ... }
     """
-    # 🔒 Permiso: SOLO Preceptor (o admin)
-    if not _can_justify(getattr(request, "user", None)):
-        return _err("No tenés permisos para editar el detalle de asistencias.", status=403)
-
     try:
         obj = Asistencia.objects.select_related("alumno").get(pk=pk)
     except Asistencia.DoesNotExist:
         return _err("Asistencia no encontrada.", status=404)
+
+    if not _can_edit_asistencia_detalle(getattr(request, "user", None), obj.alumno):
+        return _err("No tenés permisos para editar el detalle de asistencias.", status=403)
 
     # Permisos por curso (mismo criterio que justificar)
     curso = getattr(obj.alumno, "curso", None)
     permitidos = _cursos_de_usuario(request.user)
     if curso and permitidos and (curso not in permitidos):
         return _err("No tenés permisos para ese curso.", status=403)
-
-    # Solo tiene sentido editar detalle si es Ausente o Tarde
-    es_presente = bool(obj.presente) and (not bool(getattr(obj, "tarde", False)))
-    if es_presente:
-        return _err("Solo se puede cargar detalle en ausentes o tardanzas.", status=400)
 
     if request.method == "GET":
         return _ok_response({
