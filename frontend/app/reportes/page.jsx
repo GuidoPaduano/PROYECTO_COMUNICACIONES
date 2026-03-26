@@ -60,12 +60,12 @@ function EmptyHint({ text }) {
   )
 }
 
-function KpiCard({ icon, title, value, helper }) {
+function KpiCard({ icon, title, value, helper, accentClass = "bg-slate-100 text-slate-700" }) {
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardDescription className="flex items-center gap-3 text-slate-700">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+          <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${accentClass}`}>
             {icon}
           </span>
           <span className="text-xl font-extrabold tracking-tight text-slate-900">{title}</span>
@@ -86,8 +86,8 @@ function DistribucionEstados({ conteos }) {
   )
   const rows = [
     { key: "TEA", label: "TEA", color: "bg-emerald-500", value: Number(conteos?.TEA || 0) },
-    { key: "TEP", label: "TEP", color: "bg-rose-500", value: Number(conteos?.TEP || 0) },
-    { key: "TED", label: "TED", color: "bg-amber-500", value: Number(conteos?.TED || 0) },
+    { key: "TEP", label: "TEP", color: "bg-amber-500", value: Number(conteos?.TEP || 0) },
+    { key: "TED", label: "TED", color: "bg-rose-500", value: Number(conteos?.TED || 0) },
   ]
 
   return (
@@ -138,8 +138,8 @@ function EvolucionMensual({ rows }) {
                   </div>
                   <div className="flex h-4 overflow-hidden rounded bg-slate-100">
                     <div className="bg-emerald-500" style={{ width: `${(tea / total) * 100}%` }} />
-                    <div className="bg-rose-500" style={{ width: `${(tep / total) * 100}%` }} />
-                    <div className="bg-amber-500" style={{ width: `${(ted / total) * 100}%` }} />
+                    <div className="bg-amber-500" style={{ width: `${(tep / total) * 100}%` }} />
+                    <div className="bg-rose-500" style={{ width: `${(ted / total) * 100}%` }} />
                   </div>
                 </div>
               )
@@ -358,9 +358,24 @@ export default function ReportesPage() {
       {!profileLoading && !reportLoading && !error && report ? (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <KpiCard icon={<CheckCircle2 className="h-4 w-4" />} title="TEA" value={fmtPct(resumen?.porcentajes_por_estado?.TEA)} />
-            <KpiCard icon={<XCircle className="h-4 w-4" />} title="TEP" value={fmtPct(resumen?.porcentajes_por_estado?.TEP)} />
-            <KpiCard icon={<AlertTriangle className="h-4 w-4" />} title="TED" value={fmtPct(resumen?.porcentajes_por_estado?.TED)} />
+            <KpiCard
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              title="TEA"
+              value={fmtPct(resumen?.porcentajes_por_estado?.TEA)}
+              accentClass="bg-emerald-100 text-emerald-700"
+            />
+            <KpiCard
+              icon={<XCircle className="h-4 w-4" />}
+              title="TEP"
+              value={fmtPct(resumen?.porcentajes_por_estado?.TEP)}
+              accentClass="bg-amber-100 text-amber-700"
+            />
+            <KpiCard
+              icon={<AlertTriangle className="h-4 w-4" />}
+              title="TED"
+              value={fmtPct(resumen?.porcentajes_por_estado?.TED)}
+              accentClass="bg-rose-100 text-rose-700"
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

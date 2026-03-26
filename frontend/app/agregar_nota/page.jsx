@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, Save } from "lucide-react"
 
@@ -16,7 +16,11 @@ function buildCalificacionOptions() {
   for (let value = 1; value <= 10; value += 1) {
     values.push(String(value))
   }
-  return values.map((value) => ({ id: value, label: value }))
+  values.push("NO ENTREGADO")
+  return values.map((value) => ({
+    id: value,
+    label: value === "NO ENTREGADO" ? "No entregado" : value,
+  }))
 }
 
 function hoyISO() {
@@ -64,6 +68,7 @@ function pickId(a) {
 
 export default function CargarNotasRapidas() {
   useAuthGuard()
+  const selectAllRef = useRef(null)
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -80,6 +85,7 @@ export default function CargarNotasRapidas() {
   const [cuatris, setCuatris] = useState([1, 2])
   const [calificaciones, setCalificaciones] = useState(buildCalificacionOptions())
   const [rows, setRows] = useState([])
+  const [initialCursoLoaded, setInitialCursoLoaded] = useState("")
   const [fill, setFill] = useState({
     materia: "",
     tipo: "",
@@ -120,13 +126,26 @@ export default function CargarNotasRapidas() {
         setCuatris(Array.isArray(initData?.cuatrimestres) ? initData.cuatrimestres : [1, 2])
         setCalificaciones(buildCalificacionOptions())
         const alumnos = Array.isArray(initData?.alumnos) ? initData.alumnos : []
-        const cursosSet = new Set()
-        for (const a of alumnos) {
-          if (a?.curso) cursosSet.add(String(a.curso))
-        }
-        const cursosSorted = Array.from(cursosSet).sort()
-        setCursos(cursosSorted)
-        if (cursosSorted.length) setCursoSel(cursosSorted[0])
+        const mapped = alumnos
+          .map((a) => ({
+            id: pickId(a),
+            nombre: String(a?.nombre || "Alumno"),
+            materia: "",
+            tipo: "",
+            calificacion: "",
+            cuatrimestre: (Array.isArray(initData?.cuatrimestres) ? initData.cuatrimestres : [1, 2])?.[0] ?? 1,
+            fecha: hoyISO(),
+            incluir: true,
+          }))
+          .filter((r) => r.id != null)
+        const cursosData = Array.isArray(initData?.cursos)
+          ? initData.cursos.map((c) => String(c?.id ?? c)).filter(Boolean)
+          : []
+        const cursoInicial = String(initData?.curso_inicial || cursosData[0] || "")
+        setRows(mapped)
+        setCursos(cursosData)
+        setCursoSel(cursoInicial)
+        setInitialCursoLoaded(cursoInicial)
       } catch (e) {
         if (!alive) return
         setError(e?.message || "No se pudo cargar la pantalla")
@@ -144,6 +163,10 @@ export default function CargarNotasRapidas() {
     let alive = true
     ;(async () => {
       if (!cursoSel) return
+      if (cursoSel === initialCursoLoaded) {
+        setInitialCursoLoaded("")
+        return
+      }
       try {
         setError("")
         const res = await authFetch(`/calificaciones/nueva-nota/datos/?curso=${encodeURIComponent(cursoSel)}`)
@@ -176,9 +199,16 @@ export default function CargarNotasRapidas() {
     return () => {
       alive = false
     }
-  }, [cursoSel, cuatris])
+  }, [cursoSel, cuatris, initialCursoLoaded])
 
   const seleccionadas = useMemo(() => rows.filter((r) => r.incluir), [rows])
+  const allSelected = rows.length > 0 && rows.every((r) => r.incluir)
+  const someSelected = rows.some((r) => r.incluir)
+
+  useEffect(() => {
+    if (!selectAllRef.current) return
+    selectAllRef.current.indeterminate = someSelected && !allSelected
+  }, [someSelected, allSelected])
 
   function applyFill() {
     setRows((prev) =>
@@ -248,6 +278,9 @@ export default function CargarNotasRapidas() {
 
       const creadas = Array.isArray(payload?.created) ? payload.created.length : notas.length
       setOkMsg(`Guardadas ${creadas} notas.`)
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: 0, behavior: "smooth" })
+      }
     } catch (e) {
       setError(e?.message || "Fallo al guardar")
     } finally {
@@ -342,7 +375,20 @@ export default function CargarNotasRapidas() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-left">
-                <th className="border-b px-3 py-2">Incluir</th>
+                <th className="border-b px-3 py-2">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={(e) =>
+                        setRows((prev) => prev.map((row) => ({ ...row, incluir: e.target.checked })))
+                      }
+                      aria-label="Seleccionar o deseleccionar todos los alumnos"
+                    />
+                    <span>Incluir</span>
+                  </label>
+                </th>
                 <th className="border-b px-3 py-2">Alumno</th>
                 <th className="border-b px-3 py-2">Materia</th>
                 <th className="border-b px-3 py-2">Tipo</th>

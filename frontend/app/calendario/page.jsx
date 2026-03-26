@@ -195,6 +195,7 @@ export default function CalendarioEscolarPage() {
   const [openCrear, setOpenCrear] = useState(false)
   const [openEditar, setOpenEditar] = useState(false)
   const [openEliminar, setOpenEliminar] = useState(false)
+  const [editarSoloLectura, setEditarSoloLectura] = useState(false)
   const [creating, setCreating] = useState(false)
   const [crearError, setCrearError] = useState("")
 
@@ -422,7 +423,7 @@ export default function CalendarioEscolarPage() {
     } catch {}
   }
 
-  function openEditFromEvent(ev) {
+  function openEditFromEvent(ev, { readOnly = false } = {}) {
     setEditar({
       id: String(ev.id),
       titulo: ev.title || "",
@@ -431,6 +432,7 @@ export default function CalendarioEscolarPage() {
       curso: ev.extendedProps?.curso || "",
       tipo_evento: ev.extendedProps?.tipo_evento || "",
     })
+    setEditarSoloLectura(readOnly)
     setOpenEditar(true)
   }
 
@@ -594,6 +596,11 @@ export default function CalendarioEscolarPage() {
           setError(msg || "No se pudieron cargar los eventos.")
           failure(e)
         }
+      },
+
+      eventClick: (info) => {
+        info.jsEvent?.preventDefault?.()
+        openEditFromEvent(info.event, { readOnly: !puedeEditar })
       },
 
       eventDidMount: (info) => {
@@ -1215,10 +1222,16 @@ export default function CalendarioEscolarPage() {
       </Dialog>
 
       {/* --------- Modal EDITAR --------- */}
-      <Dialog open={openEditar} onOpenChange={setOpenEditar}>
+      <Dialog
+        open={openEditar}
+        onOpenChange={(open) => {
+          setOpenEditar(open)
+          if (!open) setEditarSoloLectura(false)
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Editar evento</DialogTitle>
+            <DialogTitle>{editarSoloLectura ? "Detalle del evento" : "Editar evento"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-2">
@@ -1226,6 +1239,7 @@ export default function CalendarioEscolarPage() {
               <Input
                 id="e-titulo"
                 value={editar.titulo}
+                disabled={editarSoloLectura}
                 onChange={(e) => setEditar((v) => ({ ...v, titulo: e.target.value }))}
               />
             </div>
@@ -1235,6 +1249,7 @@ export default function CalendarioEscolarPage() {
                 type="date"
                 id="e-fecha"
                 value={editar.fecha}
+                disabled={editarSoloLectura}
                 onChange={(e) => setEditar((v) => ({ ...v, fecha: e.target.value }))}
               />
             </div>
@@ -1243,6 +1258,7 @@ export default function CalendarioEscolarPage() {
               <Textarea
                 id="e-descripcion"
                 value={editar.descripcion}
+                disabled={editarSoloLectura}
                 onChange={(e) => setEditar((v) => ({ ...v, descripcion: e.target.value }))}
               />
             </div>
@@ -1252,6 +1268,7 @@ export default function CalendarioEscolarPage() {
                 id="e-curso"
                 className="border rounded-md px-3 py-2 bg-white"
                 value={editar.curso}
+                disabled={editarSoloLectura}
                 onChange={(e) => setEditar((v) => ({ ...v, curso: e.target.value }))}
               >
                 <option value="">—</option>
@@ -1279,6 +1296,7 @@ export default function CalendarioEscolarPage() {
                 id="e-tipo"
                 className="border rounded-md px-3 py-2 bg-white"
                 value={editar.tipo_evento}
+                disabled={editarSoloLectura}
                 onChange={(e) => setEditar((v) => ({ ...v, tipo_evento: e.target.value }))}
               >
                 <option value="">—</option>
@@ -1291,12 +1309,20 @@ export default function CalendarioEscolarPage() {
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setOpenEditar(false)}>
-              Cancelar
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpenEditar(false)
+                setEditarSoloLectura(false)
+              }}
+            >
+              {editarSoloLectura ? "Cerrar" : "Cancelar"}
             </Button>
-            <Button onClick={editarEvento}>
-              <Pencil className="h-4 w-4 mr-2" /> Guardar cambios
-            </Button>
+            {!editarSoloLectura ? (
+              <Button onClick={editarEvento}>
+                <Pencil className="h-4 w-4 mr-2" /> Guardar cambios
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

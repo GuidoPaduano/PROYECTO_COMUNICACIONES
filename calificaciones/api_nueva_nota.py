@@ -264,7 +264,7 @@ class NuevaNotaDatosIniciales(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        curso = request.query_params.get("curso")
+        curso = (request.query_params.get("curso") or "").strip()
         asignados_prof = []
         try:
             if request.user.groups.filter(name="Profesores").exists():
@@ -275,14 +275,20 @@ class NuevaNotaDatosIniciales(APIView):
         if curso and asignados_prof and curso not in asignados_prof:
             return Response({"detail": "No tenés permiso para ese curso."}, status=status.HTTP_403_FORBIDDEN)
 
-        alumnos_qs = Alumno.objects.all().order_by("nombre")
-        if curso:
-            alumnos_qs = alumnos_qs.filter(curso=curso)
+        cursos_catalogo = _filtrar_cursos_para_profesor(request.user, _cursos_catalogo())
+        cursos_ids = [c.get("id") if isinstance(c, dict) else c for c in cursos_catalogo]
+        curso_inicial = curso or (cursos_ids[0] if cursos_ids else "")
+
+        alumnos_qs = Alumno.objects.only("id", "id_alumno", "nombre", "apellido", "curso").order_by("nombre")
+        if curso_inicial:
+            alumnos_qs = alumnos_qs.filter(curso=curso_inicial)
         elif asignados_prof:
             alumnos_qs = alumnos_qs.filter(curso__in=asignados_prof)
 
         data = {
             "alumnos": AlumnoSerializer(alumnos_qs, many=True).data,
+            "cursos": cursos_catalogo,
+            "curso_inicial": curso_inicial,
             "materias": get_materias_catalogo(),
             "tipos": _tipos_por_defecto(),
             "cuatrimestres": _cuatris_por_defecto(),
@@ -349,7 +355,7 @@ class AlumnosPorCurso(APIView):
         if asignados_prof and curso not in asignados_prof:
             return Response({"detail": "No tenés permiso para ese curso."}, status=status.HTTP_403_FORBIDDEN)
 
-        qs = Alumno.objects.filter(curso=curso).order_by("nombre")
+        qs = Alumno.objects.only("id", "id_alumno", "nombre", "apellido", "curso").filter(curso=curso).order_by("nombre")
         data = AlumnoSerializer(qs, many=True).data
         return Response({"alumnos": data}, status=status.HTTP_200_OK)
 
@@ -708,7 +714,21 @@ class CrearNotasMasivo(APIView):
             if legajos:
                 q |= Q(id_alumno__in=legajos) | Q(id_alumno__in=[x.upper() for x in legajos]) | Q(id_alumno__in=[x.lower() for x in legajos])
 
-            qs = Alumno.objects.filter(q).only('id', 'id_alumno', 'curso', 'padre_id', 'usuario_id', 'nombre', 'apellido')
+            qs = (
+                Alumno.objects.filter(q)
+                .select_related("padre", "usuario")
+                .only(
+                    "id",
+                    "id_alumno",
+                    "curso",
+                    "padre_id",
+                    "usuario_id",
+                    "nombre",
+                    "apellido",
+                    "padre__id",
+                    "usuario__id",
+                )
+            )
             for a in qs:
                 alumnos_by_pk[a.pk] = a
                 try:
@@ -920,6 +940,8 @@ class CrearNotasMasivo(APIView):
 
         docente = (request.user.get_full_name() or request.user.username).strip()
 
+        alert_candidates = {}
+
         with transaction.atomic():
             Nota.objects.bulk_create(notas_objs, batch_size=500)
             created_ids = [getattr(n, 'id', None) for n in notas_objs if getattr(n, 'id', None) is not None]
@@ -986,8 +1008,31 @@ class CrearNotasMasivo(APIView):
                 notificados = len(notifs)
 
             for n in notas_objs:
+                key = (
+                    getattr(n, "alumno_id", None),
+                    getattr(n, "materia", ""),
+                    getattr(n, "cuatrimestre", None),
+                )
+                prev = alert_candidates.get(key)
+                if prev is None:
+                    alert_candidates[key] = n
+                    continue
+
+                prev_fecha = getattr(prev, "fecha", None)
+                curr_fecha = getattr(n, "fecha", None)
+                prev_id = getattr(prev, "id", 0) or 0
+                curr_id = getattr(n, "id", 0) or 0
+                if (curr_fecha, curr_id) >= (prev_fecha, prev_id):
+                    alert_candidates[key] = n
+
+        if getattr(settings, "ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", False):
+            for nota_candidata in alert_candidates.values():
                 try:
-                    info = evaluar_alerta_nota(nota=n, actor=request.user)
+                    info = evaluar_alerta_nota(
+                        nota=nota_candidata,
+                        actor=request.user,
+                        send_email=False,
+                    )
                     if info.get("created"):
                         alertas_creadas += 1
                 except Exception:
