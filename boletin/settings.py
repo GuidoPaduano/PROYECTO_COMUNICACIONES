@@ -40,6 +40,7 @@ if not FRONTEND_BASE_URL:
     else:
         raise Exception("FRONTEND_BASE_URL no configurado.")
 PASSWORD_RESET_PATH = os.environ.get("PASSWORD_RESET_PATH", "/reset-password")
+SCHOOL_PARENT_HOSTS = _split_env_list("SCHOOL_PARENT_HOSTS", [])
 
 if not DEBUG and not RESEND_ENABLED:
     raise Exception(
@@ -118,6 +119,22 @@ DATABASES = {
         ssl_require=DB_SSL_REQUIRE
     )
 }
+
+CACHE_URL = os.environ.get("REDIS_URL", "").strip() or os.environ.get("CACHE_URL", "").strip()
+if CACHE_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": CACHE_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "boletin-default-cache",
+        }
+    }
 
 # Verificación de configuración para entorno local
 if 'ENGINE' not in DATABASES['default']:
@@ -259,7 +276,9 @@ SECURE_REFERRER_POLICY = "same-origin"
 # Alertas academicas por notas
 ALERTAS_ACADEMICAS_VENTANA_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_VENTANA_DIAS", "45"))
 ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA = os.environ.get("ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", "False") == "True"
-ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO = os.environ.get("ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", "False") == "True"
+# No hay worker diferido para inasistencias; si no se evalúan al guardar,
+# las alertas esperadas por la app quedan omitidas silenciosamente.
+ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO = os.environ.get("ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", "True") == "True"
 ALERTAS_ACADEMICAS_COOLDOWN_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_COOLDOWN_DIAS", "7"))
 ALERTAS_ACADEMICAS_ESCALADO_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_ESCALADO_DIAS", "14"))
 ALERTAS_ACADEMICAS_EMAIL_ENABLED = os.environ.get("ALERTAS_ACADEMICAS_EMAIL_ENABLED", "False") == "True"

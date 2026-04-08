@@ -1,12 +1,22 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useAuthGuard, authFetch } from "../_lib/auth"
+import { useEffect, useMemo, useState } from "react"
+import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
+import {
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  loadCourseCatalog,
+  normalizeCourseList,
+} from "../_lib/courses"
 import { Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import SuccessMessage from "@/components/ui/success-message"
+
+const ASISTENCIA_RESOURCE_MAX_AGE_MS = 10000
+const asistenciaResourceCache = new Map()
+const asistenciaResourcePromises = new Map()
 
 async function fetchApi(url, opts = {}, timeoutMs = 60000) {
   const controller = new AbortController()
@@ -40,6 +50,66 @@ async function fetchApi(url, opts = {}, timeoutMs = 60000) {
   }
 }
 
+function invalidateAsistenciaResource(cacheKeyPrefix = "") {
+  const prefix = String(cacheKeyPrefix || "").trim()
+  if (!prefix) return
+
+  for (const key of Array.from(asistenciaResourceCache.keys())) {
+    if (key.startsWith(prefix)) {
+      asistenciaResourceCache.delete(key)
+    }
+  }
+
+  for (const key of Array.from(asistenciaResourcePromises.keys())) {
+    if (key.startsWith(prefix)) {
+      asistenciaResourcePromises.delete(key)
+    }
+  }
+}
+
+async function loadAsistenciaResource(
+  cacheKey,
+  loader,
+  { force = false, maxAgeMs = ASISTENCIA_RESOURCE_MAX_AGE_MS } = {}
+) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (force) {
+    invalidateAsistenciaResource(key)
+  }
+
+  const cached = asistenciaResourceCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  if (asistenciaResourcePromises.has(key)) {
+    return await asistenciaResourcePromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    asistenciaResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  asistenciaResourcePromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (asistenciaResourcePromises.get(key) === promise) {
+      asistenciaResourcePromises.delete(key)
+    }
+  }
+}
+
 function todayISO() {
   const d = new Date()
   const y = d.getFullYear()
@@ -49,20 +119,19 @@ function todayISO() {
 }
 
 function normalizeCursoItem(c) {
-  if (typeof c === "string") {
-    const v = c.trim()
-    return { value: v, text: v }
+  const [course] = normalizeCourseList([c])
+  if (!course) return { value: "", text: "" }
+  const code = String(course.courseCode || "").trim()
+  const label = String(course.label || "").trim()
+  return {
+    value: course.value,
+    text: code && label && code !== label ? `${code} - ${label}` : (label || code || course.value),
   }
-
-  const value = String(c?.curso ?? c?.value ?? c?.id ?? c?.codigo ?? c?.nombre ?? "").trim()
-  const nombre = String(c?.nombre ?? c?.label ?? "").trim()
-
-  const text = nombre ? (nombre === value ? value : `${value} - ${nombre}`) : value
-  return { value: value || nombre || "", text: text || "" }
 }
 
 export default function PasarAsistenciaPage() {
   useAuthGuard()
+  const session = useSessionContext()
 
   const [loadingCursos, setLoadingCursos] = useState(true)
   const [cursos, setCursos] = useState([])
@@ -79,6 +148,14 @@ export default function PasarAsistenciaPage() {
   const [saving, setSaving] = useState(false)
   const [okMsg, setOkMsg] = useState("")
   const [errMsg, setErrMsg] = useState("")
+  const asistenciaScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || session?.school?.slug || "default"}`,
+    [session?.school?.id, session?.school?.slug, session?.username]
+  )
+  const schoolCourseIdSel = useMemo(
+    () => getCourseSchoolCourseId(cursoSel, cursos),
+    [cursoSel, cursos]
+  )
 
   useEffect(() => {
     let alive = true
@@ -86,32 +163,16 @@ export default function PasarAsistenciaPage() {
 
     ;(async () => {
       try {
-        const tries = [
-          "/notas/catalogos/",
-          "/api/notas/catalogos/",
-          "/cursos/",
-          "/api/cursos/",
-          "/preceptores/mis-cursos/",
-          "/api/preceptores/mis-cursos/",
-          "/cursos/mis-cursos/",
-          "/api/cursos/mis-cursos/",
-          "/preceptor/asistencias/cursos/",
-          "/api/preceptor/asistencias/cursos/",
-        ]
-
-        let data = null
-        for (const url of tries) {
-          const r = await fetchApi(url)
-          if (r.ok) {
-            data = r.data
-            break
-          }
-        }
-
-        const arr = Array.isArray(data)
-          ? data
-          : data?.cursos || data?.results || []
-        const list = Array.isArray(arr) ? arr : []
+        const list = await loadCourseCatalog({
+          fetcher: (url) => authFetch(url),
+          urls: [
+            "/api/notas/catalogos/",
+            "/api/preceptor/asistencias/cursos/",
+            "/api/preceptor/cursos/",
+            "/api/cursos/mis-cursos/",
+          ],
+          cacheKey: `pasar-asistencia:${session?.username || "anon"}:${session?.school?.id || session?.school?.slug || "default"}`,
+        })
         if (!alive) return
 
         setCursos(list)
@@ -127,10 +188,17 @@ export default function PasarAsistenciaPage() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [session?.school?.id, session?.school?.slug, session?.username])
 
   useEffect(() => {
     if (!cursoSel) return
+    if (schoolCourseIdSel == null) {
+      setErrMsg("No se pudo resolver el curso seleccionado.")
+      setOkMsg("")
+      setAlumnos([])
+      setMarcas({})
+      return
+    }
     let alive = true
     setLoadingAlumnos(true)
     setErrMsg("")
@@ -138,25 +206,16 @@ export default function PasarAsistenciaPage() {
 
     ;(async () => {
       try {
-        const tries = [
-          `/alumnos/curso/${encodeURIComponent(cursoSel)}/`,
-          `/api/alumnos/curso/${encodeURIComponent(cursoSel)}/`,
-          `/gestion_alumnos/api/curso/${encodeURIComponent(cursoSel)}/`,
-          `/alumnos/?curso=${encodeURIComponent(cursoSel)}`,
-          `/api/alumnos/?curso=${encodeURIComponent(cursoSel)}`,
-        ]
-
-        let data = null
-        for (const url of tries) {
-          const r = await fetchApi(url)
-          if (r.ok) {
-            data = r.data
-            break
+        const list = await loadAsistenciaResource(
+          `pasar-asistencia-alumnos:${asistenciaScopeKey}:${schoolCourseIdSel}`,
+          async () => {
+            const r = await fetchApi(
+              `/api/alumnos/?school_course_id=${encodeURIComponent(String(schoolCourseIdSel))}`
+            )
+            if (!r.ok) throw new Error(r.data?.detail || "No se pudieron cargar los alumnos.")
+            return Array.isArray(r.data?.alumnos) ? r.data.alumnos : []
           }
-        }
-
-        const arr = Array.isArray(data) ? data : data?.results || data?.alumnos || []
-        const list = Array.isArray(arr) ? arr : []
+        )
         if (!alive) return
 
         setAlumnos(list)
@@ -179,10 +238,11 @@ export default function PasarAsistenciaPage() {
     return () => {
       alive = false
     }
-  }, [cursoSel])
+  }, [asistenciaScopeKey, cursoSel, schoolCourseIdSel])
 
   useEffect(() => {
     if (!cursoSel || !fecha) return
+    if (schoolCourseIdSel == null) return
     if (!alumnos.length) return
 
     let alive = true
@@ -191,16 +251,23 @@ export default function PasarAsistenciaPage() {
 
     ;(async () => {
       try {
-        const r2 = await fetchApi(
-          `/asistencias/curso/?curso=${encodeURIComponent(cursoSel)}&fecha=${encodeURIComponent(
-            fecha
-          )}&tipo=${encodeURIComponent(tipoAsistencia)}`
+        const params = new URLSearchParams({
+          school_course_id: String(schoolCourseIdSel),
+          fecha,
+          tipo: tipoAsistencia,
+        })
+        const d2 = await loadAsistenciaResource(
+          `pasar-asistencia-registro:${asistenciaScopeKey}:${params.toString()}`,
+          async () => {
+            const r2 = await fetchApi(
+              `/api/asistencias/curso/?${params.toString()}`
+            )
+            if (!r2.ok) throw new Error(r2.data?.detail || "No se pudieron cargar las asistencias.")
+            return r2.data || {}
+          }
         )
 
         if (!alive) return
-        if (!r2.ok) return
-
-        const d2 = r2.data || {}
         const items = Array.isArray(d2?.asistencias)
           ? d2.asistencias
           : Array.isArray(d2?.items)
@@ -235,7 +302,7 @@ export default function PasarAsistenciaPage() {
     return () => {
       alive = false
     }
-  }, [cursoSel, fecha, tipoAsistencia, alumnos])
+  }, [asistenciaScopeKey, cursoSel, schoolCourseIdSel, fecha, tipoAsistencia, alumnos])
 
   function marcarTodos(estado) {
     setMarcas((prev) => {
@@ -247,6 +314,10 @@ export default function PasarAsistenciaPage() {
 
   async function guardar() {
     if (!cursoSel) return
+    if (schoolCourseIdSel == null) {
+      setErrMsg("No se pudo resolver el curso seleccionado.")
+      return
+    }
     if (!fecha) return
     if (!tipoAsistencia) return
     if (!alumnos.length) return
@@ -280,12 +351,12 @@ export default function PasarAsistenciaPage() {
       }
 
       const r = await fetchApi(
-        "/asistencias/registrar/",
+        "/api/asistencias/registrar/",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            curso: cursoSel,
+            school_course_id: schoolCourseIdSel,
             fecha,
             tipo_asistencia: tipoAsistencia,
             tipo: tipoAsistencia,
@@ -298,17 +369,13 @@ export default function PasarAsistenciaPage() {
       )
 
       if (!r.ok) {
-        const msg = r.data?.error || r.data?.detail || "No se pudo guardar la asistencia."
-        setErrMsg(msg)
-        return
-      }
-
-      if (r.data && (r.data.ok === false || r.data.success === false)) {
         const msg = r.data?.detail || "No se pudo guardar la asistencia."
         setErrMsg(msg)
         return
       }
 
+      invalidateAsistenciaResource(`pasar-asistencia-registro:${asistenciaScopeKey}:school_course_id=${schoolCourseIdSel}&`)
+      invalidateAsistenciaResource(`pasar-asistencia-registro:${asistenciaScopeKey}:`)
       setOkMsg("Asistencia guardada.")
     } catch (e) {
       setErrMsg("Error de red al guardar la asistencia.")
@@ -355,7 +422,7 @@ export default function PasarAsistenciaPage() {
                 <div className="flex items-center gap-2">
                   <label className="block text-sm font-medium text-gray-900">Fecha</label>
                   {isToday && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700">
+                    <span className="text-xs px-2 py-0.5 rounded school-primary-soft-badge">
                       Hoy
                     </span>
                   )}
@@ -462,7 +529,7 @@ export default function PasarAsistenciaPage() {
                         <td className="py-3 px-2">
                           <div className="text-gray-900">{nombre}</div>
                           <div className="text-xs text-gray-500">
-                            {cursoSel} - {fecha} - {tipoAsistencia}
+                            {(getCourseLabel(cursoSel, cursos) || cursoSel)} - {fecha} - {tipoAsistencia}
                           </div>
                         </td>
                         <td className="py-3 px-2 text-center">
@@ -470,7 +537,7 @@ export default function PasarAsistenciaPage() {
                             <input
                               type="radio"
                               name={`asist_${key}`}
-                              className="h-5 w-5 accent-indigo-600"
+                              className="h-5 w-5 school-radio"
                               checked={checkedP}
                               disabled={saving}
                               onChange={() => setMarcas((m) => ({ ...m, [key]: "presente" }))}
@@ -482,7 +549,7 @@ export default function PasarAsistenciaPage() {
                             <input
                               type="radio"
                               name={`asist_${key}`}
-                              className="h-5 w-5 accent-indigo-600"
+                              className="h-5 w-5 school-radio"
                               checked={checkedA}
                               disabled={saving}
                               onChange={() => setMarcas((m) => ({ ...m, [key]: "ausente" }))}
@@ -494,7 +561,7 @@ export default function PasarAsistenciaPage() {
                             <input
                               type="radio"
                               name={`asist_${key}`}
-                              className="h-5 w-5 accent-indigo-600"
+                              className="h-5 w-5 school-radio"
                               checked={checkedT}
                               disabled={saving}
                               onChange={() => setMarcas((m) => ({ ...m, [key]: "tarde" }))}

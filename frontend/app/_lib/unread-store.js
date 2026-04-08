@@ -43,8 +43,8 @@ async function refreshUnread() {
   inflight = (async () => {
     try {
       const [messages, notifications] = await Promise.all([
-        fetchCountFrom(["/mensajes/unread_count/", "/api/mensajes/unread_count/"]),
-        fetchCountFrom(["/notificaciones/unread_count/", "/api/notificaciones/unread_count/"]),
+        fetchCountFrom(["/api/mensajes/unread_count/"]),
+        fetchCountFrom(["/api/notificaciones/unread_count/"]),
       ])
 
       const next = {

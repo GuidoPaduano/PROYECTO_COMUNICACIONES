@@ -1,11 +1,11 @@
 # calificaciones/eventos_urls.py
 from django.urls import path
 from .api_eventos import (
-    # ✅ REST real (FRONT actual)
+    # Endpoints REST usados por el front actual
     eventos_collection,
     eventos_detalle,
 
-    # ✅ Rutas existentes (compatibilidad)
+    # Alias conservados
     eventos_crear,
     eventos_editar,
     eventos_eliminar,
@@ -14,7 +14,7 @@ from .api_eventos import (
 
 urlpatterns = [
     # -----------------------------
-    # ✅ FRONT actual (REST-like real)
+    # Front actual (REST-like)
     # -----------------------------
     # GET  /eventos/        -> listar
     # POST /eventos/        -> crear

@@ -11,7 +11,7 @@ export function Textarea({
     <textarea
       className={cn(
         "flex min-h-[96px] w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition",
-        "placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:border-indigo-300",
+        "placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)] focus-visible:border-[var(--school-primary-border)]",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}

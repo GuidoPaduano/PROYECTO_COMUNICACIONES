@@ -28,33 +28,100 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NotificationBell } from "@/components/notification-bell";
-import { authFetch, logout, useAuthGuard } from "../_lib/auth";
+import { authFetch, DEFAULT_SCHOOL_PRIMARY_COLOR, getCachedProfileApi, getProfileApi, logout, useAuthGuard } from "../_lib/auth";
+import { getCourseDisplayName } from "../_lib/courses";
 import { useUnreadMessages } from "../_lib/useUnreadMessages";
 
-const LOGO_SRC = "/imagenes/tecnova(1).png"
+const LOGO_SRC = "/imagenes/Logo%20Color.png"
+
+function getChildren(api) {
+  return Array.isArray(api?.children) ? api.children : [];
+}
+
+function getAssignedCourseLabels(api) {
+  const raw = Array.isArray(api?.assigned_school_courses) ? api.assigned_school_courses : [];
+  const labels = [];
+  const seen = new Set();
+
+  for (const item of raw) {
+    const label = String(getCourseDisplayName(item) || "").trim();
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+
+  return labels;
+}
+
+function getDepartmentInfo(api, fallbackDepartment = "") {
+  const alumnoLabel = String(getCourseDisplayName(api?.alumno) || "").trim();
+  if (alumnoLabel) {
+    return { label: "Curso", value: alumnoLabel };
+  }
+
+  const assignedLabels = getAssignedCourseLabels(api);
+  if (assignedLabels.length) {
+    return {
+      label: assignedLabels.length > 1 ? "Cursos asignados" : "Curso asignado",
+      value: assignedLabels.join(" · "),
+    };
+  }
+
+  if (getChildren(api).length) {
+    return { label: "Rol familiar", value: "Responsable de alumnos" };
+  }
+
+  const fallbackLabel = String(fallbackDepartment || "").trim();
+  if (fallbackLabel) {
+    return {
+      label: fallbackLabel.includes(" · ") ? "Cursos asignados" : "Curso",
+      value: fallbackLabel.replace(/^Alumno:\s*/i, ""),
+    };
+  }
+
+  return { label: "Curso", value: "" };
+}
+
+function buildEditableProfileData(api) {
+  const fullName =
+    [api?.user?.first_name, api?.user?.last_name]
+      .filter(Boolean)
+      .join(" ") ||
+    api?.user?.username ||
+    "Usuario";
+
+  return {
+    name: fullName,
+    email: api?.user?.email || "",
+    position: api?.user?.rol || "",
+    department: getDepartmentInfo(api).value,
+  };
+}
 
 export default function Profile() {
   useAuthGuard();
+  const initialApi = useMemo(() => getCachedProfileApi(), []);
+  const initialLegajo = useMemo(() => {
+    const username = initialApi?.user?.username || "";
+    return !initialApi?.alumno && username && username.length <= 32 ? username : "";
+  }, [initialApi]);
 
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialApi);
   const [error, setError] = useState(null);
-  const [api, setApi] = useState(null);
+  const [api, setApi] = useState(initialApi);
 
   // Estado editable (sin teléfono)
   const [profileData, setProfileData] = useState({
-    name: "",
-    email: "",
-    department: "",
-    position: "",
+    ...buildEditableProfileData(initialApi),
   });
 
   // ===== Mensajería: badge de no leídos =====
   const unreadCount = useUnreadMessages();
 
   // ===== FIX: Vincular Alumno ↔ Usuario por legajo (id_alumno) =====
-  const [legajo, setLegajo] = useState("");
+  const [legajo, setLegajo] = useState(initialLegajo);
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState("");
   const [linkOk, setLinkOk] = useState("");
@@ -76,42 +143,16 @@ export default function Profile() {
     let cancelled = false;
     const run = async () => {
       try {
-        setLoading(true);
+        if (!initialApi) setLoading(true);
         setError(null);
 
-        const res = await authFetch("/perfil_api/", {
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) {
-          let t = "";
-          try {
-            t = await res.text();
-          } catch {}
+        const data = await getProfileApi(); /*
           throw new Error(`Perfil API ${res.status} – ${t}`);
-        }
-        const data = await res.json();
+        */
         if (cancelled) return;
         setApi(data);
 
-        const fullName =
-          [data?.user?.first_name, data?.user?.last_name]
-            .filter(Boolean)
-            .join(" ") ||
-          data?.user?.username ||
-          "Usuario";
-
-        setProfileData({
-          name: fullName,
-          email: data?.user?.email || "",
-          position: data?.user?.rol || "",
-          department: data?.curso_preceptor
-            ? `${data.curso_preceptor}`
-            : data?.alumno
-            ? `Alumno: ${data.alumno.curso}`
-            : data?.alumnos_del_padre && data.alumnos_del_padre.length
-            ? "Responsable de alumnos"
-            : "",
-        });
+        setProfileData(buildEditableProfileData(data));
 
         // ✅ Si el user ya tiene username con pinta de legajo, lo precargamos
         const u = data?.user?.username || "";
@@ -138,8 +179,7 @@ export default function Profile() {
   );
 
   const gruposTexto = useMemo(() => {
-    const grupos =
-      (api && api.user && (api.user.grupos || api.user.groups)) || [];
+    const grupos = (api && api.user && api.user.groups) || [];
     const rol = api?.user?.is_superuser ? "superusuario" : api?.user?.rol;
 
     const base = grupos.length ? grupos.join(" · ") : "—";
@@ -148,7 +188,7 @@ export default function Profile() {
 
   const rolPrincipal = useMemo(() => {
     if (api?.user?.is_superuser) return "Administrador";
-    const grupos = (api?.user?.grupos || api?.user?.groups || []).map((g) =>
+    const grupos = (api?.user?.groups || []).map((g) =>
       String(g || "").toLowerCase()
     );
     const rolRaw = String(api?.user?.rol || "").toLowerCase();
@@ -162,7 +202,7 @@ export default function Profile() {
   }, [api]);
 
   const isPreceptor = useMemo(() => {
-    const grupos = (api?.user?.grupos || api?.user?.groups || []).map((g) =>
+    const grupos = (api?.user?.groups || []).map((g) =>
       String(g || "").toLowerCase()
     );
     const rolRaw = String(api?.user?.rol || "").toLowerCase();
@@ -170,18 +210,25 @@ export default function Profile() {
   }, [api]);
 
   const isAlumno = useMemo(() => {
-    const grupos = (api?.user?.grupos || api?.user?.groups || []).map((g) =>
+    const grupos = (api?.user?.groups || []).map((g) =>
       String(g || "").toLowerCase()
     );
     const rolRaw = String(api?.user?.rol || "").toLowerCase();
     return [rolRaw, ...grupos].some((t) => t.includes("alumno"));
   }, [api]);
 
-  const cursoAlumnoTexto = useMemo(() => {
-    if (api?.alumno?.curso) return String(api.alumno.curso);
-    const raw = String(profileData.department || "");
-    return raw.replace(/^Alumno:\s*/i, "");
-  }, [api, profileData.department]);
+  const departmentInfo = useMemo(
+    () => getDepartmentInfo(api, profileData.department),
+    [api, profileData.department]
+  );
+  const schoolBranding = useMemo(
+    () => ({
+      logoUrl: api?.school?.logo_url || LOGO_SRC,
+      schoolName: api?.school?.short_name || api?.school?.name || "Colegio",
+      primaryColor: api?.school?.primary_color || DEFAULT_SCHOOL_PRIMARY_COLOR,
+    }),
+    [api]
+  );
 
   const handleSave = async () => {
     setSaving(true);
@@ -208,7 +255,7 @@ export default function Profile() {
       }
 
       showToast("success", "Perfil actualizado.");
-      await refreshPerfilApi();
+      await refreshPerfilApi({ force: true });
       setIsEditing(false);
     } catch {
       showToast("error", "No se pudo conectar con el servidor.");
@@ -220,24 +267,9 @@ export default function Profile() {
   const handleCancel = () => {
     setIsEditing(false);
     if (api) {
-      const fullName =
-        [api?.user?.first_name, api?.user?.last_name]
-          .filter(Boolean)
-          .join(" ") ||
-        api?.user?.username ||
-        "Usuario";
       setProfileData((prev) => ({
         ...prev,
-        name: fullName,
-        email: api?.user?.email || "",
-        position: api?.user?.rol || "",
-        department: api?.curso_preceptor
-          ? `${api.curso_preceptor}`
-          : api?.alumno
-          ? `Alumno: ${api.alumno.curso}`
-          : api?.alumnos_del_padre && api.alumnos_del_padre.length
-          ? "Responsable de alumnos"
-          : "",
+        ...buildEditableProfileData(api),
       }));
     }
   };
@@ -267,7 +299,7 @@ export default function Profile() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
     };
-  }, []);
+  }, [initialApi]);
 
   const handleChangePassword = async (e) => {
     e?.preventDefault?.();
@@ -318,36 +350,13 @@ export default function Profile() {
     }
   };
 
-  async function refreshPerfilApi() {
+  async function refreshPerfilApi(options = {}) {
     try {
-      const res = await authFetch("/perfil_api/", {
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) return;
-      const data = await res.json().catch(() => null);
+      const data = await getProfileApi({ force: options?.force === true }).catch(() => null);
       if (!data) return;
 
       setApi(data);
-
-      const fullName =
-        [data?.user?.first_name, data?.user?.last_name]
-          .filter(Boolean)
-          .join(" ") ||
-        data?.user?.username ||
-        "Usuario";
-
-      setProfileData({
-        name: fullName,
-        email: data?.user?.email || "",
-        position: data?.user?.rol || "",
-        department: data?.curso_preceptor
-          ? `${data.curso_preceptor}`
-          : data?.alumno
-          ? `Alumno: ${data.alumno.curso}`
-          : data?.alumnos_del_padre && data.alumnos_del_padre.length
-          ? "Responsable de alumnos"
-          : "",
-      });
+      setProfileData(buildEditableProfileData(data));
     } catch {
       // silencio
     }
@@ -386,7 +395,7 @@ export default function Profile() {
           : "Listo. Se vinculó tu usuario con el alumno."
       );
 
-      await refreshPerfilApi();
+      await refreshPerfilApi({ force: true });
     } catch {
       setLinkError("No se pudo vincular. Revisá tu conexión y volvé a intentar.");
     } finally {
@@ -399,8 +408,8 @@ export default function Profile() {
     !error &&
     api &&
     isAlumno &&
-    !api?.curso_preceptor &&
-    !api?.alumnos_del_padre?.length &&
+    !getAssignedCourseLabels(api).length &&
+    !getChildren(api).length &&
     !api?.alumno;
 
   return (
@@ -418,15 +427,18 @@ export default function Profile() {
           </div>
         </div>
       )}
-      {/* Header */}
-      <div className="bg-blue-600 text-white px-6 py-4">
+      {/* Header legacy interno: oculto para usar solo el shell compartido */}
+      <div
+        className="hidden text-white px-6 py-4"
+        style={{ backgroundColor: schoolBranding.primaryColor }}
+      >
         <div className="flex items-center justify-between max-w-6xl mx-auto">
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="inline-flex">
               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
                 <img
-                  src={LOGO_SRC}
-                  alt="Escuela Tecnova"
+                  src={schoolBranding.logoUrl}
+                  alt={schoolBranding.schoolName}
                   className="h-full w-full object-contain"
                 />
               </div>
@@ -437,7 +449,7 @@ export default function Profile() {
           {/* User Bar + Volver al panel */}
           <div className="flex items-center gap-2 sm:gap-3">
             <Link href="/dashboard">
-              <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+              <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
                 <ArrowLeft className="h-4 w-4" />
                 <span className="hidden sm:inline">Volver al panel</span>
               </Button>
@@ -452,7 +464,7 @@ export default function Profile() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="text-white hover:bg-blue-700"
+                  className="text-white hover:bg-white/15"
                 >
                   <Mail className="h-5 w-5" />
                 </Button>
@@ -466,7 +478,7 @@ export default function Profile() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+                <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
                   <User className="h-4 w-4" />
                   {displayName}
                   <ChevronDown className="h-4 w-4" />
@@ -515,12 +527,12 @@ export default function Profile() {
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                 <CardContent className="p-6 text-center">
                   <div className="relative inline-block mb-4">
-                    <div className="w-32 h-32 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
-                      <User className="h-16 w-16 text-blue-600" />
+                    <div className="w-32 h-32 rounded-full flex items-center justify-center mx-auto school-primary-soft-icon">
+                      <User className="h-16 w-16" />
                     </div>
                     <Button
                       size="icon"
-                      className="absolute bottom-0 right-0 rounded-full w-10 h-10 bg-[#0c1b3f] hover:bg-[#0a1736]"
+                      className="absolute bottom-0 right-0 rounded-full w-10 h-10"
                       disabled
                     >
                       <Camera className="h-4 w-4" />
@@ -541,8 +553,8 @@ export default function Profile() {
                 <Card className="mt-6 shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                   <CardContent className="p-6">
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Link2 className="h-6 w-6 text-blue-600" />
+                      <div className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 school-primary-soft-icon">
+                        <Link2 className="h-6 w-6" />
                       </div>
                       <div className="w-full">
                         <h3 className="font-semibold text-gray-900 text-lg">
@@ -573,11 +585,7 @@ export default function Profile() {
                           )}
                             {linkOk && <SuccessMessage className="mt-1">{linkOk}</SuccessMessage>}
 
-                          <Button
-                            type="submit"
-                            disabled={linking}
-                            className="bg-[#0c1b3f] hover:bg-[#0a1736]"
-                          >
+                          <Button type="submit" disabled={linking}>
                             {linking ? "Vinculando…" : "Vincular"}
                           </Button>
                         </form>
@@ -607,12 +615,7 @@ export default function Profile() {
                       </Button>
                       {isEditing ? (
                         <>
-                          <Button
-                            size="sm"
-                            onClick={handleSave}
-                            className="bg-[#0c1b3f] hover:bg-[#0a1736]"
-                            disabled={saving}
-                          >
+                          <Button size="sm" onClick={handleSave} disabled={saving}>
                             <Save className="h-4 w-4 mr-2" />
                             {saving ? "Guardando..." : "Guardar"}
                           </Button>
@@ -695,23 +698,18 @@ export default function Profile() {
                         htmlFor="department"
                         className="text-sm font-medium text-gray-700"
                       >
-                        Curso
+                        {departmentInfo.label}
                       </Label>
                       {isEditing ? (
                         <Input
                           id="department"
-                          value={profileData.department}
-                          onChange={(e) =>
-                            setProfileData({
-                              ...profileData,
-                              department: e.target.value,
-                            })
-                          }
-                          className="mt-1"
+                          value={departmentInfo.value}
+                          disabled
+                          className="mt-1 bg-gray-50 text-gray-500"
                         />
                       ) : (
                         <p className="mt-1 text-gray-900">
-                          {cursoAlumnoTexto || "—"}
+                          {departmentInfo.value || "—"}
                         </p>
                       )}
                     </div>
@@ -774,12 +772,7 @@ export default function Profile() {
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          className="bg-[#0c1b3f] hover:bg-[#0a1736]"
-                          onClick={handleChangePassword}
-                          disabled={pwdLoading}
-                        >
+                        <Button size="sm" onClick={handleChangePassword} disabled={pwdLoading}>
                           {pwdLoading ? "Guardando…" : "Actualizar contraseña"}
                         </Button>
                         <Button
@@ -798,17 +791,16 @@ export default function Profile() {
                 </CardContent>
               </Card>
 
-              {api?.alumnos_del_padre &&
-                api.alumnos_del_padre.length > 0 && (
+              {getChildren(api).length > 0 && (
                   <Card className="mt-8 shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                     <CardContent className="p-6">
                       <h4 className="font-semibold text-gray-900 text-lg mb-4">
                         Alumnos a cargo
                       </h4>
                       <ul className="text-sm text-gray-800 list-disc pl-5 space-y-1">
-                        {api.alumnos_del_padre.map((a) => (
+                        {getChildren(api).map((a) => (
                           <li key={a.id}>
-                            {a.nombre} — {a.curso} (ID: {a.id_alumno})
+                            {a.nombre} — {getCourseDisplayName(a) || "Curso s/d"} (ID: {a.id_alumno})
                           </li>
                         ))}
                       </ul>

@@ -1,13 +1,19 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { authFetch } from "../_lib/auth"
+import { authFetch, useSessionContext } from "../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import SuccessMessage from "@/components/ui/success-message"
+import {
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  getCourseValue,
+  loadCourseCatalog,
+} from "../_lib/courses"
 
 /** Utilidad para tomar la primera key existente */
 function pick(a, ...keys) {
@@ -18,13 +24,11 @@ function pick(a, ...keys) {
 }
 
 function cursoIdOf(c) {
-  const id = pick(c, "id", "value", "curso")
-  return String(id ?? c ?? "")
+  return String(getCourseValue(c) || "")
 }
 
 function cursoLabelOf(c) {
-  const label = pick(c, "nombre", "label")
-  return String(label ?? cursoIdOf(c))
+  return String(getCourseLabel(c) || cursoIdOf(c))
 }
 
 function alumnoIdOf(a) {
@@ -48,11 +52,11 @@ function fullName(u) {
  *
  * Endpoints usados:
  *  - GET  /api/preceptor/cursos/
- *  - GET  /api/alumnos/?curso=ID
+ *  - GET  /api/alumnos/?school_course_id=ID
  *  - POST /api/mensajes/enviar/        { alumno_id | receptor_id, asunto, contenido, tipo }
- *  - POST /api/mensajes/enviar_grupal/ { curso, asunto, contenido, tipo }
+ *  - POST /api/mensajes/enviar_grupal/ { school_course_id, asunto, contenido, tipo }
  *
- * Compatibilidad: conserva la API original (props) y el flujo previo para "Familia".
+ * Conserva la API original (props) y el flujo previo para "Familia".
  */
 /**
  * ✅ Ahora también lo pueden usar Profesores (y Superusuarios) sin duplicar UI.
@@ -70,6 +74,7 @@ export default function ComposeComunicadoFamilia({
   defaultMode = "familia",
   showModeSelect = true,
 }) {
+  const session = useSessionContext()
   // Datos base
   const [cursos, setCursos] = useState([])
   const [cursoSel, setCursoSel] = useState(defaultCurso || "")
@@ -95,6 +100,10 @@ export default function ComposeComunicadoFamilia({
   // Estructura normalizada para “Familia”:
   // [{ alumnoId, alumnoNombre, padreId, padreLabel }]
   const [destinatarios, setDestinatarios] = useState([])
+  const schoolCourseIdSel = useMemo(
+    () => getCourseSchoolCourseId(cursoSel, cursos),
+    [cursoSel, cursos]
+  )
 
   // Reset suave al abrir/cerrar
   useEffect(() => {
@@ -130,20 +139,17 @@ export default function ComposeComunicadoFamilia({
     if (!open) return
     let alive = true
     setLoadingCursos(true)
-    authFetch(cursosEndpoint)
-      .then((r) => r.json())
-      .then((data) => {
+    loadCourseCatalog({
+      fetcher: authFetch,
+      urls: [cursosEndpoint],
+      cacheKey: `compose-familia:${session?.username || "anon"}:${session?.school?.id || session?.school?.slug || "default"}:${cursosEndpoint}`,
+    })
+      .then((list) => {
         if (!alive) return
 
         // ✅ Soportar ambos formatos:
         //  - preceptor/cursos => [ {id,nombre}, ... ]
         //  - notas/catalogos  => { cursos:[{id,nombre}, ...], ... }
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.cursos)
-          ? data.cursos
-          : []
-
         setCursos(list)
 
         // ✅ Normalizar cursoSel para que SIEMPRE matchee el value real del <option>.
@@ -177,14 +183,23 @@ export default function ComposeComunicadoFamilia({
       })
       .finally(() => alive && setLoadingCursos(false))
     return () => { alive = false }
-  }, [open, defaultCurso, cursosEndpoint])
+  }, [open, defaultCurso, cursosEndpoint, session?.school?.id, session?.school?.slug, session?.username])
 
   // ----- Cargar alumnos del curso -----
   useEffect(() => {
     if (!open || !cursoSel) { setAlumnos([]); setDestinatarios([]); setAlumnoSel(""); setPadreSel(""); return }
+    if (schoolCourseIdSel == null) {
+      setErrMsg("No se pudo resolver el curso seleccionado.")
+      setAlumnos([])
+      setDestinatarios([])
+      setAlumnoSel("")
+      setPadreSel("")
+      return
+    }
     let alive = true
     setLoadingAlumnos(true)
-    authFetch(`/alumnos/?curso=${encodeURIComponent(cursoSel)}`)
+    setErrMsg("")
+    authFetch(`/alumnos/?school_course_id=${encodeURIComponent(String(schoolCourseIdSel))}`)
       .then((r) => r.json())
       .then((data) => {
         if (!alive) return
@@ -233,7 +248,7 @@ export default function ComposeComunicadoFamilia({
       })
       .finally(() => alive && setLoadingAlumnos(false))
     return () => { alive = false }
-  }, [open, cursoSel])
+  }, [open, cursoSel, schoolCourseIdSel])
 
   // En modo "alumno", aseguramos que haya una seleccion valida si hay alumnos cargados.
   useEffect(() => {
@@ -305,7 +320,7 @@ export default function ComposeComunicadoFamilia({
           contenido: mensaje,
           tipo: "comunicado",
         }
-        const res = await authFetch("/mensajes/enviar/", {
+        const res = await authFetch("/api/mensajes/enviar/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -315,7 +330,7 @@ export default function ComposeComunicadoFamilia({
         setOkMsg("Comunicado enviado a la familia correctamente.")
       } else if (modo === "alumno") {
         // Envío a un alumno: dejamos que la API resuelva receptor = alumno.usuario
-        const res = await authFetch("/mensajes/enviar/", {
+        const res = await authFetch("/api/mensajes/enviar/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -330,11 +345,14 @@ export default function ComposeComunicadoFamilia({
         setOkMsg("Mensaje enviado al alumno correctamente.")
       } else {
         // Envío grupal a TODOS los alumnos del curso
-        const res = await authFetch("/mensajes/enviar_grupal/", {
+        if (schoolCourseIdSel == null) {
+          throw new Error("No se pudo resolver el curso seleccionado.")
+        }
+        const res = await authFetch("/api/mensajes/enviar_grupal/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            curso: cursoSel,
+            school_course_id: schoolCourseIdSel,
             asunto,
             contenido: mensaje,
             tipo: "mensaje", // => alumno.usuario (no padres)
@@ -342,7 +360,9 @@ export default function ComposeComunicadoFamilia({
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.detail || "No se pudo enviar el mensaje grupal.")
-        setOkMsg(`Mensaje enviado a ${data?.creados ?? 0} alumnos de ${cursoSel} correctamente.`)
+        setOkMsg(
+          `Mensaje enviado a ${data?.creados ?? 0} alumnos de ${getCourseLabel(cursoSel, cursos) || cursoSel} correctamente.`
+        )
       }
     } catch (e) {
       setErrMsg(e?.message || "Error al enviar.")
@@ -392,8 +412,8 @@ export default function ComposeComunicadoFamilia({
           >
             {!cursos.length && <option value="">{loadingCursos ? "Cargando…" : "Sin cursos"}</option>}
             {cursos.map((c) => {
-              const id = pick(c, "id", "value", "curso") ?? c
-              const label = pick(c, "nombre", "label") ?? String(id)
+              const id = cursoIdOf(c)
+              const label = cursoLabelOf(c)
               return (
                 <option key={id} value={id}>{label}</option>
               )

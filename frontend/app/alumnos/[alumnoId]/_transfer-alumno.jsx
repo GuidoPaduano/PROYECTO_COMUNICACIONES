@@ -22,6 +22,12 @@ import {
 import { Label } from "@/components/ui/label"
 
 import { authFetch } from "../../_lib/auth"
+import {
+  getCourseCode,
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  normalizeCourseList,
+} from "../../_lib/courses"
 
 async function fetchJSON(url, opts) {
   const res = await authFetch(url, opts)
@@ -35,17 +41,7 @@ function normalizeCursos(data) {
     : Array.isArray(data?.cursos)
     ? data.cursos
     : []
-
-  return list
-    .map((c) => {
-      if (typeof c === "string") {
-        return { id: c, label: c }
-      }
-      const id = c?.id ?? c?.value ?? c?.curso ?? c?.nombre
-      const label = c?.nombre ?? c?.label ?? id
-      return { id: id != null ? String(id) : "", label: String(label ?? "") }
-    })
-    .filter((c) => c.id)
+  return normalizeCourseList(list)
 }
 
 export default function TransferAlumno({
@@ -62,7 +58,8 @@ export default function TransferAlumno({
   const [error, setError] = useState("")
   const [okMsg, setOkMsg] = useState("")
 
-  const currentCurso = String(cursoActual || "").trim()
+  const currentCurso = getCourseCode(cursoActual) || String(cursoActual || "").trim()
+  const cursoSelId = useMemo(() => getCourseSchoolCourseId(cursoSel, cursos), [cursoSel, cursos])
 
   useEffect(() => {
     if (!open) return
@@ -98,8 +95,8 @@ export default function TransferAlumno({
 
   useEffect(() => {
     if (!open || !cursos.length) return
-    const preferred = cursos.find((c) => c.id && c.id !== currentCurso) || cursos[0]
-    if (preferred?.id) setCursoSel(preferred.id)
+    const preferred = cursos.find((c) => c.value && c.courseCode !== currentCurso) || cursos[0]
+    if (preferred?.value) setCursoSel(preferred.value)
   }, [open, cursos, currentCurso])
 
   const canTransfer = useMemo(() => {
@@ -107,8 +104,9 @@ export default function TransferAlumno({
       alumnoPk != null || String(alumnoCode || "").trim() !== ""
     if (!hasAlumno) return false
     if (!cursoSel) return false
-    return String(cursoSel) !== String(currentCurso || "")
-  }, [alumnoPk, alumnoCode, cursoSel, currentCurso])
+    if (cursoSelId == null) return false
+    return String(getCourseCode(cursoSel, cursos) || cursoSel) !== String(currentCurso || "")
+  }, [alumnoPk, alumnoCode, cursoSel, cursoSelId, currentCurso, cursos])
 
   async function handleTransfer() {
     if (!canTransfer || sending) return
@@ -117,9 +115,12 @@ export default function TransferAlumno({
     setOkMsg("")
 
     try {
+      if (cursoSelId == null) {
+        throw new Error("No se pudo resolver el curso seleccionado.")
+      }
       const payload = {
         ...(alumnoPk != null ? { alumno_id: alumnoPk } : { id_alumno: alumnoCode }),
-        curso: cursoSel,
+        school_course_id: cursoSelId,
       }
 
       const r = await fetchJSON("/alumnos/transferir/", {
@@ -131,7 +132,6 @@ export default function TransferAlumno({
       if (!r.ok) {
         const msg =
           r.data?.detail ||
-          r.data?.error ||
           `No se pudo transferir (HTTP ${r.status}).`
         throw new Error(msg)
       }
@@ -183,8 +183,8 @@ export default function TransferAlumno({
                 </SelectTrigger>
                 <SelectContent>
                   {cursos.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.label}
+                    <SelectItem key={c.value} value={c.value}>
+                      {getCourseLabel(c)}
                     </SelectItem>
                   ))}
                 </SelectContent>

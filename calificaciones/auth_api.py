@@ -13,11 +13,11 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.serializers import (
-    TokenBlacklistSerializer,
     TokenObtainPairSerializer,
     TokenRefreshSerializer,
     TokenVerifySerializer,
 )
+from rest_framework_simplejwt.tokens import RefreshToken
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class SafeTokenObtainPairView(APIView):
             serializer = TokenObtainPairSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             tokens = serializer.validated_data
-            response = Response({"detail": "ok"}, status=status.HTTP_200_OK)
+            response = Response({}, status=status.HTTP_200_OK)
             return _set_token_cookies(
                 response,
                 access=tokens.get("access"),
@@ -111,7 +111,7 @@ class SafeTokenRefreshView(APIView):
             serializer = TokenRefreshSerializer(data={"refresh": refresh})
             serializer.is_valid(raise_exception=True)
             tokens = serializer.validated_data
-            response = Response({"detail": "ok"}, status=status.HTTP_200_OK)
+            response = Response({}, status=status.HTTP_200_OK)
             return _set_token_cookies(
                 response,
                 access=tokens.get("access"),
@@ -144,7 +144,7 @@ class SafeTokenVerifyView(APIView):
             )
             serializer = TokenVerifySerializer(data={"token": token})
             serializer.is_valid(raise_exception=True)
-            return Response({"detail": "ok"}, status=status.HTTP_200_OK)
+            return Response(status=status.HTTP_204_NO_CONTENT)
         except (InvalidToken, TokenError) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
         except Exception:
@@ -160,10 +160,8 @@ class SafeTokenBlacklistView(APIView):
     def post(self, request, *args, **kwargs):
         try:
             refresh = _refresh_from_request(request)
-            serializer = TokenBlacklistSerializer(data={"refresh": refresh})
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            response = Response({"detail": "ok"}, status=status.HTTP_200_OK)
+            RefreshToken(refresh).blacklist()
+            response = Response(status=status.HTTP_204_NO_CONTENT)
             return clear_auth_cookies(response)
         except (InvalidToken, TokenError) as exc:
             response = Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)

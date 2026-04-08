@@ -2,11 +2,12 @@
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from calificaciones.models import Alumno, Nota
-from calificaciones.models_preceptores import ProfesorCurso
+from calificaciones.models import Alumno, Nota, School, SchoolCourse
+from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso
 
 
 def _make_user(username: str, groups: list[str]):
@@ -20,7 +21,12 @@ def _make_user(username: str, groups: list[str]):
 
 class ReportesApiTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
+        self.school = School.objects.create(name="Colegio Reportes Base", slug="colegio-reportes-base")
+        self.course_1a = SchoolCourse.objects.create(school=self.school, code="1A", name="1A", sort_order=1)
+        self.course_2a = SchoolCourse.objects.create(school=self.school, code="2A", name="2A", sort_order=2)
+        self.course_3b = SchoolCourse.objects.create(school=self.school, code="3B", name="3B", sort_order=3)
 
     def test_padre_no_puede_pedir_alumno_ajeno_en_mis_estadisticas(self):
         padre_1 = _make_user("padre_1", ["Padres"])
@@ -30,6 +36,8 @@ class ReportesApiTests(TestCase):
             nombre="Ana",
             apellido="Perez",
             id_alumno="A001",
+            school=self.school,
+            school_course=self.course_1a,
             curso="1A",
             padre=padre_1,
         )
@@ -37,6 +45,8 @@ class ReportesApiTests(TestCase):
             nombre="Bruno",
             apellido="Lopez",
             id_alumno="B001",
+            school=self.school,
+            school_course=self.course_1a,
             curso="1A",
             padre=padre_2,
         )
@@ -56,6 +66,8 @@ class ReportesApiTests(TestCase):
             nombre="Carla",
             apellido="Diaz",
             id_alumno="C001",
+            school=self.school,
+            school_course=self.course_2a,
             curso="2A",
             usuario=alumno_user_1,
         )
@@ -63,6 +75,8 @@ class ReportesApiTests(TestCase):
             nombre="Dario",
             apellido="Suarez",
             id_alumno="D001",
+            school=self.school,
+            school_course=self.course_2a,
             curso="2A",
         )
 
@@ -91,17 +105,26 @@ class ReportesApiTests(TestCase):
 
         body = res.json()
         self.assertEqual(body["alumno_activo"]["id_alumno"], "C001")
+        self.assertEqual(body["alumno_activo"]["school_course_name"], "2A")
+        self.assertNotIn("curso", body["alumno_activo"])
         self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)
         self.assertEqual(body["resumen_notas"]["conteos_por_estado"]["TEA"], 1)
 
     def test_json_incluye_conteos_y_evolucion_con_estados(self):
         profesor = _make_user("profesor_test", ["Profesores"])
-        ProfesorCurso.objects.create(profesor=profesor, curso="1A")
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_1a,
+            profesor=profesor,
+            curso="1A",
+        )
 
         alumno = Alumno.objects.create(
             nombre="Elena",
             apellido="Mora",
             id_alumno="E001",
+            school=self.school,
+            school_course=self.course_1a,
             curso="1A",
         )
         Nota.objects.create(
@@ -133,7 +156,11 @@ class ReportesApiTests(TestCase):
         )
 
         self.client.force_authenticate(user=profesor)
-        res = self.client.get("/api/reportes/curso/1A/", follow=True)
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_1a.id}/",
+            {"school": self.school.slug},
+            follow=True,
+        )
         self.assertEqual(res.status_code, 200)
 
         body = res.json()
@@ -148,6 +175,28 @@ class ReportesApiTests(TestCase):
         self.assertIn("TEP_count", primer_mes)
         self.assertIn("TED_count", primer_mes)
 
+    def test_reporte_por_curso_rechaza_codigo_legacy_en_path(self):
+        profesor = _make_user("profesor_test_legacy", ["Profesores"])
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_1a,
+            profesor=profesor,
+            curso="1A",
+        )
+        self.client.force_authenticate(user=profesor)
+
+        res = self.client.get(
+            "/api/reportes/curso/1A/",
+            {"school": self.school.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(
+            res.json()["detail"],
+            "El código legacy de curso en la ruta está deprecado. Usa school_course_id.",
+        )
+
     def test_directivo_puede_ver_reportes_de_cualquier_curso(self):
         directivo = _make_user("directivo_test", ["Directivos"])
 
@@ -155,6 +204,8 @@ class ReportesApiTests(TestCase):
             nombre="Nora",
             apellido="Silva",
             id_alumno="N001",
+            school=self.school,
+            school_course=self.course_3b,
             curso="3B",
         )
         Nota.objects.create(
@@ -168,10 +219,179 @@ class ReportesApiTests(TestCase):
         )
 
         self.client.force_authenticate(user=directivo)
-        res = self.client.get("/api/reportes/curso/3B/", follow=True)
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_3b.id}/",
+            {"school": self.school.slug},
+            follow=True,
+        )
         self.assertEqual(res.status_code, 200)
 
         body = res.json()
         self.assertEqual(body["rol"], "Directivos")
-        self.assertEqual(body["curso"], "3B")
+        self.assertNotIn("curso", body)
         self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)
+
+
+class ReportesSchoolScopingTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.profesor = _make_user("profesor_reportes_school", ["Profesores"])
+        self.profesor_sin_asignacion = _make_user("profesor_reportes_sin_asignacion", ["Profesores"])
+        self.preceptor = _make_user("preceptor_reportes_school", ["Preceptores"])
+        self.preceptor_sin_asignacion = _make_user("preceptor_reportes_sin_asignacion", ["Preceptores"])
+        self.school_a = School.objects.create(name="Colegio Reportes Norte", slug="colegio-reportes-norte")
+        self.school_b = School.objects.create(name="Colegio Reportes Sur", slug="colegio-reportes-sur")
+        self.course_a1 = SchoolCourse.objects.create(school=self.school_a, code="1A", name="1A Norte", sort_order=1)
+        self.course_b1 = SchoolCourse.objects.create(school=self.school_b, code="1A", name="1A Sur", sort_order=1)
+        ProfesorCurso.objects.create(school=self.school_a, profesor=self.profesor, curso="1A")
+        PreceptorCurso.objects.create(school=self.school_a, preceptor=self.preceptor, curso="1A")
+
+        self.alumno_a = Alumno.objects.create(
+            school=self.school_a,
+            nombre="Lia",
+            apellido="Perez",
+            id_alumno="RNS001",
+            curso="1A",
+        )
+        self.alumno_b = Alumno.objects.create(
+            school=self.school_b,
+            nombre="Milo",
+            apellido="Ruiz",
+            id_alumno="RSS001",
+            curso="1A",
+        )
+        Nota.objects.create(
+            school=self.school_a,
+            alumno=self.alumno_a,
+            materia="Matemática",
+            tipo="Examen",
+            resultado="TEA",
+            calificacion="TEA",
+            cuatrimestre=1,
+            fecha=date(2026, 3, 5),
+        )
+        Nota.objects.create(
+            school=self.school_b,
+            alumno=self.alumno_b,
+            materia="Matemática",
+            tipo="Examen",
+            resultado="TEP",
+            calificacion="TEP",
+            cuatrimestre=1,
+            fecha=date(2026, 3, 6),
+        )
+
+    def test_profesor_reporte_por_curso_filtra_por_school_activo(self):
+        self.client.force_authenticate(user=self.profesor)
+
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_a1.id}/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)
+        self.assertEqual(body["resumen_notas"]["conteos_por_estado"]["TEA"], 1)
+        self.assertEqual(body["resumen_notas"]["conteos_por_estado"]["TEP"], 0)
+
+    def test_profesor_reporte_por_curso_acepta_school_course_id_en_path(self):
+        self.client.force_authenticate(user=self.profesor)
+
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_a1.id}/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertNotIn("curso", body)
+        self.assertEqual(body["school_course_id"], self.course_a1.id)
+        self.assertEqual(body["school_course_name"], "1A Norte")
+        self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)
+        self.assertEqual(body["resumen_notas"]["conteos_por_estado"]["TEA"], 1)
+        self.assertEqual(body["resumen_notas"]["conteos_por_estado"]["TEP"], 0)
+
+    def test_preceptor_reporte_por_curso_filtra_por_school_activo(self):
+        self.client.force_authenticate(user=self.preceptor)
+
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_a1.id}/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)
+        self.assertEqual(body["resumen_notas"]["conteos_por_estado"]["TEA"], 1)
+        self.assertEqual(body["resumen_notas"]["conteos_por_estado"]["TEP"], 0)
+
+    def test_reporte_por_curso_rechaza_codigo_legacy_en_path_con_school_activo(self):
+        self.client.force_authenticate(user=self.profesor)
+
+        res = self.client.get(
+            "/api/reportes/curso/1A/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(
+            res.json()["detail"],
+            "El código legacy de curso en la ruta está deprecado. Usa school_course_id.",
+        )
+
+    def test_reporte_por_materia_y_curso_rechaza_codigo_legacy_en_path(self):
+        self.client.force_authenticate(user=self.profesor)
+
+        res = self.client.get(
+            "/api/reportes/materia/Matemática/curso/1A/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(
+            res.json()["detail"],
+            "El código legacy de curso en la ruta está deprecado. Usa school_course_id.",
+        )
+
+    def test_profesor_sin_asignacion_no_puede_ver_reporte_por_curso(self):
+        self.client.force_authenticate(user=self.profesor_sin_asignacion)
+
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_a1.id}/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No tenes cursos asignados.")
+
+    def test_preceptor_sin_asignacion_no_puede_ver_reporte_por_curso(self):
+        self.client.force_authenticate(user=self.preceptor_sin_asignacion)
+
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_a1.id}/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No tenes cursos asignados.")
+
+    def test_profesor_sin_asignacion_no_puede_ver_reporte_por_materia_y_curso(self):
+        self.client.force_authenticate(user=self.profesor_sin_asignacion)
+
+        res = self.client.get(
+            f"/api/reportes/materia/Matemática/curso/{self.course_a1.id}/",
+            {"school": self.school_a.slug},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No tenes cursos asignados.")

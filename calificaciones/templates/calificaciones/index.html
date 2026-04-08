@@ -46,14 +46,14 @@
         </form>
     </p>
 
-    {% if user.groups.all.0.name == 'Padres' %}
+    {% if is_padre %}
         <p>Estás viendo las notas de tu(s) hijo(s).</p>
         <a href="{% url 'ver_notas' %}">📘 Ver Notas</a><br>
         <a href="{% url 'historial_notas_padre' %}">📚 Historial de Notas</a><br>
         <a href="{% url 'ver_mensajes' %}">✉️ Ver Mensajes</a><br>
         <a href="{% url 'calendario' %}">📅 Ver Calendario Escolar</a><br>
 
-    {% elif user.groups.all.0.name == 'Profesores' or user.is_superuser %}
+    {% elif is_staff_role %}
         <p>Estás gestionando todos los alumnos.</p>
         <a href="{% url 'agregar_nota' %}">➕ Nueva Nota</a><br>
         <a href="{% url 'enviar_mensaje' %}">✉️ Enviar Mensaje Individual</a><br>
@@ -61,7 +61,7 @@
         <a href="{% url 'calendario' %}">📅 Ver Calendario Escolar</a><br>
     {% endif %}
 
-    {% if user.username in "preceptor1 preceptor2 preceptor3" or user.is_superuser %}
+    {% if puede_pasar_asistencia %}
     <div class="mt-3">
         <a href="{% url 'pasar_asistencia' %}" class="btn btn-success">
         Pasar asistencia

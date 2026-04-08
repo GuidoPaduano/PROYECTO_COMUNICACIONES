@@ -1,5 +1,6 @@
 # calificaciones/urls_api.py
 from django.urls import path, include
+from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 
 from .auth_api import (
@@ -23,7 +24,7 @@ from .views import (
     alumno_notas,
 )
 
-# ✅ NUEVO: endpoints legacy para /api/notas/...
+# Alias historicos para /api/notas/...
 from .api_notas import (
     notas_listar,
     notas_por_codigo,
@@ -95,6 +96,8 @@ from .api_password_reset import (
     password_reset_request,
     password_reset_confirm,
 )
+from .api_schools import admin_create_school, public_school_branding, public_school_directory
+from .utils_cursos import parse_school_course_id
 
 # APIs de eventos para padres (calendario filtrado por hijo/curso)
 from .api_eventos_padres import (
@@ -102,17 +105,17 @@ from .api_eventos_padres import (
     eventos_para_mis_hijos,
 )
 
-# ✅ NUEVO: endpoints para calendario (alumno + preceptor selector)
-# 🔥 FIX: mi_curso AHORA VIENE DE views.py (lo agregaste ahí)
+# Endpoints para calendario (alumno + preceptor selector)
+# `mi_curso` se expone desde views.py
 from .views import mi_curso
 from .api_eventos import (
-    preceptor_cursos as preceptor_cursos_calendario,  # ✅ selector calendario preceptor
+    preceptor_cursos as preceptor_cursos_calendario,  # selector calendario preceptor
 )
 
 # APIs de asistencias / preceptor (+ listado por alumno)
 from .api_asistencias import (
-    preceptor_cursos as preceptor_cursos_asistencias,  # ✅ alias para evitar choque
-    tipos_asistencia,                                  # ✅ NUEVO
+    preceptor_cursos as preceptor_cursos_asistencias,  # alias para evitar choque
+    tipos_asistencia,
     registrar_asistencias,
     asistencias_por_alumno,
     asistencias_por_codigo,
@@ -122,27 +125,33 @@ from .api_asistencias import (
 )
 
 # API para crear alumnos (preceptor)
-from .api_alumnos import crear_alumno, vincular_mi_legajo, transferir_alumno, cursos_disponibles  # ✅ FIX: importar también vincular
+from .api_alumnos import crear_alumno, vincular_mi_legajo, transferir_alumno, cursos_disponibles
 
 router = DefaultRouter()
 
 # ======================================================
-# ✅✅✅ FIX: Compat para front que llama:
-#   /api/alumnos/curso/1A/
-#   /api/gestion_alumnos/api/curso/1A/
-# Pero tu view real espera:
-#   /api/alumnos/?curso=1A
-# Entonces: wrapper que inyecta curso en querystring y reutiliza alumnos_por_curso.
+# Wrapper transitorio para la variante por path.
+# El endpoint moderno espera:
+#   /api/alumnos/?school_course_id=14
+# Este wrapper solo mantiene la variante por path cuando la ruta trae un id numerico.
 # ======================================================
 def alumnos_por_curso_path(request, curso):
     """
-    Wrapper legacy: convierte /alumnos/curso/<curso>/ en /alumnos/?curso=<curso>
-    sin tocar el front.
+    Wrapper de transicion acotada:
+    convierte /alumnos/curso/<school_course_id>/ en /alumnos/ con school_course_id.
+    Los codigos no numericos en path ya no se aceptan.
     """
     try:
         django_req = getattr(request, "_request", request)  # DRF Request -> Django HttpRequest
         q = django_req.GET.copy()
-        q["curso"] = curso
+        raw_curso = str(curso or "").strip()
+        parsed_course_id = parse_school_course_id(raw_curso)
+        if parsed_course_id is None:
+            return JsonResponse(
+                {"detail": "El código legacy de curso en la ruta está deprecado. Usa school_course_id."},
+                status=400,
+            )
+        q["school_course_id"] = str(parsed_course_id)
         django_req.GET = q
     except Exception:
         # Si por algún motivo no se puede mutar GET, igual intentamos seguir.
@@ -166,13 +175,19 @@ urlpatterns = [
     path("auth/password-reset/confirm/", password_reset_confirm, name="auth_password_reset_confirm"),
 
     # ===== Perfil / WhoAmI =====
+    path("public/school-branding/", public_school_branding, name="public_school_branding"),
+    path("public/school-branding", public_school_branding, name="public_school_branding_noslash"),
+    path("public/schools/", public_school_directory, name="public_school_directory"),
+    path("public/schools", public_school_directory, name="public_school_directory_noslash"),
     path("auth/whoami/", WhoAmI.as_view(), name="api_whoami"),
+    path("admin/schools/", admin_create_school, name="admin_create_school"),
+    path("admin/schools", admin_create_school, name="admin_create_school_noslash"),
 
     # Rutas “oficiales”
     path("mi-perfil/", mi_perfil, name="mi_perfil_api"),
     path("perfil_api/", perfil_api, name="perfil_api"),
 
-    # Alias compatibilidad (sin prefijo api/ acá adentro)
+    # Alias historicos (sin prefijo api/ aca adentro)
     path("mi_perfil/", mi_perfil, name="mi_perfil_alias"),
     path("mi_perfil", mi_perfil, name="mi_perfil_alias_noslash"),
     path("perfil/", perfil_api, name="perfil_alias"),
@@ -357,7 +372,7 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("asistencias/justificar/<int:pk>/", justificar_asistencia, name="asistencias_justificar_legacy"),
     path("asistencias/justificar/<int:pk>", justificar_asistencia, name="asistencias_justificar_legacy_noslash"),
 
-    # ✅ Más compat (singular / nombres alternativos)
+    # Alias adicionales (singular / nombres alternativos)
     path("asistencia/<int:pk>/justificar/", justificar_asistencia, name="asistencia_justificar"),
     path("asistencia/<int:pk>/justificar", justificar_asistencia, name="asistencia_justificar_noslash"),
 
@@ -373,7 +388,7 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("asistencias/<int:pk>/observacion/", editar_detalle_asistencia, name="asistencias_observacion"),
     path("asistencias/<int:pk>/observacion", editar_detalle_asistencia, name="asistencias_observacion_noslash"),
 
-    # Compat legacy (orden invertido)
+    # Alias historicos (orden invertido)
     path("asistencias/detalle/<int:pk>/", editar_detalle_asistencia, name="asistencias_detalle_legacy"),
     path("asistencias/detalle/<int:pk>", editar_detalle_asistencia, name="asistencias_detalle_legacy_noslash"),
     path("asistencias/observacion/<int:pk>/", editar_detalle_asistencia, name="asistencias_observacion_legacy"),

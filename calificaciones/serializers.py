@@ -30,14 +30,39 @@ def _format_nota_numerica(value):
     return txt.rstrip("0").rstrip(".")
 
 
+def _get_school_course_id(obj):
+    return getattr(obj, "school_course_id", None)
+
+
+def _get_course_code(obj):
+    school_course = getattr(obj, "school_course", None)
+    school_course_code = getattr(school_course, "code", None) if school_course is not None else None
+    return school_course_code or getattr(obj, "curso", None)
+
+
+def _get_course_name(obj):
+    school_course = getattr(obj, "school_course", None)
+    school_course_name = getattr(school_course, "name", None) if school_course is not None else None
+    return school_course_name or _get_course_code(obj)
+
+
 class AlumnoSerializer(serializers.ModelSerializer):
     """
     Usado para /calificaciones/nueva-nota/datos/ (Next.js).
     """
 
+    school_course_id = serializers.SerializerMethodField()
+    school_course_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Alumno
-        fields = ["id", "id_alumno", "nombre", "apellido", "curso"]
+        fields = ["id", "id_alumno", "nombre", "apellido", "school_course_id", "school_course_name"]
+
+    def get_school_course_id(self, obj):
+        return _get_school_course_id(obj)
+
+    def get_school_course_name(self, obj):
+        return _get_course_name(obj)
 
 
 class NotaCreateSerializer(serializers.ModelSerializer):
@@ -48,7 +73,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
     - resultado: TEA/TEP/TED (principal)
     - nota_numerica: opcional
 
-    Compatibilidad legacy:
+    Entrada adicional admitida:
     - calificacion (texto) sigue siendo aceptada.
     """
 
@@ -114,12 +139,12 @@ class NotaCreateSerializer(serializers.ModelSerializer):
         nota_numerica = attrs.get("nota_numerica", current_nota_numerica)
 
         if calificacion:
-            # Compatibilidad: si calificacion legacy trae TEA/TEP/TED, poblar resultado
+            # Si calificacion trae TEA/TEP/TED, poblar resultado
             if calificacion in _ESTADOS and not resultado:
                 attrs["resultado"] = calificacion
                 resultado = calificacion
 
-            # Compatibilidad: si calificacion legacy es numerica, poblar nota_numerica
+            # Si calificacion llega numerica, poblar nota_numerica
             parsed_num = _parse_nota_numerica(calificacion)
             if parsed_num is not None and nota_numerica is None:
                 attrs["nota_numerica"] = parsed_num
@@ -134,7 +159,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
                 "Debes informar resultado, nota_numerica o calificacion."
             )
 
-        # Mantener calificacion legacy poblada para no romper flujos existentes.
+        # Mantener calificacion poblada para clientes que aun leen ese campo.
         if not attrs.get("calificacion"):
             if resultado:
                 attrs["calificacion"] = str(resultado).upper()
@@ -145,6 +170,9 @@ class NotaCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         fecha = validated_data.pop("fecha", None)
+        alumno = validated_data.get("alumno")
+        if validated_data.get("school") is None and alumno is not None:
+            validated_data["school"] = getattr(alumno, "school", None)
         nota = Nota(**validated_data)
         if fecha is not None:
             try:
@@ -216,13 +244,15 @@ class EventoSerializer(serializers.ModelSerializer):
     titulo = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
     descripcion = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     fecha = serializers.DateField(required=True, input_formats=["%Y-%m-%d"])
-    curso = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    curso = serializers.CharField(required=False, allow_blank=True, allow_null=True, write_only=True)
     tipo_evento = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     creado_por = serializers.StringRelatedField(read_only=True)
+    school_course_id = serializers.IntegerField(read_only=True)
+    school_course_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Evento
-        fields = ["id", "titulo", "descripcion", "fecha", "curso", "tipo_evento", "creado_por"]
+        fields = ["id", "titulo", "descripcion", "fecha", "curso", "school_course_id", "school_course_name", "tipo_evento", "creado_por"]
         read_only_fields = ["creado_por"]
 
     def validate_curso(self, v):
@@ -241,11 +271,28 @@ class EventoSerializer(serializers.ModelSerializer):
     def validate_descripcion(self, v):
         return v
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["school_course_id"] = _get_school_course_id(instance)
+        return data
+
+    def get_school_course_name(self, obj):
+        return _get_course_name(obj)
+
 
 class AlumnoFullSerializer(serializers.ModelSerializer):
+    school_course_id = serializers.SerializerMethodField()
+    school_course_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Alumno
-        fields = ["id", "id_alumno", "nombre", "apellido", "curso"]
+        fields = ["id", "id_alumno", "nombre", "apellido", "school_course_id", "school_course_name"]
+
+    def get_school_course_id(self, obj):
+        return _get_school_course_id(obj)
+
+    def get_school_course_name(self, obj):
+        return _get_course_name(obj)
 
 
 class NotaPublicSerializer(serializers.ModelSerializer):
@@ -278,14 +325,15 @@ SancionModel = apps.get_model("calificaciones", "Sancion")
 
 
 class SancionPublicSerializer(serializers.ModelSerializer):
-    """Serializer compatible con frontend legacy y moderno."""
+    """Serializer estable para el frontend actual."""
 
     alumno_id = serializers.IntegerField(source="alumno.id", read_only=True)
     alumno_nombre = serializers.SerializerMethodField()
 
-    curso = serializers.SerializerMethodField()
+    school_course_id = serializers.SerializerMethodField()
+    school_course_name = serializers.SerializerMethodField()
 
-    # Campos legacy
+    # Campos heredados aun expuestos
     asunto = serializers.SerializerMethodField()
     mensaje = serializers.SerializerMethodField()
     creado_por = serializers.SerializerMethodField()
@@ -301,7 +349,8 @@ class SancionPublicSerializer(serializers.ModelSerializer):
             "id",
             "alumno_id",
             "alumno_nombre",
-            "curso",
+            "school_course_id",
+            "school_course_name",
             "fecha",
             "motivo",
             "docente",
@@ -319,8 +368,11 @@ class SancionPublicSerializer(serializers.ModelSerializer):
         full = (f"{nm} {ap}").strip()
         return full or nm or str(getattr(obj.alumno, "id", ""))
 
-    def get_curso(self, obj):
-        return getattr(getattr(obj, "alumno", None), "curso", None)
+    def get_school_course_id(self, obj):
+        return _get_school_course_id(getattr(obj, "alumno", None))
+
+    def get_school_course_name(self, obj):
+        return _get_course_name(getattr(obj, "alumno", None))
 
     def get_asunto(self, obj):
         det = (getattr(obj, "detalle", "") or "").strip()

@@ -1,69 +1,59 @@
 # calificaciones/api_padres.py
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404
-from django.http import JsonResponse, HttpResponseForbidden
+from django.core.cache import cache
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
+
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
-
 from .models import Alumno, Nota
-
-# --- Serializers: intentamos usar los tuyos; si no existen, caemos a fallbacks seguros ---
-AlumnoSerializer = None
-try:
-    # Tu serializer habitual (si existe)
-    from .serializers import AlumnoSerializer as _AlumnoSerializer
-    AlumnoSerializer = _AlumnoSerializer
-except Exception:
-    try:
-        from .serializers import AlumnoFullSerializer as _AlumnoSerializer
-        AlumnoSerializer = _AlumnoSerializer
-    except Exception:
-        try:
-            from .serializers import AlumnoPublicSerializer as _AlumnoSerializer
-            AlumnoSerializer = _AlumnoSerializer
-        except Exception:
-            AlumnoSerializer = None  # usaremos un fallback manual
-
-NotaPublicSerializer = None
-try:
-    from .serializers import NotaPublicSerializer as _NotaPublicSerializer
-    NotaPublicSerializer = _NotaPublicSerializer
-except Exception:
-    NotaPublicSerializer = None  # usaremos un fallback manual si fuera necesario
+from .schools import get_request_school, scope_queryset_to_school
 
 
-def _json_error(msg, status=400):
-    return JsonResponse({"ok": False, "error": msg}, status=status)
+MIS_HIJOS_CACHE_TTL = 120
 
 
-def _serialize_alumnos_fallback(qs):
-    """Serializador mínimo si no hay serializer DRF disponible."""
+def _mis_hijos_cache_key(user_id, school_id, is_superuser: bool) -> str:
+    return f"mis_hijos:user:{user_id or 'x'}:school:{school_id or 'none'}:super:{int(bool(is_superuser))}"
+
+
+def _serialize_alumnos_public(qs):
+    """Serializa alumnos para la API publica de padres."""
     out = []
-    for a in qs:
-        out.append({
-            "id_alumno": getattr(a, "id_alumno", None),
-            "nombre": getattr(a, "nombre", None),
-            # algunos proyectos tuyos no tenían 'apellido'; por eso usamos getattr
-            "apellido": getattr(a, "apellido", None),
-            "curso": getattr(a, "curso", None),
-        })
+    for alumno in qs:
+        school_course = getattr(alumno, "school_course", None)
+        out.append(
+            {
+                "id": getattr(alumno, "id", None),
+                "id_alumno": getattr(alumno, "id_alumno", None),
+                "nombre": getattr(alumno, "nombre", None),
+                # Algunas filas antiguas pueden no tener apellido.
+                "apellido": getattr(alumno, "apellido", None),
+                "school_course_id": getattr(alumno, "school_course_id", None),
+                "school_course_name": getattr(school_course, "name", None)
+                or getattr(school_course, "code", None)
+                or getattr(alumno, "curso", None),
+            }
+        )
     return out
 
 
-def _serialize_notas_fallback(qs):
-    """Serializador mínimo para notas si no está NotaPublicSerializer."""
+def _serialize_notas_public(qs):
+    """Serializa notas para la API publica de padres."""
     out = []
-    for n in qs:
-        out.append({
-            "id": getattr(n, "id", None),
-            "fecha": getattr(n, "fecha", None),
-            "materia": getattr(n, "materia", None),
-            "tipo": getattr(n, "tipo", None),
-            "calificacion": getattr(n, "calificacion", None),
-            "calificacion_display": getattr(n, "calificacion_display", None),
-            "cuatrimestre": getattr(n, "cuatrimestre", None),
-        })
+    for nota in qs:
+        out.append(
+            {
+                "id": getattr(nota, "id", None),
+                "fecha": getattr(nota, "fecha", None),
+                "materia": getattr(nota, "materia", None),
+                "tipo": getattr(nota, "tipo", None),
+                "calificacion": getattr(nota, "calificacion", None),
+                "calificacion_display": getattr(nota, "calificacion_display", None),
+                "cuatrimestre": getattr(nota, "cuatrimestre", None),
+            }
+        )
     return out
 
 
@@ -73,13 +63,29 @@ def _serialize_notas_fallback(qs):
 def mis_hijos(request):
     """
     Devuelve los alumnos vinculados al usuario padre autenticado.
-    Compatible con JWT (authFetch) y sesión.
+    Compatible con JWT (authFetch) y sesion.
     """
-    qs = Alumno.objects.all()
+    active_school = get_request_school(request)
+    cache_key = _mis_hijos_cache_key(
+        getattr(request.user, "id", None),
+        getattr(active_school, "id", None),
+        getattr(request.user, "is_superuser", False),
+    )
+    try:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return JsonResponse(cached)
+    except Exception:
+        pass
+
+    qs = scope_queryset_to_school(
+        Alumno.objects.select_related("school_course"),
+        active_school,
+    )
     if not request.user.is_superuser:
         qs = qs.filter(padre=request.user)
 
-    # Orden consistente; degradamos si algún campo no existe
+    # Orden consistente; degradamos si algun campo no existe.
     try:
         qs = qs.order_by("apellido", "nombre", "id_alumno")
     except Exception:
@@ -88,13 +94,14 @@ def mis_hijos(request):
         except Exception:
             qs = qs.order_by("id_alumno")
 
-    # Serialización robusta
+    # Serializacion explicita para mantener el contrato publico.
+    data = _serialize_alumnos_public(qs)
+    payload = {"results": data}
     try:
-        data = AlumnoSerializer(qs, many=True).data if AlumnoSerializer else _serialize_alumnos_fallback(qs)
+        cache.set(cache_key, payload, MIS_HIJOS_CACHE_TTL)
     except Exception:
-        data = _serialize_alumnos_fallback(qs)
-
-    return JsonResponse({"ok": True, "results": data})
+        pass
+    return JsonResponse(payload)
 
 
 @api_view(["GET"])
@@ -106,48 +113,61 @@ def notas_de_hijo(request, alumno_id):
     Filtros por querystring:
       - materia: nombre exacto (Nota.materia)
       - cuatrimestre: valor exacto (p.ej. "1", "2", "Anual")
-    Devuelve además catálogos: materias y cuatrimestres disponibles para ese alumno.
+    Devuelve ademas catalogos: materias y cuatrimestres disponibles para ese alumno.
     """
-    alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
+    active_school = get_request_school(request)
+    alumnos_qs = scope_queryset_to_school(Alumno.objects.all(), active_school)
+    alumno = get_object_or_404(alumnos_qs, id_alumno=alumno_id)
 
-    # Autorización: padre del alumno o superuser
+    # Autorizacion: padre del alumno o superuser.
     if not request.user.is_superuser and alumno.padre_id != request.user.id:
-        return HttpResponseForbidden("No tenés permiso para ver las notas de este alumno.")
+        return HttpResponseForbidden("No tenes permiso para ver las notas de este alumno.")
 
-    # --- Filtros desde querystring ---
+    # Filtros desde querystring.
     materia_q = (request.GET.get("materia") or "").strip()
     cuatri_q = (request.GET.get("cuatrimestre") or "").strip()
 
-    qs = Nota.objects.filter(alumno=alumno)
+    qs = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school)
     if materia_q:
         qs = qs.filter(materia=materia_q)
     if cuatri_q:
         qs = qs.filter(cuatrimestre=cuatri_q)
     qs = qs.order_by("-fecha", "-id")
 
-    # Serialización robusta
-    try:
-        notas_data = NotaPublicSerializer(qs, many=True).data if NotaPublicSerializer else _serialize_notas_fallback(qs)
-    except Exception:
-        notas_data = _serialize_notas_fallback(qs)
+    # Serializacion explicita para mantener el contrato publico.
+    notas_data = _serialize_notas_public(qs)
 
-    # Catálogos derivados (sobre todas las notas del alumno, sin filtros)
-    all_qs = Nota.objects.filter(alumno=alumno)
-    materias = sorted({getattr(n, "materia", None) for n in all_qs if getattr(n, "materia", None)})
-    cuatrimestres = sorted({getattr(n, "cuatrimestre", None) for n in all_qs if getattr(n, "cuatrimestre", None)})
+    # Catalogos derivados sobre todas las notas del alumno, sin filtros.
+    all_qs = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school)
+    materias = sorted(
+        {getattr(nota, "materia", None) for nota in all_qs if getattr(nota, "materia", None)}
+    )
+    cuatrimestres = sorted(
+        {
+            getattr(nota, "cuatrimestre", None)
+            for nota in all_qs
+            if getattr(nota, "cuatrimestre", None)
+        }
+    )
 
+    school_course = getattr(alumno, "school_course", None)
     alumno_payload = {
+        "id": getattr(alumno, "id", None),
         "id_alumno": getattr(alumno, "id_alumno", None),
         "nombre": getattr(alumno, "nombre", None),
-        "apellido": getattr(alumno, "apellido", None),  # puede ser None si el modelo no lo tiene
-        "curso": getattr(alumno, "curso", None),
+        "apellido": getattr(alumno, "apellido", None),  # Puede ser None en datos historicos.
+        "school_course_id": getattr(alumno, "school_course_id", None),
+        "school_course_name": getattr(school_course, "name", None)
+        or getattr(school_course, "code", None)
+        or getattr(alumno, "curso", None),
     }
 
-    return JsonResponse({
-        "ok": True,
-        "alumno": alumno_payload,
-        "filters": {"materia": materia_q, "cuatrimestre": cuatri_q},
-        "materias": materias,
-        "cuatrimestres": cuatrimestres,
-        "results": notas_data,
-    })
+    return JsonResponse(
+        {
+            "alumno": alumno_payload,
+            "filters": {"materia": materia_q, "cuatrimestre": cuatri_q},
+            "materias": materias,
+            "cuatrimestres": cuatrimestres,
+            "results": notas_data,
+        }
+    )

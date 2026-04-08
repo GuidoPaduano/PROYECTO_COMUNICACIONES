@@ -30,7 +30,6 @@ async function fetchJSON(url, opts) {
  * Esto lo resuelve el backend en /api/mensajes/enviar/ recibiendo `alumno_id` o `id_alumno`.
  */
 export default function ComposeMensajeAlumno({
-  cursoSugerido = "",
   alumnoPk = null,
   alumnoCode = "",
   alumnoNombre = "",
@@ -71,13 +70,12 @@ export default function ComposeMensajeAlumno({
       const payload = {
         // Preferimos PK si está
         ...(alumnoPk != null ? { alumno_id: alumnoPk } : { id_alumno: alumnoCode }),
-        curso: cursoSugerido || undefined,
         asunto: String(asunto).trim(),
         contenido: String(contenido).trim(),
         tipo: "mensaje",
       }
 
-      const r = await fetchJSON("/mensajes/enviar/", {
+      const r = await fetchJSON("/api/mensajes/enviar/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -86,7 +84,6 @@ export default function ComposeMensajeAlumno({
       if (!r.ok) {
         const msg =
           r.data?.detail ||
-          r.data?.error ||
           `No se pudo enviar (HTTP ${r.status}).`
         throw new Error(msg)
       }

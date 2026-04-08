@@ -11,8 +11,10 @@
                 {{ mensaje.contenido }} <br>
                 <em>
                     {{ mensaje.fecha_envio|date:"d/m/Y" }}
-                    {% if mensaje.curso_asociado %}
-                        - Curso: {{ mensaje.curso_asociado }}
+                    {% if mensaje.school_course %}
+                        - Curso: {{ mensaje.school_course.name|default:mensaje.school_course.code }}
+                    {% elif mensaje.curso %}
+                        - Curso: {{ mensaje.curso }}
                     {% endif %}
                 </em>
             </li>

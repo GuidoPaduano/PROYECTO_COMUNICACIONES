@@ -7,6 +7,14 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+from .course_access import (
+    build_course_lookup_keys,
+    build_course_lookup_keys_for_refs,
+    build_assignment_course_q_for_refs,
+    build_course_ref,
+    filter_assignments_for_course,
+    get_object_course_lookup_keys,
+)
 from .models import AlertaInasistencia, Asistencia, Notificacion
 
 try:
@@ -49,7 +57,39 @@ def _alumno_nombre(alumno) -> str:
     return full or (getattr(alumno, "id_alumno", "") or "Alumno")
 
 
-def _destinatarios(alumno, *, preceptores_por_curso: dict[str, list[Any]] | None = None):
+def _course_display(alumno) -> str:
+    school_course = getattr(alumno, "school_course", None)
+    return (
+        getattr(school_course, "name", None)
+        or getattr(school_course, "code", None)
+        or getattr(alumno, "curso", "")
+        or "s/d"
+    )
+
+
+def _course_meta(alumno) -> dict[str, Any]:
+    return {
+        "school_course_id": getattr(alumno, "school_course_id", None),
+        "school_course_name": _course_display(alumno),
+    }
+
+
+def _assignment_lookup_keys(assignment) -> list[tuple[int | None, int | None, str]]:
+    keys = build_course_lookup_keys(
+        school_id=getattr(assignment, "school_id", None),
+        school_course_id=getattr(assignment, "school_course_id", None),
+        course_code=getattr(getattr(assignment, "school_course", None), "code", None) or getattr(assignment, "curso", "") or "",
+    )
+    if getattr(assignment, "school_id", None) is not None or getattr(assignment, "school_course_id", None) is not None:
+        keys = [key for key in keys if not (key[0] is None and key[1] is None)]
+    return keys
+
+
+def _destinatarios(
+    alumno,
+    *,
+    preceptores_por_curso: dict[tuple[int | None, int | None, str], list[Any]] | None = None,
+):
     out = []
     seen = set()
 
@@ -65,13 +105,18 @@ def _destinatarios(alumno, *, preceptores_por_curso: dict[str, list[Any]] | None
     _add(getattr(alumno, "padre", None))
 
     if preceptores_por_curso is not None:
-        for p in preceptores_por_curso.get(getattr(alumno, "curso", "") or "", []):
-            _add(p)
+        for key in get_object_course_lookup_keys(alumno):
+            for p in preceptores_por_curso.get(key, []):
+                _add(p)
         return out
 
     if PreceptorCurso is not None:
         try:
-            for pc in PreceptorCurso.objects.filter(curso=getattr(alumno, "curso", "")).select_related("preceptor"):
+            qs = filter_assignments_for_course(
+                PreceptorCurso.objects.select_related("preceptor"),
+                obj=alumno,
+            )
+            for pc in qs:
                 _add(getattr(pc, "preceptor", None))
         except Exception:
             pass
@@ -103,7 +148,7 @@ def _crear_notificaciones(
     alerta: AlertaInasistencia,
     consecutivas: int,
     umbral: int,
-    preceptores_por_curso: dict[str, list[Any]] | None = None,
+    preceptores_por_curso: dict[tuple[int | None, int | None, str], list[Any]] | None = None,
 ):
     alumno = alerta.alumno
     destinatarios = _destinatarios(alumno, preceptores_por_curso=preceptores_por_curso)
@@ -111,16 +156,19 @@ def _crear_notificaciones(
         return 0
 
     alumno_nombre = _alumno_nombre(alumno)
+    course_name = _course_display(alumno)
     titulo = f"{alumno_nombre} necesita atencion por inasistencias"
     descripcion = (
         f"Se detectaron {consecutivas} ausencias consecutivas no justificadas. "
-        f"Curso: {getattr(alumno, 'curso', '') or 's/d'}."
+        f"Curso: {course_name}."
     )
 
     notifs = []
+    school_ref = getattr(alerta, "school", None) or getattr(alumno, "school", None)
     for d in destinatarios:
         notifs.append(
             Notificacion(
+                school=school_ref,
                 destinatario=d,
                 tipo="inasistencia",
                 titulo=titulo,
@@ -132,7 +180,7 @@ def _crear_notificaciones(
                     "alerta_inasistencia_id": alerta.id,
                     "alumno_id": getattr(alumno, "id", None),
                     "alumno_legajo": getattr(alumno, "id_alumno", None),
-                    "curso": getattr(alumno, "curso", ""),
+                    **_course_meta(alumno),
                     "motivo": alerta.motivo,
                     "valor_actual": consecutivas,
                     "umbral": umbral,
@@ -162,7 +210,7 @@ def _crear_alertas_faltas_acumuladas(
     tipo_asistencia: str,
     actor=None,
     asistencia=None,
-    preceptores_por_curso: dict[str, list[Any]] | None = None,
+    preceptores_por_curso: dict[tuple[int | None, int | None, str], list[Any]] | None = None,
 ) -> int:
     total = _total_faltas_clases(alumno=alumno, tipo_asistencia=tipo_asistencia)
     if total <= 0:
@@ -182,7 +230,9 @@ def _crear_alertas_faltas_acumuladas(
             continue
 
         alerta = AlertaInasistencia.objects.create(
+            school=getattr(alumno, "school", None) or getattr(asistencia, "school", None),
             alumno=alumno,
+            school_course=getattr(alumno, "school_course", None),
             curso=getattr(alumno, "curso", "") or "",
             tipo_asistencia=tipo_asistencia,
             motivo="FALTAS_ACUMULADAS",
@@ -199,15 +249,17 @@ def _crear_alertas_faltas_acumuladas(
         destinatarios = _destinatarios(alumno, preceptores_por_curso=preceptores_por_curso)
         if destinatarios:
             alumno_nombre = _alumno_nombre(alumno)
+            course_name = _course_display(alumno)
             titulo = f"{alumno_nombre} necesita atencion por inasistencias"
             descripcion = (
                 f"El alumno alcanzo {total} inasistencias totales a clases. "
-                f"Curso: {getattr(alumno, 'curso', '') or 's/d'}."
+                f"Curso: {course_name}."
             )
             notifs = []
             for d in destinatarios:
                 notifs.append(
                     Notificacion(
+                        school=getattr(alerta, "school", None) or getattr(alumno, "school", None),
                         destinatario=d,
                         tipo="inasistencia",
                         titulo=titulo,
@@ -219,7 +271,7 @@ def _crear_alertas_faltas_acumuladas(
                             "alerta_inasistencia_id": alerta.id,
                             "alumno_id": getattr(alumno, "id", None),
                             "alumno_legajo": getattr(alumno, "id_alumno", None),
-                            "curso": getattr(alumno, "curso", ""),
+                            **_course_meta(alumno),
                             "motivo": alerta.motivo,
                             "valor_actual": total,
                             "umbral": umbral,
@@ -237,7 +289,7 @@ def evaluar_alerta_inasistencia(
     tipo_asistencia: str = "clases",
     actor=None,
     asistencia=None,
-    preceptores_por_curso: dict[str, list[Any]] | None = None,
+    preceptores_por_curso: dict[tuple[int | None, int | None, str], list[Any]] | None = None,
 ) -> dict[str, Any]:
     if not alumno:
         return {"created": False, "reason": "no_alumno"}
@@ -290,7 +342,9 @@ def evaluar_alerta_inasistencia(
             return {"created": bool(acumuladas_creadas), "reason": "reapertura", "valor_actual": consecutivas, "acumuladas_creadas": int(acumuladas_creadas)}
 
     alerta = AlertaInasistencia.objects.create(
+        school=getattr(alumno, "school", None) or getattr(asistencia, "school", None),
         alumno=alumno,
+        school_course=getattr(alumno, "school_course", None),
         curso=getattr(alumno, "curso", "") or "",
         tipo_asistencia=tipo_asistencia,
         motivo="AUSENCIAS_CONSECUTIVAS",
@@ -332,29 +386,35 @@ def evaluar_alertas_inasistencia_por_alumnos(*, alumno_ids: list[int], tipo_asis
             continue
         by_alumno[aid] = a
 
-    preceptores_por_curso: dict[str, list[Any]] = {}
+    preceptores_por_curso: dict[tuple[int | None, int | None, str], list[Any]] = {}
     if PreceptorCurso is not None:
         try:
-            cursos = sorted(
-                {
-                    (getattr(getattr(a, "alumno", None), "curso", "") or "")
-                    for a in by_alumno.values()
-                    if getattr(a, "alumno", None) is not None
-                }
-            )
-            if cursos:
-                tmp: dict[str, list[Any]] = defaultdict(list)
-                seen: dict[str, set[int]] = defaultdict(set)
-                for pc in PreceptorCurso.objects.filter(curso__in=cursos).select_related("preceptor"):
-                    curso = getattr(pc, "curso", "") or ""
+            refs = [
+                build_course_ref(obj=getattr(a, "alumno", None))
+                for a in by_alumno.values()
+                if getattr(a, "alumno", None) is not None
+            ]
+            keys = set(build_course_lookup_keys_for_refs(refs))
+            if keys:
+                qs = PreceptorCurso.objects.select_related("preceptor", "school_course")
+                query = build_assignment_course_q_for_refs(refs)
+                if query is not None:
+                    qs = qs.filter(query)
+                else:
+                    qs = qs.none()
+
+                tmp: dict[tuple[int | None, int | None, str], list[Any]] = defaultdict(list)
+                seen: dict[tuple[int | None, int | None, str], set[int]] = defaultdict(set)
+                for pc in qs:
                     p = getattr(pc, "preceptor", None)
                     pid = getattr(p, "id", None)
-                    if not curso or p is None or pid is None:
+                    if p is None or pid is None:
                         continue
-                    if pid in seen[curso]:
-                        continue
-                    seen[curso].add(pid)
-                    tmp[curso].append(p)
+                    for key in _assignment_lookup_keys(pc):
+                        if key not in keys or pid in seen[key]:
+                            continue
+                        seen[key].add(pid)
+                        tmp[key].append(p)
                 preceptores_por_curso = dict(tmp)
         except Exception:
             preceptores_por_curso = {}

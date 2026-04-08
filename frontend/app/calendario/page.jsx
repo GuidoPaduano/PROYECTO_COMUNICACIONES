@@ -4,7 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Head from "next/head"
 import Script from "next/script"
 import Link from "next/link"
-import { authFetch, useAuthGuard } from "../_lib/auth"
+import { authFetch, getSessionProfile, useAuthGuard, useSessionContext } from "../_lib/auth"
+import {
+  getCourseCode,
+  getCourseDisplayName,
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  getCourseValue,
+  normalizeCourseList,
+  parseCourseListPayload,
+} from "../_lib/courses"
 import { useUnreadCount } from "../_lib/useUnreadCount"
 import {
   Mail,
@@ -47,12 +56,34 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-const LOGO_SRC = "/imagenes/tecnova(1).png"
+const LOGO_SRC = "/imagenes/Logo%20Color.png"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 const LAST_HIJO_KEY = "mis_hijos_last_alumno"
 const fetchCache = new Map()
+const CALENDAR_BOOTSTRAP_RESOURCE_MAX_AGE_MS = 15000
+const CALENDAR_EVENTS_MAX_AGE_MS = 10000
+const calendarBootstrapCache = new Map()
+const calendarBootstrapPromises = new Map()
+const calendarEventsCache = new Map()
+const calendarEventsPromises = new Map()
 
 // ⛔️ Sin imports NPM de FullCalendar (usamos CDN)
+
+function buildCalendarSessionProfile(session) {
+  const groups = Array.isArray(session?.groups) ? session.groups : []
+  const username = String(session?.username || "").trim()
+  const fullName = String(session?.userLabel || "").trim()
+  const hasRoleData = groups.length > 0 || !!session?.isSuperuser || !!username || !!fullName
+  if (!hasRoleData) return null
+  return {
+    username,
+    full_name: fullName,
+    groups,
+    rol: String(session?.role || "").trim(),
+    is_superuser: !!session?.isSuperuser,
+    school: session?.school || null,
+  }
+}
 
 function hoyISO() {
   const d = new Date()
@@ -94,30 +125,49 @@ function setStoredHijo(value) {
   } catch {}
 }
 
-function normalizeCursosList(input) {
-  const arr = Array.isArray(input) ? input : []
-  return arr
-    .map((c) => String(c?.id ?? c?.value ?? c?.curso ?? c?.nombre ?? c ?? "").trim())
-    .filter(Boolean)
+function clearCourseFetchCache() {
+  for (const key of Array.from(fetchCache.keys())) {
+    if (
+      key.includes("/preceptor/cursos/") ||
+      key.includes("/alumnos/cursos/") ||
+      key.includes("/notas/catalogos/") ||
+      key.includes("/cursos/") ||
+      key.includes("/cursos/list/") ||
+      key.includes("/calificaciones/nueva-nota/datos/")
+    ) {
+      fetchCache.delete(key)
+    }
+  }
 }
 
-const CURSOS_VALIDOS = new Set([
-  "1A",
-  "1B",
-  "2A",
-  "2B",
-  "3A",
-  "3B",
-  "4ECO",
-  "4NAT",
-  "5ECO",
-  "5NAT",
-  "6ECO",
-  "6NAT",
-])
+function sortCoursesByLabel(list) {
+  return [...normalizeCourseList(list)].sort((a, b) =>
+    String(getCourseLabel(a)).localeCompare(String(getCourseLabel(b)))
+  )
+}
 
-function filterCursosValidos(list) {
-  return list.filter((c) => CURSOS_VALIDOS.has(String(c || "").trim()))
+function buildEventQueryString({ courseLike = "", list = [], desde = "", hasta = "" }) {
+  const params = new URLSearchParams()
+  if (desde) params.set("desde", String(desde))
+  if (hasta) params.set("hasta", String(hasta))
+
+  const schoolCourseId = getCourseSchoolCourseId(courseLike, list)
+  if (schoolCourseId != null) {
+    params.set("school_course_id", String(schoolCourseId))
+  }
+
+  return params.toString()
+}
+
+function buildEventCoursePayload(courseLike, list, { allowAll = false } = {}) {
+  const raw = String(courseLike ?? "").trim()
+  if (allowAll && raw === "ALL") {
+    return { curso: "ALL" }
+  }
+
+  const schoolCourseId = getCourseSchoolCourseId(raw, list)
+  if (schoolCourseId == null) return null
+  return { school_course_id: schoolCourseId }
 }
 
 async function fetchWithCache(url, opts) {
@@ -131,11 +181,122 @@ async function fetchWithCache(url, opts) {
   return p
 }
 
+async function loadCalendarBootstrapResource(
+  cacheKey,
+  loader,
+  { force = false, maxAgeMs = CALENDAR_BOOTSTRAP_RESOURCE_MAX_AGE_MS } = {}
+) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (force) {
+    calendarBootstrapCache.delete(key)
+    calendarBootstrapPromises.delete(key)
+  }
+
+  const cached = calendarBootstrapCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  if (calendarBootstrapPromises.has(key)) {
+    return await calendarBootstrapPromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    calendarBootstrapCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  calendarBootstrapPromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (calendarBootstrapPromises.get(key) === promise) {
+      calendarBootstrapPromises.delete(key)
+    }
+  }
+}
+
+function invalidateCalendarEventsCache(cacheKeyPrefix = "") {
+  const prefix = String(cacheKeyPrefix || "").trim()
+  if (!prefix) return
+  for (const key of Array.from(calendarEventsCache.keys())) {
+    if (key.startsWith(prefix)) {
+      calendarEventsCache.delete(key)
+    }
+  }
+  for (const key of Array.from(calendarEventsPromises.keys())) {
+    if (key.startsWith(prefix)) {
+      calendarEventsPromises.delete(key)
+    }
+  }
+}
+
+async function loadCalendarEventsResource(
+  cacheKey,
+  loader,
+  { force = false, maxAgeMs = CALENDAR_EVENTS_MAX_AGE_MS } = {}
+) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (force) {
+    invalidateCalendarEventsCache(key)
+  }
+
+  const cached = calendarEventsCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  if (calendarEventsPromises.has(key)) {
+    return await calendarEventsPromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    calendarEventsCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  calendarEventsPromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (calendarEventsPromises.get(key) === promise) {
+      calendarEventsPromises.delete(key)
+    }
+  }
+}
+
 export default function CalendarioEscolarPage() {
   useAuthGuard()
+  const session = useSessionContext()
+  const school = session?.school
+  const schoolLogoUrl = school?.logo_url || LOGO_SRC
+  const schoolName = school?.short_name || school?.name || "Colegio"
+  const schoolHeaderStyle = school?.primary_color ? { backgroundColor: school.primary_color } : undefined
 
   // contador de no leídos para campanita y mail
   const unreadCount = useUnreadCount()
+  const calendarBootstrapScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
 
   // Perfil / permisos
   const [me, setMe] = useState(null)
@@ -186,6 +347,18 @@ export default function CalendarioEscolarPage() {
   const [selectedProfesorCurso, setSelectedProfesorCurso] = useState("")
   const profesorCursoRef = useRef("")
   const cursosRef = useRef([])
+  const alumnoCursoId = useMemo(() => getCourseSchoolCourseId(alumnoCurso, cursos), [alumnoCurso, cursos])
+  const selectedCursoId = useMemo(() => {
+    if (!selectedCurso) return null
+    return (
+      getCourseSchoolCourseId(selectedCurso, preceptorCursos) ??
+      getCourseSchoolCourseId(selectedCurso, cursos)
+    )
+  }, [selectedCurso, preceptorCursos, cursos])
+  const calendarEventsScopeKey = useMemo(
+    () => `${session?.username || me?.username || "anon"}:${session?.school?.id || "default"}`,
+    [me?.username, session?.school?.id, session?.username]
+  )
 
   // FullCalendar refs
   const calRef = useRef(null)
@@ -204,7 +377,7 @@ export default function CalendarioEscolarPage() {
     titulo: "",
     fecha: hoyISO(),
     descripcion: "",
-    curso: "",
+    schoolCourseId: "",
     tipo_evento: "",
   })
   const [editar, setEditar] = useState({
@@ -212,7 +385,7 @@ export default function CalendarioEscolarPage() {
     titulo: "",
     fecha: hoyISO(),
     descripcion: "",
-    curso: "",
+    schoolCourseId: "",
     tipo_evento: "",
   })
   const [eliminar, setEliminar] = useState({ id: "", titulo: "" })
@@ -246,35 +419,34 @@ export default function CalendarioEscolarPage() {
   useEffect(() => {
     ;(async () => {
       setMeLoaded(false)
+      let groups = []
       try {
-        const r = await authFetch("/auth/whoami/")
-        if (!r.ok) {
-          if (typeof window !== "undefined") window.location.href = "/login"
-          return
-        }
-        const meJson = await r.json()
+        const meJson = buildCalendarSessionProfile(session) || (await getSessionProfile())
         setMe(meJson)
 
-        const groups = Array.isArray(meJson.groups) ? meJson.groups : []
+        groups = Array.isArray(meJson.groups) ? meJson.groups : []
         const isProfesorLocal = groups.includes("Profesores")
         const isPreceptorLocal = groups.includes("Preceptores")
         const isDirectivoLocal = groups.includes("Directivos")
         const isSuper = !!meJson.is_superuser
-        const isStaff = !!meJson.is_staff
 
-        // ✅ Debe matchear el backend (api_eventos.py): Profesores, Preceptores, Directivos, staff/superuser
-        setPuedeEditar(isProfesorLocal || isPreceptorLocal || isDirectivoLocal || isSuper || isStaff)
+        // Debe matchear el backend: Profesores, Preceptores, Directivos o superuser.
+        setPuedeEditar(isProfesorLocal || isPreceptorLocal || isDirectivoLocal || isSuper)
 
         // Alumno: obtener curso
         try {
           if (groups.includes("Alumnos")) {
             setAlumnoCursoChecked(false)
-            const pr = await authFetch("/mi-curso/")
-            if (pr.ok) {
-              const pj = await pr.json()
-              const c = String(pj?.curso ?? "").trim()
-              if (c) setAlumnoCurso(c)
-            }
+            const pj = await loadCalendarBootstrapResource(
+              `calendar-mi-curso:${calendarBootstrapScopeKey}`,
+              async () => {
+                const pr = await authFetch("/mi-curso/")
+                if (!pr.ok) return null
+                return await pr.json().catch(() => null)
+              }
+            )
+            const c = String(pj?.school_course_id ?? "").trim()
+            if (c) setAlumnoCurso(c)
           }
         } catch {
         } finally {
@@ -282,21 +454,24 @@ export default function CalendarioEscolarPage() {
         }
 
         // Preceptor: cursos se cargan desde catálogo global (todos los cursos)
-        if (groups.includes("Preceptores") || groups.includes("Directivos")) {
-          setPreceptorCursosLoaded(true)
-        }
       } catch {
         setError("No se pudo obtener tu perfil.")
       } finally {
         setMeLoaded(true)
       }
 
-      // Intentar cargar hijos (si es padre)
-      try {
-        const hijosRes = await authFetch("/padres/mis-hijos/")
-        if (hijosRes.ok) {
-          const j = await hijosRes.json()
-          const arr = Array.isArray(j?.results) ? j.results : []
+      // Intentar cargar hijos solo si el rol efectivo es padre
+      if (groups.includes("Padres")) {
+        try {
+          const arr = await loadCalendarBootstrapResource(
+            `calendar-mis-hijos:${calendarBootstrapScopeKey}`,
+            async () => {
+              const hijosRes = await authFetch("/api/padres/mis-hijos/")
+              if (!hijosRes.ok) return []
+              const j = await hijosRes.json().catch(() => ({}))
+              return Array.isArray(j?.results) ? j.results : []
+            }
+          )
           setHijos(arr)
           const ids = arr
             .map((h) => String(h?.id_alumno || "").trim())
@@ -305,8 +480,11 @@ export default function CalendarioEscolarPage() {
           const initial =
             stored && ids.includes(stored) ? stored : arr[0]?.id_alumno ? String(arr[0].id_alumno) : ""
           if (initial) setSelectedKid(initial)
-        }
-      } catch {}
+        } catch {}
+      } else {
+        setHijos([])
+        setSelectedKid("")
+      }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -315,12 +493,19 @@ export default function CalendarioEscolarPage() {
     if (!isProfesor) return
     if (selectedProfesorCurso) return
     const stored = typeof window !== "undefined" ? getStoredCurso() : ""
-    if (stored && cursos.includes(stored)) {
-      setSelectedProfesorCurso(stored)
+    const storedMatch = stored
+      ? cursos.find(
+          (course) =>
+            String(getCourseValue(course)) === String(stored) ||
+            String(getCourseCode(course)) === String(stored)
+        )
+      : null
+    if (storedMatch) {
+      setSelectedProfesorCurso(String(getCourseValue(storedMatch)))
       return
     }
     if (Array.isArray(cursos) && cursos.length > 0) {
-      setSelectedProfesorCurso(String(cursos[0]))
+      setSelectedProfesorCurso(String(getCourseValue(cursos[0])))
     }
   }, [isProfesor, cursos, selectedProfesorCurso])
 
@@ -339,71 +524,61 @@ export default function CalendarioEscolarPage() {
     cursosRef.current = Array.isArray(cursos) ? cursos : []
   }, [cursos])
 
-  const allCursosList = useMemo(() => Array.from(CURSOS_VALIDOS).sort(), [])
-
-  // Preceptor: permitir ver todos los cursos (no solo asignados)
-  useEffect(() => {
-    if (!canSelectCurso) return
-    const list = allCursosList.map((c) => ({ id: c, nombre: c }))
-    setPreceptorCursos(list)
-    setPreceptorCursosLoaded(true)
-    if (!selectedCurso && list.length > 0) {
-      setSelectedCurso(list[0].id)
-    }
-  }, [canSelectCurso, allCursosList, selectedCurso])
-
   // catálogos (cursos / tipos)
   useEffect(() => {
+    if (!canSelectCurso && !isProfesor) {
+      setCursos([])
+      setPreceptorCursos([])
+      setCursosLoaded(true)
+      setPreceptorCursosLoaded(true)
+      return
+    }
     ;(async () => {
+      clearCourseFetchCache()
       try {
         let list = []
 
+        const courseEndpoints = isPreceptor
+          ? ["/preceptor/cursos/"]
+          : isDirectivo
+            ? ["/notas/catalogos/", "/alumnos/cursos/"]
+            : isProfesor
+              ? ["/cursos/mis-cursos/", "/notas/catalogos/"]
+              : ["/notas/catalogos/", "/alumnos/cursos/"]
+
         // 1) Fuente principal: cursos reales
-        const r1 = await fetchWithCache("/cursos/")
-        if (r1.ok) {
-          const data = await r1.json().catch(() => ({}))
-          list = normalizeCursosList(Array.isArray(data) ? data : data?.results || [])
+        for (const url of courseEndpoints) {
+          const response = await fetchWithCache(url)
+          if (!response.ok) continue
+          const data = await response.json().catch(() => ({}))
+          list = parseCourseListPayload(data)
+          if (list.length > 0) break
         }
 
         // 2) Fallback: /cursos/list/
-        if (list.length === 0) {
-          const r2 = await fetchWithCache("/cursos/list/")
-          if (r2.ok) {
-            const data = await r2.json().catch(() => ({}))
-            list = normalizeCursosList(Array.isArray(data) ? data : data?.results || [])
-          }
-        }
 
         // 3) Último fallback: catálogos
-        if (list.length === 0) {
-          const rCat = await fetchWithCache("/notas/catalogos/")
-          if (rCat.ok) {
-            const data = await rCat.json().catch(() => ({}))
-            list = normalizeCursosList(data?.cursos || [])
-          }
-        }
 
         // 4) Último fallback: derivamos desde alumnos
-        if (list.length === 0) {
-          const r = await fetchWithCache("/calificaciones/nueva-nota/datos/")
-          if (r.ok) {
-            const data = await r.json()
-            const alumnos = Array.isArray(data?.alumnos) ? data.alumnos : []
-            const setC = new Set()
-            for (const a of alumnos) {
-              const c = String(a?.curso ?? a?.division ?? a?.grado ?? "").trim()
-              if (c) setC.add(c)
-            }
-            list = Array.from(setC)
-          }
-        }
+
 
         // Preceptor: siempre mostrar cursos válidos globales
+        const sortedCourses = sortCoursesByLabel(list)
+        setCursos(sortedCourses)
         if (canSelectCurso) {
-          list = Array.from(CURSOS_VALIDOS)
+          const normalizedPreceptorCursos = sortedCourses
+          setPreceptorCursos(normalizedPreceptorCursos)
+          const selectedMatch = normalizedPreceptorCursos.find(
+            (course) =>
+              String(getCourseValue(course)) === String(selectedCurso || "") ||
+              String(getCourseCode(course)) === String(selectedCurso || "")
+          )
+          if (selectedMatch && String(selectedCurso || "") !== String(getCourseValue(selectedMatch))) {
+            setSelectedCurso(String(getCourseValue(selectedMatch)))
+          } else if (!selectedCurso && normalizedPreceptorCursos.length > 0) {
+            setSelectedCurso(String(getCourseValue(normalizedPreceptorCursos[0])))
+          }
         }
-
-        setCursos(filterCursosValidos(list).sort())
       } catch {}
       try {
         const r2 = await fetchWithCache("/eventos/tipos/")
@@ -413,11 +588,15 @@ export default function CalendarioEscolarPage() {
         }
       } catch {}
       setCursosLoaded(true)
+      setPreceptorCursosLoaded(true)
     })()
-  }, [canSelectCurso])
+  }, [canSelectCurso, isDirectivo, isPreceptor, isProfesor])
 
   // helpers
-  function refetchEvents() {
+  function refetchEvents(options = {}) {
+    if (options?.invalidate === true) {
+      invalidateCalendarEventsCache(`calendar-events:${calendarEventsScopeKey}:`)
+    }
     try {
       calRef.current?.refetchEvents?.()
     } catch {}
@@ -429,7 +608,7 @@ export default function CalendarioEscolarPage() {
       titulo: ev.title || "",
       fecha: (ev.startStr || "").slice(0, 10) || hoyISO(),
       descripcion: ev.extendedProps?.description || "",
-      curso: ev.extendedProps?.curso || "",
+      schoolCourseId: String(ev.extendedProps?.school_course_id ?? ""),
       tipo_evento: ev.extendedProps?.tipo_evento || "",
     })
     setEditarSoloLectura(readOnly)
@@ -443,7 +622,9 @@ export default function CalendarioEscolarPage() {
     setCrearError("")
     setCrear((v) => ({
       ...v,
-      curso: canSelectCurso ? (v.curso === "ALL" ? "ALL" : String(selectedCurso || v.curso || "")) : v.curso,
+      schoolCourseId: canSelectCurso
+        ? (v.schoolCourseId === "ALL" ? "ALL" : String(selectedCurso || v.schoolCourseId || ""))
+        : String(v.schoolCourseId || ""),
     }))
     setOpenCrear(true)
   }
@@ -484,9 +665,11 @@ export default function CalendarioEscolarPage() {
 
     // si es preceptor, esperar a que termine de cargar cursos
     if (canSelectCurso && !preceptorCursosLoaded) return false
+    if (canSelectCurso && preceptorCursos.length > 0 && !selectedCurso) return false
+    if (canSelectCurso && selectedCurso && selectedCursoId == null) return false
 
     return true
-  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, canSelectCurso, preceptorCursosLoaded])
+  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, canSelectCurso, preceptorCursosLoaded, preceptorCursos.length, selectedCurso, selectedCursoId])
 
   // ✅ FIX: limpiar tooltips colgados (evita que “aparezcan fantasmas” en otras páginas)
   function cleanupTooltips() {
@@ -538,57 +721,71 @@ export default function CalendarioEscolarPage() {
               selectedKid
             )}/eventos/?desde=${desde}&hasta=${hasta}`
           } else if (isAlumno) {
-            if (!alumnoCurso) {
+            if (alumnoCursoId == null) {
               const msg =
-                "No se pudo cargar tu calendario porque falta el curso del alumno. Revisá que /api/mi-curso/ devuelva {curso: '...'} para tu usuario."
+                "No se pudo cargar tu calendario porque falta el curso del alumno. Revisá que /api/mi-curso/ devuelva school_course_id para tu usuario."
               setError(msg)
               failure(new Error(msg))
               return
             }
-            url = `/eventos/?curso=${encodeURIComponent(alumnoCurso)}&desde=${desde}&hasta=${hasta}`
+            url = `/eventos/?${buildEventQueryString({ courseLike: alumnoCursoId, desde, hasta })}`
           } else if (canSelectCurso) {
-            if (!selectedCurso) {
+            if (!preceptorCursosLoaded || !selectedCurso || (preceptorCursos.length > 0 && selectedCursoId == null)) {
+              success([])
+              return
+            }
+            if (selectedCursoId == null) {
               const msg =
                 "Seleccioná un curso para ver el calendario."
               setError(msg)
               failure(new Error(msg))
               return
             }
-            url = `/eventos/?curso=${encodeURIComponent(selectedCurso)}&desde=${desde}&hasta=${hasta}`
+            url = `/eventos/?${buildEventQueryString({ courseLike: selectedCursoId, desde, hasta })}`
           } else if (isProfesor) {
-            const cursoProf = profesorCursoRef.current || String(cursosRef.current?.[0] || "")
-            if (!cursoProf) {
+            const cursoProf = profesorCursoRef.current || String(getCourseValue(cursosRef.current?.[0]) || "")
+            const cursoProfId = getCourseSchoolCourseId(cursoProf, cursosRef.current)
+            if (cursoProfId == null) {
               success([])
               return
             }
-            url = `/eventos/?curso=${encodeURIComponent(cursoProf)}&desde=${desde}&hasta=${hasta}`
+            url = `/eventos/?${buildEventQueryString({ courseLike: cursoProfId, desde, hasta })}`
           } else {
             url = `/eventos/?desde=${desde}&hasta=${hasta}`
           }
 
-          const res = await authFetch(url)
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}))
-            throw new Error(err?.detail || `HTTP ${res.status}`)
-          }
-          const raw = await res.json()
+          const data = await loadCalendarEventsResource(
+            `calendar-events:${calendarEventsScopeKey}:${url}`,
+            async () => {
+              const res = await authFetch(url)
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}))
+                throw new Error(err?.detail || `HTTP ${res.status}`)
+              }
+              const raw = await res.json()
 
-          const list = Array.isArray(raw)
-            ? raw
-            : Array.isArray(raw?.results)
-            ? raw.results
-            : []
+              const list = Array.isArray(raw)
+                ? raw
+                : Array.isArray(raw?.results)
+                ? raw.results
+                : []
 
-          const data = list.map((e) => ({
-            id: String(e.id ?? ""),
-            title: e.title ?? e.titulo ?? "",
-            start: e.start ?? e.fecha ?? "",
-            extendedProps: {
-              description: e.extendedProps?.description ?? e.descripcion ?? "",
-              curso: e.extendedProps?.curso ?? e.curso ?? "",
-              tipo_evento: e.extendedProps?.tipo_evento ?? e.tipo_evento ?? "",
-            },
-          }))
+              return list.map((e) => ({
+                id: String(e.id ?? ""),
+                title: e.title ?? e.titulo ?? "",
+                start: e.start ?? e.fecha ?? "",
+                extendedProps: {
+                  description: e.extendedProps?.description ?? e.descripcion ?? "",
+                  school_course_name:
+                    e.extendedProps?.school_course_name ??
+                    e.school_course_name ??
+                    "",
+                  school_course_id: e.extendedProps?.school_course_id ?? e.school_course_id ?? null,
+                  tipo_evento: e.extendedProps?.tipo_evento ?? e.tipo_evento ?? "",
+                },
+              }))
+            }
+          )
 
           success(data)
         } catch (e) {
@@ -727,8 +924,10 @@ export default function CalendarioEscolarPage() {
     selectedKid,
     isAlumno,
     alumnoCurso,
+    alumnoCursoId,
     canSelectCurso,
     selectedCurso,
+    selectedCursoId,
   ])
 
   useEffect(() => {
@@ -746,7 +945,7 @@ export default function CalendarioEscolarPage() {
   // Refetch al volver con back/forward cache (por si aplica)
   useEffect(() => {
     const onShow = (e) => {
-      if (e.persisted) refetchEvents()
+      if (e.persisted) refetchEvents({ invalidate: true })
     }
     window.addEventListener("pageshow", onShow)
     return () => window.removeEventListener("pageshow", onShow)
@@ -760,18 +959,28 @@ export default function CalendarioEscolarPage() {
     if (creating) return
     setCreating(true)
     try {
-      const cursoToSend = (crear.curso || "").trim() || (canSelectCurso ? String(selectedCurso || "") : "")
-      if (canSelectCurso && !cursoToSend) {
+      const schoolCourseToSend =
+        String(crear.schoolCourseId || "").trim() || (canSelectCurso ? String(selectedCurso || "") : "")
+      if (canSelectCurso && !schoolCourseToSend) {
         throw new Error(
           "Seleccioná un curso o 'Todos los cursos' para crear el evento."
         )
+      }
+
+      const coursePayload = buildEventCoursePayload(
+        schoolCourseToSend,
+        canSelectCurso ? preceptorCursos : cursos,
+        { allowAll: canSelectCurso }
+      )
+      if (!coursePayload) {
+        throw new Error("No se pudo resolver el curso seleccionado.")
       }
 
       const payload = {
         titulo: crear.titulo,
         fecha: crear.fecha,
         descripcion: crear.descripcion,
-        curso: cursoToSend,
+        ...coursePayload,
         tipo_evento: crear.tipo_evento,
       }
 
@@ -781,7 +990,7 @@ export default function CalendarioEscolarPage() {
         titulo: "",
         fecha: hoyISO(),
         descripcion: "",
-        curso: "",
+        schoolCourseId: "",
         tipo_evento: "",
       })
       setOkMsg("✅ Evento agregado exitosamente.")
@@ -800,7 +1009,7 @@ export default function CalendarioEscolarPage() {
         const j = await res.json().catch(() => ({}))
         throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
       }
-      refetchEvents()
+      refetchEvents({ invalidate: true })
     } catch (e) {
       const msg = e?.message || "No se pudo crear el evento."
       setError(msg)
@@ -814,11 +1023,20 @@ export default function CalendarioEscolarPage() {
     setError("")
     setOkMsg("")
     try {
-      const cursoToSend = (editar.curso || "").trim() || (canSelectCurso ? String(selectedCurso || "") : "")
-      if (canSelectCurso && !cursoToSend) {
+      const schoolCourseToSend =
+        String(editar.schoolCourseId || "").trim() || (canSelectCurso ? String(selectedCurso || "") : "")
+      if (canSelectCurso && !schoolCourseToSend) {
         throw new Error(
           "El evento necesita un curso. Seleccioná un curso asignado al preceptor."
         )
+      }
+
+      const coursePayload = buildEventCoursePayload(
+        schoolCourseToSend,
+        canSelectCurso ? preceptorCursos : cursos
+      )
+      if (!coursePayload) {
+        throw new Error("No se pudo resolver el curso seleccionado.")
       }
 
       const res = await authFetch(`/eventos/editar/${editar.id}/`, {
@@ -828,7 +1046,7 @@ export default function CalendarioEscolarPage() {
           titulo: editar.titulo,
           fecha: editar.fecha,
           descripcion: editar.descripcion,
-          curso: cursoToSend,
+          ...coursePayload,
           tipo_evento: editar.tipo_evento,
         }),
       })
@@ -838,7 +1056,7 @@ export default function CalendarioEscolarPage() {
       }
       setOpenEditar(false)
       setOkMsg("✅ Evento actualizado.")
-      refetchEvents()
+      refetchEvents({ invalidate: true })
     } catch (e) {
       setError(e.message || "No se pudo actualizar el evento.")
     }
@@ -857,7 +1075,7 @@ export default function CalendarioEscolarPage() {
       }
       setOpenEliminar(false)
       setOkMsg("🗑️ Evento eliminado.")
-      refetchEvents()
+      refetchEvents({ invalidate: true })
     } catch (e) {
       setError(e.message || "No se pudo eliminar el evento.")
     }
@@ -878,25 +1096,11 @@ export default function CalendarioEscolarPage() {
         onLoad={() => setFcReady(true)}
       />
 
-      {/* Header */}
-      <div className="bg-blue-600 text-white px-6 py-4">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="inline-flex">
-              <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
-                <img
-                  src={LOGO_SRC}
-                  alt="Escuela Tecnova"
-                  className="h-full w-full object-contain"
-                />
-              </div>
-            </Link>
-            <h1 className="text-xl font-semibold">Calendario escolar</h1>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-4">
+      {/* Contenido */}
+      <div className="space-y-6">
+        <div className="hidden">
             <Link href="/dashboard">
-              <Button variant="ghost" className="text-white hover:bg-blue-700">
+              <Button variant="ghost" className="text-white hover:bg-white/15">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Volver al panel
               </Button>
@@ -909,7 +1113,7 @@ export default function CalendarioEscolarPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="text-white hover:bg-blue-700"
+                  className="text-white hover:bg-white/15"
                 >
                   <Mail className="h-5 w-5" />
                 </Button>
@@ -925,7 +1129,7 @@ export default function CalendarioEscolarPage() {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="text-white hover:bg-blue-700 gap-2"
+                  className="text-white hover:bg-white/15 gap-2"
                 >
                   <UserIcon className="h-4 w-4" />
                   {userLabel}
@@ -955,11 +1159,6 @@ export default function CalendarioEscolarPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </div>
-      </div>
-
-      {/* Contenido */}
-      <div className="space-y-6">
         {okMsg && (
           <div className="mb-3">
             <SuccessMessage>{okMsg}</SuccessMessage>
@@ -992,7 +1191,7 @@ export default function CalendarioEscolarPage() {
                       {hijos.map((h) => (
                         <SelectItem key={h.id_alumno} value={String(h.id_alumno)}>
                           {[h.apellido, h.nombre].filter(Boolean).join(", ")}
-                          {h.curso ? ` — ${h.curso}` : ""}
+                          {getCourseDisplayName(h) ? ` — ${getCourseDisplayName(h)}` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1028,9 +1227,9 @@ export default function CalendarioEscolarPage() {
                         <SelectValue placeholder="Seleccionar curso" />
                       </SelectTrigger>
                       <SelectContent>
-                        {allCursosList.map((c) => (
-                          <SelectItem key={c} value={c}>
-                            {c}
+                        {preceptorCursos.map((c) => (
+                          <SelectItem key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
+                            {getCourseLabel(c)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1055,8 +1254,11 @@ export default function CalendarioEscolarPage() {
         <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
           <CardContent className="p-6 flex items-center justify-between gap-6 flex-wrap">
             <div className="flex items-center gap-3 flex-1 min-w-[220px]">
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <CalIcon className="h-6 w-6 text-blue-600" />
+              <div
+                className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: "var(--school-accent-soft)" }}
+              >
+                <CalIcon className="h-6 w-6" style={{ color: "var(--school-accent)" }} />
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">
@@ -1084,8 +1286,8 @@ export default function CalendarioEscolarPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {cursos.map((c) => (
-                      <SelectItem key={String(c)} value={String(c)}>
-                        {String(c)}
+                      <SelectItem key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
+                        {getCourseLabel(c)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1144,23 +1346,23 @@ export default function CalendarioEscolarPage() {
               <select
                 id="curso"
                 className="border rounded-md px-3 py-2 bg-white"
-                value={crear.curso}
-                onChange={(e) => setCrear((v) => ({ ...v, curso: e.target.value }))}
-                disabled={canSelectCurso && crear.curso === "ALL"}
+                value={crear.schoolCourseId}
+                onChange={(e) => setCrear((v) => ({ ...v, schoolCourseId: e.target.value }))}
+                disabled={canSelectCurso && crear.schoolCourseId === "ALL"}
               >
                 <option value="">—</option>
                 {canSelectCurso ? (
                   <>
-                    {allCursosList.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                    {preceptorCursos.map((c) => (
+                      <option key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
+                        {getCourseLabel(c)}
                       </option>
                     ))}
                   </>
                 ) : (
                   cursos.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
+                    <option key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
+                      {getCourseLabel(c)}
                     </option>
                   ))
                 )}
@@ -1170,11 +1372,14 @@ export default function CalendarioEscolarPage() {
                   <button
                     type="button"
                     className="switch"
-                    data-checked={crear.curso === "ALL" ? "true" : "false"}
+                    data-checked={crear.schoolCourseId === "ALL" ? "true" : "false"}
                     onClick={() =>
-                      setCrear((v) => ({ ...v, curso: v.curso === "ALL" ? "" : "ALL" }))
+                      setCrear((v) => ({
+                        ...v,
+                        schoolCourseId: v.schoolCourseId === "ALL" ? "" : "ALL",
+                      }))
                     }
-                    aria-pressed={crear.curso === "ALL"}
+                    aria-pressed={crear.schoolCourseId === "ALL"}
                     aria-label="Todos los cursos"
                   >
                     <span className="switch-thumb" />
@@ -1267,16 +1472,16 @@ export default function CalendarioEscolarPage() {
               <select
                 id="e-curso"
                 className="border rounded-md px-3 py-2 bg-white"
-                value={editar.curso}
+                value={editar.schoolCourseId}
                 disabled={editarSoloLectura}
-                onChange={(e) => setEditar((v) => ({ ...v, curso: e.target.value }))}
+                onChange={(e) => setEditar((v) => ({ ...v, schoolCourseId: e.target.value }))}
               >
                 <option value="">—</option>
                 {canSelectCurso
                   ? preceptorCursos.map((c) => {
-                      const id = String(c?.id ?? "").trim()
+                      const id = String(getCourseValue(c) || "").trim()
                       if (!id) return null
-                      const label = String(c?.nombre ?? id)
+                      const label = String(getCourseLabel(c) || id)
                       return (
                         <option key={id} value={id}>
                           {label}
@@ -1284,8 +1489,8 @@ export default function CalendarioEscolarPage() {
                       )
                     })
                   : cursos.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                      <option key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
+                        {getCourseLabel(c)}
                       </option>
                     ))}
               </select>
@@ -1367,7 +1572,7 @@ export default function CalendarioEscolarPage() {
         .fc-tooltip a {
           display: inline-block;
           margin-right: 10px;
-          color: #93c5fd;
+          color: var(--school-accent);
           text-decoration: none;
           cursor: pointer;
         }
@@ -1381,16 +1586,16 @@ export default function CalendarioEscolarPage() {
           --fc-border-color: #e2e8f0;
           --fc-page-bg-color: #ffffff;
           --fc-neutral-bg-color: #f8fafc;
-          --fc-today-bg-color: rgba(12, 27, 63, 0.08);
-          --fc-event-bg-color: #0c1b3f;
-          --fc-event-border-color: #0c1b3f;
+          --fc-today-bg-color: var(--school-primary-soft);
+          --fc-event-bg-color: var(--school-primary);
+          --fc-event-border-color: var(--school-primary);
           --fc-event-text-color: #ffffff;
-          --fc-button-bg-color: #0c1b3f;
-          --fc-button-border-color: #0c1b3f;
-          --fc-button-hover-bg-color: #0a1631;
-          --fc-button-hover-border-color: #0a1631;
-          --fc-button-active-bg-color: #09122a;
-          --fc-button-active-border-color: #09122a;
+          --fc-button-bg-color: var(--school-primary);
+          --fc-button-border-color: var(--school-primary);
+          --fc-button-hover-bg-color: var(--school-primary-hover);
+          --fc-button-hover-border-color: var(--school-primary-hover);
+          --fc-button-active-bg-color: var(--school-primary-hover);
+          --fc-button-active-border-color: var(--school-primary-hover);
         }
         .fc .fc-toolbar.fc-header-toolbar {
           margin-bottom: 12px;
@@ -1451,7 +1656,7 @@ export default function CalendarioEscolarPage() {
           background: #f1f5f9;
         }
         .fc .fc-daygrid-day.fc-day-today {
-          background: rgba(12, 27, 63, 0.08);
+          background: var(--fc-today-bg-color);
         }
         .fc .fc-event {
           border-radius: 999px;
@@ -1460,7 +1665,7 @@ export default function CalendarioEscolarPage() {
           font-weight: 600;
         }
         .fc .fc-daygrid-event-dot {
-          border-color: #0c1b3f;
+          border-color: var(--fc-event-border-color);
         }
       `}</style>
     </div>

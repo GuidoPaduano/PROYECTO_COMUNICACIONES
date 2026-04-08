@@ -17,7 +17,7 @@ export default function GestionAlumnosCursoPage() {
       typeof window !== "undefined" && window.location.search
         ? window.location.search
         : ""
-    router.replace(`/mis-cursos/${cursoId}${qs}`)
+    router.replace(`/alumnos/curso/${cursoId}${qs}`)
   }, [cursoId, router])
 
   return (

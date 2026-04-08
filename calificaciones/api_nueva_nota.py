@@ -1,5 +1,6 @@
 # calificaciones/api_nueva_nota.py
 from decimal import Decimal, InvalidOperation
+import logging
 import unicodedata
 
 from django.conf import settings
@@ -17,11 +18,28 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from .models import Alumno, Nota, Mensaje, Notificacion
+from .course_access import (
+    assignment_matches_course,
+    build_course_membership_q,
+    build_course_membership_q_for_refs,
+    course_ref_matches,
+    filter_course_options_by_refs,
+    get_assignment_course_refs,
+)
+from .models import Alumno, Nota, Mensaje, Notificacion, resolve_school_course_for_value
 from .serializers import AlumnoSerializer, NotaCreateSerializer
 from .contexto import build_context_for_user, alumno_to_dict
-from .utils_cursos import filtrar_cursos_validos
+from .schools import (
+    get_available_school_dicts_for_user,
+    get_request_school,
+    school_to_dict,
+    scope_queryset_to_school,
+)
+from .utils_cursos import get_school_course_dicts, resolve_course_reference
 from .alerts import evaluar_alerta_nota
+from .user_groups import get_user_group_names
+
+logger = logging.getLogger(__name__)
 
 # ---------- Catálogo (con fallbacks) ----------
 try:
@@ -64,7 +82,7 @@ def _resultados_catalogo():
     return [{"id": key, "label": label} for key, label in Nota.RESULTADO_CHOICES]
 
 
-def _calificaciones_legacy_catalogo():
+def _calificaciones_texto_catalogo():
     return ["TEA", "TEP", "TED", "NO ENTREGADO"] + [str(x) for x in range(1, 11)]
 
 
@@ -78,6 +96,23 @@ def _parse_decimal_optional(value):
     if parsed < Decimal("1") or parsed > Decimal("10"):
         return None
     return parsed.quantize(Decimal("0.01"))
+
+
+def _filter_alumnos_por_curso(qs, curso: str, *, school=None):
+    curso = (curso or "").strip()
+    if not curso:
+        return qs
+
+    school_course = resolve_school_course_for_value(school=school, curso=curso) if school is not None else None
+    course_q = build_course_membership_q(
+        school_course_id=getattr(school_course, "id", None),
+        course_code=curso,
+        school_course_field="school_course",
+        code_field="curso",
+    )
+    if course_q is None:
+        return qs.none()
+    return qs.filter(course_q)
 
 
 def _normalize_catalog_text(value):
@@ -129,63 +164,115 @@ def get_materias_catalogo():
     return list(MATERIAS_CATALOGO) if MATERIAS_CATALOGO else _materias_por_defecto()
 
 
-def _cursos_catalogo():
-    """Devuelve [{'id': '1A', 'nombre': '1° A'}, ...] desde Alumno.CURSOS si existe."""
-    try:
-        base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
-        return [{"id": c[0], "nombre": c[1]} for c in base]
-    except Exception:
-        # Fallback muy básico si no hay choices
-        cursos = sorted(set(Alumno.objects.values_list("curso", flat=True)))
-        cursos = filtrar_cursos_validos(cursos)
-        return [{"id": c, "nombre": str(c)} for c in cursos if c]
-
-
-def _cursos_profesor_asignados(user):
-    if ProfesorCurso is None:
-        return []
-    try:
-        return list(
-            ProfesorCurso.objects.filter(profesor=user)
-            .values_list("curso", flat=True)
-            .distinct()
+def _cursos_catalogo(school=None):
+    """Devuelve cursos del colegio con school_course_id como referencia principal y code legible para UI."""
+    cursos = []
+    for item in get_school_course_dicts(
+        school=school,
+        fallback_to_defaults=False,
+        catalog_only=True,
+    ):
+        code = str(item.get("id") or item.get("code") or "").strip()
+        if not code:
+            continue
+        school_course_id = item.get("school_course_id")
+        if school_course_id is None and school is not None:
+            school_course = resolve_school_course_for_value(school=school, curso=code)
+            school_course_id = getattr(school_course, "id", None)
+        cursos.append(
+            {
+                "id": code,
+                "code": code,
+                "nombre": str(item.get("nombre") or code),
+                "school_course_id": school_course_id,
+            }
         )
+    return cursos
+
+
+def _cursos_profesor_asignados(user, school=None):
+    refs = _cursos_profesor_asignados_refs(user, school=school)
+    if not refs:
+        return []
+    out = []
+    for course in _cursos_catalogo(school=school):
+        code = str(course.get("code") or course.get("id") or "").strip()
+        if not code:
+            continue
+        if course_ref_matches(
+            refs,
+            school=school,
+            school_course_id=course.get("school_course_id"),
+            course_code=code,
+        ):
+            out.append(code)
+    return out
+
+
+def _profesor_assignment_qs(user, school=None):
+    if ProfesorCurso is None:
+        return None
+    try:
+        qs = ProfesorCurso.objects.filter(profesor=user)
+        return scope_queryset_to_school(qs, school)
+    except Exception:
+        return None
+
+
+def _cursos_profesor_asignados_refs(user, school=None):
+    qs = _profesor_assignment_qs(user, school=school)
+    if qs is None:
+        return []
+    try:
+        return get_assignment_course_refs(qs)
     except Exception:
         return []
 
 
-def _filtrar_cursos_para_profesor(user, cursos):
+def _has_group(user, *names):
     try:
-        if not user.groups.filter(name="Profesores").exists():
-            return cursos
+        return user.groups.filter(name__in=list(names)).exists()
     except Exception:
+        return False
+
+
+def _is_profesor_user(user) -> bool:
+    return _has_group(user, "Profesores", "Profesor")
+
+
+def _is_directivo_user(user) -> bool:
+    return _has_group(user, "Directivos", "Directivo")
+
+
+def _usuario_puede_operar_nota_en_alumno(user, alumno: Alumno) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    if _is_directivo_user(user):
+        return True
+    if not _is_profesor_user(user):
+        return False
+
+    qs = _profesor_assignment_qs(user, school=getattr(alumno, "school", None))
+    if qs is None:
+        return False
+    return assignment_matches_course(qs, obj=alumno)
+
+
+def _filtrar_cursos_para_profesor(user, cursos, school=None):
+    if not _is_profesor_user(user):
         return cursos
 
-    asignados = _cursos_profesor_asignados(user)
-    if not asignados:
-        return cursos
-
-    asignados_set = set(asignados)
-    return [c for c in cursos if (c.get("id") if isinstance(c, dict) else c) in asignados_set]
+    refs = _cursos_profesor_asignados_refs(user, school=school)
+    if not refs:
+        return []
+    return filter_course_options_by_refs(cursos, refs)
 
 
 def _profesor_puede_editar_nota(user, nota: Nota) -> bool:
-    if getattr(user, "is_superuser", False):
-        return True
-    try:
-        if not user.groups.filter(name__in=["Profesores", "Profesor"]).exists():
-            return False
-    except Exception:
+    alumno = getattr(nota, "alumno", None)
+    if alumno is None:
         return False
-
-    curso_alumno = getattr(getattr(nota, "alumno", None), "curso", None)
-    if not curso_alumno:
-        return False
-
-    asignados = _cursos_profesor_asignados(user)
-    if not asignados:
-        return True
-    return curso_alumno in set(asignados)
+    return _usuario_puede_operar_nota_en_alumno(user, alumno)
 
 
 # ---------- WhoAmI ----------
@@ -194,7 +281,8 @@ class WhoAmI(APIView):
 
     def get(self, request, *args, **kwargs):
         u = request.user
-        groups = list(u.groups.values_list("name", flat=True))
+        groups = list(get_user_group_names(u))
+        active_school = get_request_school(request)
 
         # Vista previa de rol para superusuario (respeta X-Preview-Role / ?view_as=)
         try:
@@ -207,10 +295,10 @@ class WhoAmI(APIView):
 
         full_name = (u.get_full_name() or f"{u.first_name} {u.last_name}").strip()
 
-        # Contexto de usuario (robusto/retrocompatible) para que el front pueda
+        # Contexto de usuario (resolucion tolerante) para que el front pueda
         # resolver "quién es el alumno" sin depender de vínculos frágiles.
         try:
-            ctx = build_context_for_user(u, groups)
+            ctx = build_context_for_user(u, groups, school=active_school)
         except Exception:
             logger.exception(
                 "WhoAmI: error construyendo contexto para user_id=%s",
@@ -219,21 +307,15 @@ class WhoAmI(APIView):
             ctx = {}
 
         # Vista previa (superusuario): si simula un rol y no hay contexto real, proveo un fallback razonable.
-        if preview_role and getattr(u, "is_superuser", False):
+        if preview_role and getattr(u, "is_superuser", False) and active_school is not None:
             try:
                 if "Alumnos" in groups and not ctx.get("alumno"):
-                    a0 = Alumno.objects.order_by("id").first()
+                    a0 = scope_queryset_to_school(Alumno.objects.all(), active_school).order_by("id").first()
                     ctx["alumno"] = alumno_to_dict(a0)
-                    ctx["alumno_resolution"] = {"method": "preview_first", "candidates": 1 if a0 else 0}
-                if "Padres" in groups and not ctx.get("hijos"):
-                    a0 = Alumno.objects.filter(padre__isnull=False).order_by("padre_id", "id").first()
-                    if a0 and a0.padre_id:
-                        hijos = Alumno.objects.filter(padre_id=a0.padre_id).order_by("curso", "nombre")
-                        ctx["hijos"] = [alumno_to_dict(x) for x in hijos]
             except Exception:
                 pass
 
-        # `alumno` / `hijos` van arriba para compat con el front actual.
+        # `alumno` va arriba porque el front actual lo consume asi.
         rol = groups[0] if groups else "—"
 
         return Response(
@@ -247,7 +329,8 @@ class WhoAmI(APIView):
                 "groups": groups,
                 "rol": rol,
                 "is_superuser": u.is_superuser,
-                "is_staff": u.is_staff,
+                "school": school_to_dict(active_school),
+                "available_schools": get_available_school_dicts_for_user(u, active_school=active_school),
                 **ctx,
             },
             status=status.HTTP_200_OK,
@@ -257,111 +340,94 @@ class WhoAmI(APIView):
 # ---------- Datos iniciales para “Nueva Nota” ----------
 class NuevaNotaDatosIniciales(APIView):
     """
-    GET /api/calificaciones/nueva-nota/datos/?curso=1A
+    GET /api/calificaciones/nueva-nota/datos/?school_course_id=14
+    Usa school_course_id para filtrar por curso.
     Devuelve alumnos (opcionalmente filtrados por curso),
     catálogo de materias, tipos y cuatrimestres.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        curso = (request.query_params.get("curso") or "").strip()
-        asignados_prof = []
+        active_school = get_request_school(request)
+        school_course, curso, course_error = resolve_course_reference(
+            school=active_school,
+            raw_course=request.query_params.get("curso"),
+            raw_school_course_id=request.query_params.get("school_course_id"),
+            required=False,
+        )
+        if course_error:
+            return Response({"detail": course_error}, status=status.HTTP_400_BAD_REQUEST)
+        assigned_course_refs = []
         try:
-            if request.user.groups.filter(name="Profesores").exists():
-                asignados_prof = _cursos_profesor_asignados(request.user)
+            if _is_profesor_user(request.user):
+                assigned_course_refs = _cursos_profesor_asignados_refs(request.user, school=active_school)
         except Exception:
-            asignados_prof = []
+            assigned_course_refs = []
 
-        if curso and asignados_prof and curso not in asignados_prof:
+        if (school_course is not None or curso) and assigned_course_refs and not course_ref_matches(
+            assigned_course_refs,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso,
+        ):
             return Response({"detail": "No tenés permiso para ese curso."}, status=status.HTTP_403_FORBIDDEN)
 
-        cursos_catalogo = _filtrar_cursos_para_profesor(request.user, _cursos_catalogo())
-        cursos_ids = [c.get("id") if isinstance(c, dict) else c for c in cursos_catalogo]
-        curso_inicial = curso or (cursos_ids[0] if cursos_ids else "")
+        cursos_catalogo = _filtrar_cursos_para_profesor(
+            request.user,
+            _cursos_catalogo(school=active_school),
+            school=active_school,
+        )
+        selected_course = None
+        if school_course is not None:
+            selected_course = next(
+                (c for c in cursos_catalogo if c.get("school_course_id") == getattr(school_course, "id", None)),
+                None,
+            )
+        if selected_course is None and curso:
+            selected_course = next(
+                (c for c in cursos_catalogo if str(c.get("code") or c.get("id") or "").strip() == curso),
+                None,
+            )
+        if selected_course is None and cursos_catalogo:
+            selected_course = cursos_catalogo[0]
 
-        alumnos_qs = Alumno.objects.only("id", "id_alumno", "nombre", "apellido", "curso").order_by("nombre")
-        if curso_inicial:
-            alumnos_qs = alumnos_qs.filter(curso=curso_inicial)
-        elif asignados_prof:
-            alumnos_qs = alumnos_qs.filter(curso__in=asignados_prof)
+        school_course_id_inicial = None
+        school_course_name_inicial = ""
+        selected_course_code = ""
+        if selected_course is not None:
+            selected_course_code = str(selected_course.get("code") or selected_course.get("id") or "").strip()
+            school_course_id_inicial = selected_course.get("school_course_id")
+            school_course_name_inicial = str(selected_course.get("nombre") or "").strip()
+
+        alumnos_qs = scope_queryset_to_school(
+            Alumno.objects.only("id", "id_alumno", "nombre", "apellido", "curso"),
+            active_school,
+        ).order_by("nombre")
+        if selected_course_code:
+            alumnos_qs = _filter_alumnos_por_curso(alumnos_qs, selected_course_code, school=active_school)
+        elif assigned_course_refs:
+            allowed_course_q = build_course_membership_q_for_refs(
+                assigned_course_refs,
+                school_course_field="school_course",
+                code_field="curso",
+            )
+            alumnos_qs = alumnos_qs.filter(allowed_course_q) if allowed_course_q is not None else alumnos_qs.none()
 
         data = {
             "alumnos": AlumnoSerializer(alumnos_qs, many=True).data,
             "cursos": cursos_catalogo,
-            "curso_inicial": curso_inicial,
+            "school_course_id_inicial": school_course_id_inicial,
+            "school_course_name_inicial": school_course_name_inicial,
             "materias": get_materias_catalogo(),
             "tipos": _tipos_por_defecto(),
             "cuatrimestres": _cuatris_por_defecto(),
             "resultados": _resultados_catalogo(),
-            "calificaciones": _calificaciones_legacy_catalogo(),
+            "calificaciones": _calificaciones_texto_catalogo(),
             "hoy": timezone.localdate(),
         }
         return Response(data, status=status.HTTP_200_OK)
 
-
-# ---------- Catálogo para el front (endpoint espejo de /notas/catalogos/) ----------
-@method_decorator(csrf_exempt, name="dispatch")
-class CatalogosNuevaNota(APIView):
-    """
-    GET /notas/catalogos/
-    Estructura compatible con el front:
-    {
-      "cursos": [{"id","nombre"}],
-      "materias": [...],
-      "tipos": [...],
-      "cuatrimestres": [...],
-      "hoy": "YYYY-MM-DD"
-    }
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        cursos = _filtrar_cursos_para_profesor(request.user, _cursos_catalogo())
-        return Response(
-            {
-                "cursos": cursos,
-                "materias": get_materias_catalogo(),
-                "tipos": _tipos_por_defecto(),
-                "cuatrimestres": _cuatris_por_defecto(),
-                "resultados": _resultados_catalogo(),
-                "calificaciones": _calificaciones_legacy_catalogo(),
-                "hoy": timezone.localdate(),
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-# ---------- Alumnos por curso (endpoint espejo de /alumnos/?curso=) ----------
-@method_decorator(csrf_exempt, name="dispatch")
-class AlumnosPorCurso(APIView):
-    """
-    GET /alumnos/?curso=1A
-    Devuelve {"alumnos": [ ... ]}
-    """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        curso = (request.query_params.get("curso") or "").strip()
-        if not curso:
-            return Response({"detail": "Parámetro 'curso' es requerido."}, status=status.HTTP_400_BAD_REQUEST)
-
-        asignados_prof = []
-        try:
-            if request.user.groups.filter(name="Profesores").exists():
-                asignados_prof = _cursos_profesor_asignados(request.user)
-        except Exception:
-            asignados_prof = []
-
-        if asignados_prof and curso not in asignados_prof:
-            return Response({"detail": "No tenés permiso para ese curso."}, status=status.HTTP_403_FORBIDDEN)
-
-        qs = Alumno.objects.only("id", "id_alumno", "nombre", "apellido", "curso").filter(curso=curso).order_by("nombre")
-        data = AlumnoSerializer(qs, many=True).data
-        return Response({"alumnos": data}, status=status.HTTP_200_OK)
-
-
 # ---------- Helpers para mapear alumno ----------
-def _resolver_alumno_id(valor):
+def _resolver_alumno_id(valor, school=None):
     """
     Acepta:
     - PK numérica (str o int)
@@ -373,14 +439,16 @@ def _resolver_alumno_id(valor):
     try:
         sv = str(valor).strip()
         if sv.isdigit():
-            return Alumno.objects.get(pk=int(sv))
+            qs = scope_queryset_to_school(Alumno.objects.all(), school)
+            return qs.get(pk=int(sv))
         # si no es dígito intento por id_alumno (legajo)
-        return Alumno.objects.get(id_alumno=sv)
+        qs = scope_queryset_to_school(Alumno.objects.all(), school)
+        return qs.get(id_alumno=sv)
     except Alumno.DoesNotExist:
         return None
 
 
-def _normalizar_nota_payload(d):
+def _normalizar_nota_payload(d, school=None):
     """
     Convierte {'alumno_id': X} o {'id_alumno': Y} en {'alumno': pk}
     (sin tocar el resto de campos).
@@ -398,7 +466,7 @@ def _normalizar_nota_payload(d):
     # Si alumno es legajo o string, lo convierto a pk
     alumno_val = data.get("alumno", None)
     if alumno_val is not None:
-        inst = _resolver_alumno_id(alumno_val)
+        inst = _resolver_alumno_id(alumno_val, school=school)
         if inst:
             data["alumno"] = inst.pk
     return data
@@ -425,14 +493,14 @@ def _resolver_padre_destinatario(alumno: Alumno):
 
     Source puede ser:
       - 'alumno.padre'
-      - 'username==id_alumno' (fallback legacy)
+      - 'username==id_alumno' (fallback por username==legajo)
       - None
     """
     padre = getattr(alumno, "padre", None)
     if padre is not None:
         return padre, "alumno.padre"
 
-    # Fallback legacy: usuario cuyo username coincide con el legajo (id_alumno)
+    # Fallback por username==legajo
     try:
         User = get_user_model()
         legajo = (getattr(alumno, "id_alumno", "") or "").strip()
@@ -488,7 +556,7 @@ def _resolver_destinatarios_notif(alumno: Alumno):
     except Exception:
         pass
 
-    # Fallback legacy (si no hay nada)
+    # Ultimo intento si no hubo destinatarios
     if not destinatarios:
         try:
             u_fb, _src = _resolver_padre_destinatario(alumno)
@@ -503,6 +571,33 @@ def _alumno_nombre(alumno: Alumno) -> str:
     ap = (getattr(alumno, "apellido", "") or "").strip()
     full = (f"{nm} {ap}").strip()
     return full or nm or str(getattr(alumno, "id_alumno", "")) or "Alumno"
+
+
+def _notification_course_name(*, alumno=None, school_course=None, course_code="", school=None):
+    resolved_school_course = school_course or getattr(alumno, "school_course", None)
+    return (
+        getattr(resolved_school_course, "name", None)
+        or getattr(resolved_school_course, "code", None)
+        or get_course_label(
+            course_code or getattr(alumno, "curso", ""),
+            school=school or getattr(alumno, "school", None),
+        )
+        or course_code
+        or getattr(alumno, "curso", None)
+        or None
+    )
+
+
+def _notification_course_meta(*, alumno=None, school_course=None, course_code="", school=None):
+    return {
+        "school_course_id": getattr(school_course, "id", None) or getattr(alumno, "school_course_id", None),
+        "school_course_name": _notification_course_name(
+            alumno=alumno,
+            school_course=school_course,
+            course_code=course_code,
+            school=school,
+        ),
+    }
 
 
 def _notify_padre_nota(remitente, nota: Nota):
@@ -527,6 +622,7 @@ def _notify_padre_nota(remitente, nota: Nota):
 
         alumno_nombre = _alumno_nombre(alumno)
         curso_alumno = getattr(alumno, "curso", "") or ""
+        course_name = _notification_course_name(alumno=alumno, course_code=curso_alumno)
 
         materia = getattr(nota, "materia", None)
         materia_nombre = getattr(materia, "nombre", materia) if materia else ""
@@ -541,7 +637,7 @@ def _notify_padre_nota(remitente, nota: Nota):
         contenido_msg = (
             "Se registraron nuevas calificaciones. "
             f"Alumno: {alumno_nombre} "
-            + (f"Curso: {curso_alumno} " if curso_alumno else "")
+            + (f"Curso: {course_name} " if course_name else "")
             + (f"Materia: {materia_nombre} " if materia_nombre else "")
             + (f"Tipo: {tipo} " if tipo else "")
             + (f"Calificación: {calif} " if calif is not None else "")
@@ -551,9 +647,11 @@ def _notify_padre_nota(remitente, nota: Nota):
 
         notificado = False
         last_id = None
+        school_ref = getattr(nota, "school", None) or getattr(alumno, "school", None)
 
         for destinatario in destinatarios:
             Notificacion.objects.create(
+                school=school_ref,
                 destinatario=destinatario,
                 tipo="nota",
                 titulo=asunto_msg,
@@ -563,7 +661,7 @@ def _notify_padre_nota(remitente, nota: Nota):
                 meta={
                     "alumno_id": getattr(alumno, "id", None),
                     "alumno_legajo": getattr(alumno, "id_alumno", None),
-                    "curso": curso_alumno or "",
+                    **_notification_course_meta(alumno=alumno, course_code=curso_alumno, school=school_ref),
                     "materia": materia_nombre or "",
                     "tipo_nota": tipo or "",
                     "calificacion": calif,
@@ -588,7 +686,7 @@ class CrearNota(APIView):
       tipo,
       resultado?,         # TEA/TEP/TED
       nota_numerica?,     # 1..10
-      calificacion?,      # legacy
+      calificacion?,      # campo heredado
       cuatrimestre,
       fecha?
     }
@@ -596,42 +694,63 @@ class CrearNota(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        payload = _normalizar_nota_payload(request.data)
+        active_school = get_request_school(request)
+        payload = _normalizar_nota_payload(request.data, school=active_school)
         serializer = NotaCreateSerializer(data=payload)
         if serializer.is_valid():
+            alumno = serializer.validated_data.get("alumno")
+            if alumno is None or not _usuario_puede_operar_nota_en_alumno(request.user, alumno):
+                return Response(
+                    {"detail": "No tenés permiso para cargar notas para ese alumno."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             nota = serializer.save()
+            school_ref = getattr(getattr(nota, "alumno", None), "school", None) or active_school
+            if school_ref is not None and getattr(nota, "school_id", None) is None:
+                nota.school = school_ref
+                nota.save(update_fields=["school"])
             notificado, notif_dest_id, notif_source, notif_error = _notify_padre_nota(request.user, nota)
             alerta_info = evaluar_alerta_nota(nota=nota, actor=request.user)
-            resp = {"ok": True, "id": nota.id, "notificado": notificado, "notif_destinatario_id": notif_dest_id, "notif_source": notif_source}
+            resp = {"id": nota.id, "notificado": notificado, "notif_destinatario_id": notif_dest_id, "notif_source": notif_source}
             resp["alerta"] = alerta_info
             # Si sos staff/superuser y falló, devolvemos error para debug
-            if (not notificado) and notif_error and (getattr(request.user, 'is_staff', False) or getattr(request.user, 'is_superuser', False)):
+            if (not notificado) and notif_error and (
+                getattr(request.user, "is_superuser", False) or _is_directivo_user(request.user)
+            ):
                 resp["notif_error"] = notif_error
             return Response(resp, status=status.HTTP_201_CREATED)
-        return Response({"ok": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class EditarNota(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, nota_id, *args, **kwargs):
+        active_school = get_request_school(request)
         try:
-            nota = Nota.objects.select_related("alumno").get(pk=nota_id)
+            nota = scope_queryset_to_school(
+                Nota.objects.select_related("alumno"),
+                active_school,
+            ).get(pk=nota_id)
         except Nota.DoesNotExist:
             return Response({"detail": "Nota no encontrada."}, status=status.HTTP_404_NOT_FOUND)
 
         if not _profesor_puede_editar_nota(request.user, nota):
             return Response({"detail": "No tenés permiso para editar esta nota."}, status=status.HTTP_403_FORBIDDEN)
 
-        payload = _normalizar_nota_payload(request.data)
+        payload = _normalizar_nota_payload(request.data, school=active_school)
         payload["alumno"] = nota.alumno_id
 
         serializer = NotaCreateSerializer(instance=nota, data=payload, partial=True)
         if not serializer.is_valid():
-            return Response({"ok": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         nota = serializer.save()
-        return Response({"ok": True, "nota": NotaCreateSerializer(nota).data}, status=status.HTTP_200_OK)
+        school_ref = getattr(getattr(nota, "alumno", None), "school", None) or active_school
+        if school_ref is not None and getattr(nota, "school_id", None) is None:
+            nota.school = school_ref
+            nota.save(update_fields=["school"])
+        return Response({"nota": NotaCreateSerializer(nota).data}, status=status.HTTP_200_OK)
 
 
 # ---------- Crear varias notas (bulk JSON) ----------
@@ -653,11 +772,12 @@ class CrearNotasMasivo(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
+        active_school = get_request_school(request)
         body = request.data
         notas_in = body.get("notas") if isinstance(body, dict) else None
         if not isinstance(notas_in, list):
             return Response(
-                {"ok": False, "error": "Formato inválido: se espera {'notas': [ ... ]}"},
+                {"error": "Formato inválido: se espera {'notas': [ ... ]}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -715,12 +835,13 @@ class CrearNotasMasivo(APIView):
                 q |= Q(id_alumno__in=legajos) | Q(id_alumno__in=[x.upper() for x in legajos]) | Q(id_alumno__in=[x.lower() for x in legajos])
 
             qs = (
-                Alumno.objects.filter(q)
+                scope_queryset_to_school(Alumno.objects.filter(q), active_school)
                 .select_related("padre", "usuario")
                 .only(
                     "id",
                     "id_alumno",
                     "curso",
+                    "school",
                     "padre_id",
                     "usuario_id",
                     "nombre",
@@ -767,6 +888,11 @@ class CrearNotasMasivo(APIView):
             alumno = _resolve_alumno(alumno_key) if alumno_key else None
             if alumno is None:
                 errors.append({"index": idx, "errors": {"alumno": ["Alumno inválido o inexistente."]}})
+                continue
+            if not _usuario_puede_operar_nota_en_alumno(request.user, alumno):
+                errors.append(
+                    {"index": idx, "errors": {"alumno": ["No tenés permiso para cargar notas para ese alumno."]}}
+                )
                 continue
 
             materia = (item.get('materia') or '').strip()
@@ -857,6 +983,7 @@ class CrearNotasMasivo(APIView):
             notas_objs.append(
                 Nota(
                     alumno=alumno,
+                    school=getattr(alumno, "school", None) or active_school,
                     materia=materia,
                     tipo=tipo,
                     calificacion=calif,
@@ -869,7 +996,7 @@ class CrearNotasMasivo(APIView):
 
         if not notas_objs:
             return Response(
-                {"ok": False, "created": [], "errors": errors, "notificados": 0},
+                {"created": [], "errors": errors, "notificados": 0},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -964,6 +1091,7 @@ class CrearNotasMasivo(APIView):
                 a = g['alumno']
                 alumno_full = _alumno_nombre(a)
                 curso = g['curso']
+                course_name = _notification_course_name(alumno=a, course_code=curso)
                 notas_alumno = g['notas']
 
                 titulo = (f"Nuevas notas para {alumno_full}" if len(notas_alumno) > 1 else f"Nueva nota para {alumno_full}")
@@ -981,13 +1109,14 @@ class CrearNotasMasivo(APIView):
                 descripcion = (
                     "Se registraron nuevas calificaciones. "
                     f"Alumno: {alumno_full}. "
-                    + (f"Curso: {curso}. " if curso else "")
+                    + (f"Curso: {course_name}. " if course_name else "")
                     + (" ".join(lines) if lines else "")
                     + (f" Docente: {docente}" if docente else "")
                 ).strip()
 
                 notifs.append(
                     Notificacion(
+                        school=getattr(a, "school", None) or active_school,
                         destinatario=g['dest'],
                         tipo='nota',
                         titulo=titulo,
@@ -997,7 +1126,7 @@ class CrearNotasMasivo(APIView):
                         meta={
                             "alumno_id": getattr(a, 'id', None),
                             "nota_ids": [getattr(x, 'id', None) for x in notas_alumno],
-                            "curso": curso or "",
+                            **_notification_course_meta(alumno=a, course_code=curso, school=active_school),
                             "docente": docente,
                         },
                     )
@@ -1041,8 +1170,8 @@ class CrearNotasMasivo(APIView):
         # 207 si hubo errores parciales, 201 si todo ok
         if errors:
             return Response(
-                {"ok": True, "created": created_ids, "errors": errors, "notificados": notificados, "alertas": alertas_creadas},
+                {"created": created_ids, "errors": errors, "notificados": notificados, "alertas": alertas_creadas},
                 status=207,
             )
 
-        return Response({"ok": True, "created": created_ids, "notificados": notificados, "alertas": alertas_creadas}, status=status.HTTP_201_CREATED)
+        return Response({"created": created_ids, "notificados": notificados, "alertas": alertas_creadas}, status=status.HTTP_201_CREATED)

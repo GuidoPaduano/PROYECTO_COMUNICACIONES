@@ -1,55 +1,43 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
-import { useAuthGuard, authFetch } from "../_lib/auth"
+import { useEffect, useMemo, useState } from "react"
+import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
+import { loadCourseCatalog } from "../_lib/courses"
 import { BookOpen } from "lucide-react"
 
-async function fetchJSON(url) {
-  const res = await authFetch(url)
-  const data = await res.json().catch(() => ({}))
-  return { ok: res.ok, data, status: res.status }
-}
-
 function getCursoId(c) {
-  return c?.id ?? c?.value ?? c
+  return c?.value ?? c?.id ?? c
 }
 
 function getCursoNombre(c) {
-  return c?.nombre ?? c?.label ?? String(getCursoId(c))
-}
-
-async function tryGetCursos() {
-  {
-    const r = await fetchJSON("/notas/catalogos/")
-    if (r.ok && Array.isArray(r.data?.cursos)) return r.data.cursos
-  }
-  {
-    const r = await fetchJSON("/cursos/")
-    if (r.ok) return Array.isArray(r.data) ? r.data : r.data?.results || []
-  }
-  {
-    const r = await fetchJSON("/cursos/list/")
-    if (r.ok) return Array.isArray(r.data) ? r.data : r.data?.results || []
-  }
-  return []
+  return c?.label ?? c?.nombre ?? String(getCursoId(c))
 }
 
 export default function AlumnosPage() {
   useAuthGuard()
+  const session = useSessionContext()
 
   const [cursos, setCursos] = useState([])
+  const alumnosScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
 
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const cs = await tryGetCursos()
+      const cs = await loadCourseCatalog({
+        cacheKey: `alumnos-cursos:${alumnosScopeKey}`,
+        urls: ["/alumnos/cursos/"],
+        fetcher: (url) => authFetch(url),
+      })
       if (alive) setCursos(cs)
     })()
     return () => {
       alive = false
     }
-  }, [])
+  }, [alumnosScopeKey])
 
   return (
     <div className="space-y-6">

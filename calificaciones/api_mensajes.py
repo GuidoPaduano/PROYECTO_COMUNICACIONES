@@ -17,8 +17,12 @@ from django.utils import timezone
 from django.db import models
 from django.contrib.auth import get_user_model
 
-from .models import Alumno, Mensaje, Notificacion
+from .course_access import build_course_membership_q, course_ref_matches, get_assignment_course_refs
+from .models import Alumno, Mensaje, Notificacion, resolve_school_course_for_value
 from .resend_email import send_message_email
+from .schools import get_request_school, scope_queryset_to_school
+from .user_groups import get_user_group_names_lower, user_has_group_fragment, user_in_groups
+from .utils_cursos import resolve_course_reference
 
 from uuid import UUID, uuid4
 import json
@@ -26,6 +30,12 @@ import re
 from functools import lru_cache
 
 User = get_user_model()
+
+try:
+    from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
+except Exception:
+    PreceptorCurso = None
+    ProfesorCurso = None
 
 # ===================== Performance knobs =====================
 DEFAULT_CONV_LIMIT = 50
@@ -54,25 +64,46 @@ def _recipient_field() -> str:
 
 
 @lru_cache(maxsize=1)
-def _curso_field() -> str:
-    """Compat: Mensaje.curso_asociado (viejo) vs Mensaje.curso (nuevo)."""
-    if _has_field(Mensaje, "curso_asociado"):
-        return "curso_asociado"
-    if _has_field(Mensaje, "curso"):
-        return "curso"
-    return ""
-
-
-@lru_cache(maxsize=1)
 def _threads_enabled() -> bool:
     """True si el modelo Mensaje tiene thread_id."""
     return _has_field(Mensaje, "thread_id")
 
 
+def _course_code_for_storage(*, school_course=None, curso=None, alumno=None) -> str:
+    alumno_school_course = getattr(alumno, "school_course", None) if alumno is not None else None
+    return str(
+        getattr(school_course, "code", None)
+        or getattr(alumno_school_course, "code", None)
+        or getattr(alumno, "curso", None)
+        or curso
+        or ""
+    ).strip()
+
+
+def _alumnos_por_curso_qs(curso: str = "", *, school=None, school_course=None):
+    course_code = _course_code_for_storage(school_course=school_course, curso=curso)
+    if not course_code:
+        return Alumno.objects.none()
+
+    school_course = school_course or (
+        resolve_school_course_for_value(school=school, curso=course_code)
+        if school is not None
+        else None
+    )
+    course_q = build_course_membership_q(
+        school_course_id=getattr(school_course, "id", None),
+        course_code=course_code,
+        school_course_field="school_course",
+        code_field="curso",
+    )
+    if course_q is None:
+        return Alumno.objects.none()
+    return scope_queryset_to_school(Alumno.objects.all(), school).filter(course_q)
+
+
 @lru_cache(maxsize=1)
 def _flags():
     return {
-        "has_curso_asociado": _has_field(Mensaje, "curso_asociado"),
         "has_remitente": _has_field(Mensaje, "remitente"),
         "has_destinatario": _has_field(Mensaje, "destinatario"),
         "has_leido": _has_field(Mensaje, "leido"),
@@ -144,11 +175,124 @@ def _safe_select_related(qs, *fields):
     return qs
 
 
+def _message_base_queryset(*, school=None):
+    sf = _sender_field()
+    rf = _recipient_field()
+    qs = scope_queryset_to_school(Mensaje.objects.all(), school)
+    return _safe_select_related(qs, sf, rf, "school_course")
+
+
 def _user_label(u):
     try:
         return (u.get_full_name() or u.username) if u else ""
     except Exception:
         return getattr(u, "username", "") or ""
+
+
+def _is_directivo_user(user) -> bool:
+    return user_in_groups(user, "Directivos", "Directivo")
+
+
+def _staff_can_send_schoolwide(user) -> bool:
+    try:
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        if getattr(user, "is_superuser", False) or _is_directivo_user(user):
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def _message_course_refs_for_user(user, *, school=None, role: str = ""):
+    school_id = getattr(school, "id", None) or 0
+    cache_attr = "_cached_message_course_refs_by_scope"
+    cache_key = (str(role or "").strip().lower(), school_id)
+    cached = getattr(user, cache_attr, None)
+    if isinstance(cached, dict) and cache_key in cached:
+        return list(cached[cache_key])
+
+    refs = []
+    model = None
+    user_field = ""
+    if cache_key[0] == "preceptor":
+        model = PreceptorCurso
+        user_field = "preceptor"
+    elif cache_key[0] == "profesor":
+        model = ProfesorCurso
+        user_field = "profesor"
+
+    if model is not None and user_field:
+        try:
+            qs = scope_queryset_to_school(model.objects.filter(**{user_field: user}), school)
+            refs = get_assignment_course_refs(qs)
+        except Exception:
+            refs = []
+
+    try:
+        if not isinstance(cached, dict):
+            cached = {}
+        cached[cache_key] = tuple(refs)
+        setattr(user, cache_attr, cached)
+    except Exception:
+        pass
+    return refs
+
+
+def _preceptor_can_access_course(user, *, school=None, school_course=None, curso=None) -> bool:
+    refs = _message_course_refs_for_user(user, school=school, role="preceptor")
+    if not refs:
+        return False
+    try:
+        return course_ref_matches(
+            refs,
+            school=school,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso,
+        )
+    except Exception:
+        return False
+
+
+def _profesor_can_access_course(user, *, school=None, school_course=None, curso=None) -> bool:
+    refs = _message_course_refs_for_user(user, school=school, role="profesor")
+    if not refs:
+        return False
+    try:
+        return course_ref_matches(
+            refs,
+            school=school,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso,
+        )
+    except Exception:
+        return False
+
+
+def _authorize_staff_for_course(user, *, school=None, school_course=None, curso=None) -> bool:
+    if _staff_can_send_schoolwide(user):
+        return True
+
+    groups = get_user_group_names_lower(user)
+    if not groups:
+        return False
+    joined = " ".join(groups)
+    if "preceptor" in joined:
+        return _preceptor_can_access_course(user, school=school, school_course=school_course, curso=curso)
+    if ("profesor" in joined) or ("docente" in joined):
+        return _profesor_can_access_course(user, school=school, school_course=school_course, curso=curso)
+    return False
+
+
+def _authorize_staff_for_alumno(user, alumno) -> bool:
+    if alumno is None:
+        return _staff_can_send_schoolwide(user)
+    return _authorize_staff_for_course(
+        user,
+        school=getattr(alumno, "school", None),
+        school_course=getattr(alumno, "school_course", None),
+        curso=getattr(alumno, "curso", None),
+    )
 
 
 def _get_sender_obj(m):
@@ -162,8 +306,22 @@ def _get_recipient_obj(m):
 
 
 def _get_curso_value(m):
-    cf = _curso_field()
-    return getattr(m, cf, None) if cf else None
+    school_course = getattr(m, "school_course", None)
+    school_course_code = getattr(school_course, "code", None) if school_course is not None else None
+    if school_course_code:
+        return school_course_code
+    return getattr(m, "curso", None)
+
+
+def _get_school_course_id_value(m):
+    return getattr(m, "school_course_id", None)
+
+
+def _get_school_course_name_value(m):
+    school_course = getattr(m, "school_course", None)
+    school_course_name = getattr(school_course, "name", None) if school_course is not None else None
+    school_course_code = getattr(school_course, "code", None) if school_course is not None else None
+    return school_course_name or school_course_code or _get_curso_value(m)
 
 
 def _serialize_msg(m):
@@ -178,13 +336,8 @@ def _serialize_msg(m):
         "contenido": getattr(m, "contenido", "") or "",
         "fecha_envio": getattr(m, "fecha_envio", None),
         "fecha": getattr(m, "fecha_envio", None),
-
-        "curso": _get_curso_value(m),
-        "curso_asociado": (
-            getattr(m, "curso_asociado", None)
-            if flags["has_curso_asociado"]
-            else _get_curso_value(m)
-        ),
+        "school_course_id": _get_school_course_id_value(m),
+        "school_course_name": _get_school_course_name_value(m),
 
         "emisor": _user_label(sender_obj),
         "receptor": _user_label(recipient_obj),
@@ -249,16 +402,35 @@ def _get_user_by_id(uid):
         return None
 
 
-def _get_alumno_by_any_id(alumno_id):
+def _get_alumno_by_any_id(alumno_id, school=None):
     """Acepta PK numérica o legajo (id_alumno) si existe."""
     if alumno_id in (None, "", []):
         return None
     try:
         if str(alumno_id).isdigit():
-            return Alumno.objects.get(pk=int(alumno_id))
+            qs = scope_queryset_to_school(Alumno.objects.all(), school)
+            return qs.get(pk=int(alumno_id))
         if _has_field(Alumno, "id_alumno"):
             # case-insensitive para evitar problemas de mayúsculas/minúsculas
-            return Alumno.objects.get(id_alumno__iexact=str(alumno_id))
+            qs = scope_queryset_to_school(Alumno.objects.all(), school)
+            return qs.get(id_alumno__iexact=str(alumno_id))
+        return None
+    except Alumno.DoesNotExist:
+        return None
+
+
+def _get_alumno_by_any_id_prefetched(alumno_id, school=None):
+    if alumno_id in (None, "", []):
+        return None
+    qs = scope_queryset_to_school(
+        Alumno.objects.select_related("school", "school_course", "usuario", "padre"),
+        school,
+    )
+    try:
+        if str(alumno_id).isdigit():
+            return qs.get(pk=int(alumno_id))
+        if _has_field(Alumno, "id_alumno"):
+            return qs.get(id_alumno__iexact=str(alumno_id))
         return None
     except Alumno.DoesNotExist:
         return None
@@ -281,34 +453,23 @@ def _user_id_safe(user):
         return None
 
 
-def _qs_inbox_for_user(user):
+def _qs_inbox_for_user(user, school=None):
     rf = _recipient_field()
     uid = _user_id_safe(user)
     if not uid:
         return Mensaje.objects.none()
     # Usamos *_id para evitar que Django intente castear objetos raros a int.
-    return Mensaje.objects.filter(**{f"{rf}_id": uid})
-
-
-def _qs_sent_for_user(user):
-    sf = _sender_field()
-    uid = _user_id_safe(user)
-    if not uid:
-        return Mensaje.objects.none()
-    return Mensaje.objects.filter(**{f"{sf}_id": uid})
-
+    qs = Mensaje.objects.filter(**{f"{rf}_id": uid})
+    return scope_queryset_to_school(qs, school)
 
 
 def _infer_tipo_remitente(user):
-    try:
-        if user.groups.filter(name__icontains="precep").exists():
-            return "Preceptor"
-        if user.groups.filter(name__icontains="direct").exists():
-            return "Directivo"
-        if user.groups.filter(name__icontains="profe").exists():
-            return "Profesor"
-    except Exception:
-        pass
+    if user_has_group_fragment(user, "precep"):
+        return "Preceptor"
+    if user_has_group_fragment(user, "direct"):
+        return "Directivo"
+    if user_has_group_fragment(user, "profe"):
+        return "Profesor"
     return "usuario"
 
 
@@ -366,13 +527,16 @@ def _notify_msg(*, msg, receptor, alumno=None, actor=None):
         meta = {
             "mensaje_id": getattr(msg, "id", None),
             "thread_id": str(getattr(msg, "thread_id", "")) if _threads_enabled() else str(getattr(msg, "id", "")),
-            "curso": getattr(msg, _curso_field(), "") if _curso_field() else "",
+            "school_course_id": _get_school_course_id_value(msg),
+            "school_course_name": _get_school_course_name_value(msg),
             "remitente_id": getattr(actor, "id", None),
         }
         if alumno is not None:
             meta["alumno_id"] = getattr(alumno, "id", None)
+        school_ref = getattr(msg, "school", None) or getattr(alumno, "school", None)
 
         Notificacion.objects.create(
+            school=school_ref,
             destinatario=receptor,
             tipo="mensaje",
             titulo=titulo,
@@ -430,7 +594,7 @@ def _apply_conversation_window(qs, request):
     return rows, has_more, next_before_id
 
 
-def _qs_conversacion_por_participantes(base_msg):
+def _qs_conversacion_por_participantes(base_msg, school=None):
     sf = _sender_field()
     rf = _recipient_field()
 
@@ -444,11 +608,14 @@ def _qs_conversacion_por_participantes(base_msg):
         models.Q(**{sf: a, rf: b}) | models.Q(**{sf: b, rf: a})
     )
 
-    cf = _curso_field()
-    if cf:
-        base_curso = getattr(base_msg, cf, None)
-        if base_curso not in (None, "", []):
-            q = q.filter(**{cf: base_curso})
+    course_q = build_course_membership_q(
+        school_course_id=_get_school_course_id_value(base_msg),
+        course_code=_get_curso_value(base_msg),
+        school_course_field="school_course",
+        code_field="curso",
+    )
+    if course_q is not None:
+        q = q.filter(course_q)
 
     if _flags()["has_alumno"]:
         base_alumno = getattr(base_msg, "alumno", None)
@@ -456,7 +623,8 @@ def _qs_conversacion_por_participantes(base_msg):
             q = q.filter(alumno=base_alumno)
 
     # IMPORTANTE: no ordenamos acá, lo hace _apply_conversation_window
-    return q
+    school_ref = school or getattr(base_msg, "school", None)
+    return scope_queryset_to_school(q, school_ref)
 
 
 # ===================== Envíos =====================
@@ -468,19 +636,31 @@ def _qs_conversacion_por_participantes(base_msg):
 def enviar_mensaje(request):
     flags = _flags()
     data = _coerce_json(request)
+    active_school = get_request_school(request)
 
     asunto = (data.get("asunto") or "").strip()
     contenido = (data.get("contenido") or "").strip()
     tipo = (data.get("tipo") or "").strip().lower() or "mensaje"
-    curso = (data.get("curso") or "").strip()
+    school_course_ref, curso, course_error = resolve_course_reference(
+        school=active_school,
+        raw_course=data.get("curso"),
+        raw_school_course_id=data.get("school_course_id"),
+        required=False,
+    )
 
     alumno_id = data.get("alumno_id") or data.get("id_alumno")
     receptor_id = data.get("receptor_id")
 
     if not asunto or not contenido:
         return Response({"detail": "asunto y contenido son requeridos."}, status=400)
+    if course_error:
+        return Response({"detail": course_error}, status=400)
 
-    alumno = _get_alumno_by_any_id(alumno_id) if alumno_id not in (None, "", []) else None
+    alumno = _get_alumno_by_any_id_prefetched(alumno_id, school=active_school) if alumno_id not in (None, "", []) else None
+    if alumno is not None and not _authorize_staff_for_alumno(request.user, alumno):
+        return Response({"detail": "No autorizado para ese alumno."}, status=403)
+    if alumno is None and not _staff_can_send_schoolwide(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
 
     sf = _sender_field()
     rf = _recipient_field()
@@ -516,10 +696,19 @@ def enviar_mensaje(request):
         if not destinatarios:
             return Response({"detail": "El alumno no tiene usuario/padre asignado (ni fallback por username)."}, status=400)
 
-    cf = _curso_field()
-
     ids = []
     first = None
+
+    if alumno is not None:
+        school_course_ref = getattr(alumno, "school_course", None) or school_course_ref
+    elif curso and active_school is not None and school_course_ref is None:
+        return Response({"detail": "No existe ese curso en el colegio activo."}, status=400)
+
+    course_code = _course_code_for_storage(
+        school_course=school_course_ref,
+        curso=curso,
+        alumno=alumno,
+    )
 
     for receptor in destinatarios:
         kwargs = {
@@ -529,11 +718,8 @@ def enviar_mensaje(request):
             "contenido": contenido,
         }
 
-        if cf:
-            if curso:
-                kwargs[cf] = curso
-            elif alumno is not None and getattr(alumno, "curso", None):
-                kwargs[cf] = getattr(alumno, "curso", None)
+        if course_code:
+            kwargs["curso"] = course_code
 
         if flags["has_tipo"]:
             kwargs["tipo"] = tipo
@@ -546,6 +732,10 @@ def enviar_mensaje(request):
 
         if flags["has_fecha_envio"]:
             kwargs["fecha_envio"] = timezone.now()
+        if _has_field(Mensaje, "school"):
+            kwargs["school"] = getattr(alumno, "school", None) or active_school
+        if _has_field(Mensaje, "school_course") and school_course_ref is not None:
+            kwargs["school_course"] = school_course_ref
 
         msg = Mensaje.objects.create(**kwargs)
         _notify_msg(msg=msg, receptor=receptor, alumno=alumno, actor=request.user)
@@ -555,7 +745,6 @@ def enviar_mensaje(request):
 
     return Response(
         {
-            "ok": True,
             "id": first.id if first else None,
             "ids": ids,
             "mensajes_creados": len(ids),
@@ -575,21 +764,65 @@ def enviar_mensaje(request):
 def enviar_mensaje_grupal(request):
     flags = _flags()
     data = _coerce_json(request)
-    curso = (data.get("curso") or "").strip()
+    active_school = get_request_school(request)
+    school_course_ref, curso, course_error = resolve_course_reference(
+        school=active_school,
+        raw_course=data.get("curso"),
+        raw_school_course_id=data.get("school_course_id"),
+        required=True,
+    )
     asunto = (data.get("asunto") or "").strip()
     contenido = (data.get("contenido") or "").strip()
     tipo = (data.get("tipo") or "").strip().lower() or "mensaje"
 
-    if not curso or not asunto or not contenido:
-        return Response({"detail": "curso, asunto y contenido son requeridos."}, status=400)
+    if not asunto or not contenido:
+        return Response({"detail": "asunto y contenido son requeridos."}, status=400)
+    if course_error:
+        return Response({"detail": course_error}, status=400)
+    if active_school is not None and school_course_ref is None:
+        return Response({"detail": "No existe ese curso en el colegio activo."}, status=400)
+    course_code = _course_code_for_storage(school_course=school_course_ref, curso=curso)
+    if not course_code:
+        return Response({"detail": "school_course_id o curso, asunto y contenido son requeridos."}, status=400)
+    if not _authorize_staff_for_course(
+        request.user,
+        school=active_school,
+        school_course=school_course_ref,
+        curso=course_code,
+    ):
+        return Response({"detail": "No autorizado para ese curso."}, status=403)
 
-    alumnos = list(Alumno.objects.filter(curso=curso).order_by("id"))
+    alumnos = list(
+        _alumnos_por_curso_qs(
+            curso=course_code,
+            school=active_school,
+            school_course=school_course_ref,
+        )
+        .select_related("padre", "usuario", "school", "school_course")
+        .order_by("id")
+    )
     if not alumnos:
         return Response({"detail": "No hay alumnos para ese curso."}, status=404)
 
+    fallback_users_by_legajo = {}
+    legajos = sorted(
+        {
+            str(getattr(a, "id_alumno", "") or "").strip()
+            for a in alumnos
+            if getattr(a, "usuario_id", None) is None and str(getattr(a, "id_alumno", "") or "").strip()
+        }
+    )
+    if legajos:
+        try:
+            fallback_users_by_legajo = {
+                str(getattr(u, "username", "") or "").strip(): u
+                for u in User.objects.filter(username__in=legajos, is_active=True)
+            }
+        except Exception:
+            fallback_users_by_legajo = {}
+
     sf = _sender_field()
     rf = _recipient_field()
-    cf = _curso_field()
 
     alumnos_ok = 0
     mensajes_creados = 0
@@ -602,7 +835,7 @@ def enviar_mensaje_grupal(request):
         else:
             alumno_user = getattr(a, "usuario", None)
             if alumno_user is None:
-                fb = _fallback_user_for_alumno(a)
+                fb = fallback_users_by_legajo.get(str(getattr(a, "id_alumno", "") or "").strip())
                 candidatos = [fb, getattr(a, "padre", None)]
             else:
                 candidatos = [alumno_user, getattr(a, "padre", None)]
@@ -610,7 +843,7 @@ def enviar_mensaje_grupal(request):
         destinatarios = _unique_users(candidatos)
 
         if not destinatarios:
-            fb = _fallback_user_for_alumno(a)
+            fb = fallback_users_by_legajo.get(str(getattr(a, "id_alumno", "") or "").strip())
             if fb:
                 destinatarios = [fb]
 
@@ -628,8 +861,13 @@ def enviar_mensaje_grupal(request):
                 "contenido": contenido,
             }
 
-            if cf:
-                kwargs[cf] = curso
+            alumno_course_code = _course_code_for_storage(
+                school_course=getattr(a, "school_course", None) or school_course_ref,
+                curso=course_code,
+                alumno=a,
+            )
+            if alumno_course_code:
+                kwargs["curso"] = alumno_course_code
 
             if flags["has_tipo"]:
                 kwargs["tipo"] = tipo
@@ -642,6 +880,10 @@ def enviar_mensaje_grupal(request):
 
             if flags["has_fecha_envio"]:
                 kwargs["fecha_envio"] = timezone.now()
+            if _has_field(Mensaje, "school"):
+                kwargs["school"] = getattr(a, "school", None) or active_school
+            if _has_field(Mensaje, "school_course"):
+                kwargs["school_course"] = getattr(a, "school_course", None) or school_course_ref
 
             msg = Mensaje.objects.create(**kwargs)
             mensajes_creados += 1
@@ -664,12 +906,14 @@ def enviar_mensaje_grupal(request):
                 meta = {
                     "mensaje_id": getattr(msg, "id", None),
                     "thread_id": str(getattr(msg, "thread_id", "")) if _threads_enabled() else str(getattr(msg, "id", "")),
-                    "curso": getattr(msg, cf, "") if cf else "",
+                    "school_course_id": _get_school_course_id_value(msg),
+                    "school_course_name": _get_school_course_name_value(msg),
                     "remitente_id": getattr(request.user, "id", None),
                     "alumno_id": getattr(a, "id", None),
                 }
                 notifs.append(
                     Notificacion(
+                        school=getattr(a, "school", None) or active_school,
                         destinatario=receptor,
                         tipo="mensaje",
                         titulo=titulo,
@@ -690,7 +934,6 @@ def enviar_mensaje_grupal(request):
 
     return Response(
         {
-            "ok": True,
             "creados": alumnos_ok,
             "mensajes_creados": mensajes_creados,
             "sin_receptor": sin_receptor,
@@ -705,7 +948,8 @@ def enviar_mensaje_grupal(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_unread_count(request):
-    qs = _qs_inbox_for_user(request.user)
+    active_school = get_request_school(request)
+    qs = _qs_inbox_for_user(request.user, school=active_school)
 
     flags = _flags()
     has_leido = flags["has_leido"]
@@ -731,10 +975,11 @@ def mensajes_unread_count(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_marcar_todos_leidos(request):
-    qs = _qs_inbox_for_user(request.user)
+    active_school = get_request_school(request)
+    qs = _qs_inbox_for_user(request.user, school=active_school)
     updated = _mark_qs_as_read(qs)
     if updated > 0:
-        return Response({"ok": True, "actualizados": updated}, status=200)
+        return Response({"actualizados": updated}, status=200)
     return Response(status=204)
 
 
@@ -743,8 +988,9 @@ def mensajes_marcar_todos_leidos(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_marcar_leido(request, mensaje_id: int):
+    active_school = get_request_school(request)
     try:
-        m = Mensaje.objects.get(id=mensaje_id)
+        m = _message_base_queryset(school=active_school).get(id=mensaje_id)
     except Mensaje.DoesNotExist:
         return Response({"detail": "Mensaje no encontrado."}, status=404)
 
@@ -772,7 +1018,7 @@ def mensajes_marcar_leido(request, mensaje_id: int):
             update_fields.append("leido_en")
         m.save(update_fields=update_fields)
 
-    return Response({"ok": True}, status=200)
+    return Response(status=204)
 
 
 
@@ -788,30 +1034,31 @@ def mensajes_eliminar(request, mensaje_id: int):
 
     Elimina un mensaje de la bandeja del destinatario.
     """
+    active_school = get_request_school(request)
     try:
-        msg = Mensaje.objects.get(pk=mensaje_id)
+        msg = _message_base_queryset(school=active_school).get(pk=mensaje_id)
     except Mensaje.DoesNotExist:
         return Response({"detail": "Mensaje no encontrado."}, status=404)
 
     rf = _recipient_field()
     destinatario = getattr(msg, rf, None)
 
-    # Solo el destinatario (o staff/superuser) puede eliminar
+    # Solo el destinatario (o superuser) puede eliminar de esa bandeja.
     if (destinatario is None) or (
         destinatario != request.user
-        and not getattr(request.user, "is_staff", False)
         and not getattr(request.user, "is_superuser", False)
     ):
         return Response({"detail": "No autorizado."}, status=403)
 
     msg.delete()
-    return Response({"ok": True, "id": mensaje_id}, status=200)
+    return Response({"id": mensaje_id}, status=200)
 # ===================== Listados =====================
 @api_view(["GET"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_recibidos(request):
-    qs = _qs_inbox_for_user(request.user)
+    active_school = get_request_school(request)
+    qs = _qs_inbox_for_user(request.user, school=active_school)
     flags = _flags()
 
     if request.GET.get("solo_no_leidos") in ("1", "true", "True"):
@@ -839,7 +1086,7 @@ def mensajes_recibidos(request):
 
     sf = _sender_field()
     rf = _recipient_field()
-    qs = _safe_select_related(qs, sf, rf)
+    qs = _safe_select_related(qs, sf, rf, "school_course")
 
     data = [_serialize_msg(m) for m in qs]
     return Response(data, status=200)
@@ -861,8 +1108,9 @@ def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
     - before_id permite traer más hacia atrás.
     - select_related para evitar N+1.
     """
+    active_school = get_request_school(request)
     try:
-        base = Mensaje.objects.get(id=mensaje_id)
+        base = _message_base_queryset(school=active_school).get(id=mensaje_id)
     except Mensaje.DoesNotExist:
         return Response({"detail": "Mensaje no encontrado."}, status=404)
 
@@ -879,13 +1127,8 @@ def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
             base.thread_id = uuid4()
             base.save(update_fields=["thread_id"])
 
-        if not Mensaje.objects.filter(thread_id=base.thread_id).filter(
-            models.Q(**{sf: user}) | models.Q(**{rf: user})
-        ).exists():
-            return Response({"detail": "No autorizado."}, status=403)
-
-        qs = Mensaje.objects.filter(thread_id=base.thread_id)
-        qs = _safe_select_related(qs, sf, rf)
+        qs = scope_queryset_to_school(Mensaje.objects.filter(thread_id=base.thread_id), active_school)
+        qs = _safe_select_related(qs, sf, rf, "school_course")
 
         # Ventana (últimos N)
         rows, has_more, next_before_id = _apply_conversation_window(qs, request)
@@ -894,7 +1137,12 @@ def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
         if request.GET.get("autoleer") in ("1", "true", "True"):
             ids = [m.id for m in rows]
             if ids:
-                _mark_qs_as_read(Mensaje.objects.filter(id__in=ids, **{rf: user}))
+                _mark_qs_as_read(
+                    scope_queryset_to_school(
+                        Mensaje.objects.filter(id__in=ids, **{rf: user}),
+                        active_school,
+                    )
+                )
 
         data = [_serialize_msg(m) for m in rows]
         return Response(
@@ -909,15 +1157,20 @@ def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
         )
 
     # Caso 2: SIN threads -> hilo virtual por participantes
-    qs = _qs_conversacion_por_participantes(base)
-    qs = _safe_select_related(qs, sf, rf)
+    qs = _qs_conversacion_por_participantes(base, school=active_school)
+    qs = _safe_select_related(qs, sf, rf, "school_course")
 
     rows, has_more, next_before_id = _apply_conversation_window(qs, request)
 
     if request.GET.get("autoleer") in ("1", "true", "True"):
         ids = [m.id for m in rows]
         if ids:
-            _mark_qs_as_read(Mensaje.objects.filter(id__in=ids, **{rf: user}))
+            _mark_qs_as_read(
+                scope_queryset_to_school(
+                    Mensaje.objects.filter(id__in=ids, **{rf: user}),
+                    active_school,
+                )
+            )
 
     data = [_serialize_msg(m) for m in rows]
     return Response(
@@ -939,6 +1192,7 @@ def mensajes_conversacion_por_thread(request, thread_id: str):
     if not _threads_enabled():
         return Response({"detail": "Tu modelo Mensaje no soporta thread_id."}, status=400)
 
+    active_school = get_request_school(request)
     try:
         tid = UUID(str(thread_id))
     except Exception:
@@ -948,20 +1202,26 @@ def mensajes_conversacion_por_thread(request, thread_id: str):
     sf = _sender_field()
     rf = _recipient_field()
 
-    if not Mensaje.objects.filter(thread_id=tid).filter(
+    thread_qs = scope_queryset_to_school(Mensaje.objects.filter(thread_id=tid), active_school)
+    if not thread_qs.filter(
         models.Q(**{sf: user}) | models.Q(**{rf: user})
     ).exists():
         return Response({"detail": "No autorizado o hilo inexistente."}, status=404)
 
-    qs = Mensaje.objects.filter(thread_id=tid)
-    qs = _safe_select_related(qs, sf, rf)
+    qs = thread_qs
+    qs = _safe_select_related(qs, sf, rf, "school_course")
 
     rows, has_more, next_before_id = _apply_conversation_window(qs, request)
 
     if request.GET.get("autoleer") in ("1", "true", "True"):
         ids = [m.id for m in rows]
         if ids:
-            _mark_qs_as_read(Mensaje.objects.filter(id__in=ids, **{rf: user}))
+            _mark_qs_as_read(
+                scope_queryset_to_school(
+                    Mensaje.objects.filter(id__in=ids, **{rf: user}),
+                    active_school,
+                )
+            )
 
     data = [_serialize_msg(m) for m in rows]
     return Response(
@@ -984,6 +1244,7 @@ def mensajes_marcar_thread_leidos(request, thread_id: str):
     if not _threads_enabled():
         return Response({"detail": "Tu modelo Mensaje no soporta thread_id."}, status=400)
 
+    active_school = get_request_school(request)
     try:
         tid = UUID(str(thread_id))
     except Exception:
@@ -993,13 +1254,19 @@ def mensajes_marcar_thread_leidos(request, thread_id: str):
     sf = _sender_field()
     rf = _recipient_field()
 
-    if not Mensaje.objects.filter(thread_id=tid).filter(
+    thread_qs = scope_queryset_to_school(Mensaje.objects.filter(thread_id=tid), active_school)
+    if not thread_qs.filter(
         models.Q(**{sf: user}) | models.Q(**{rf: user})
     ).exists():
         return Response({"detail": "No autorizado o hilo inexistente."}, status=404)
 
-    updated = _mark_qs_as_read(Mensaje.objects.filter(thread_id=tid, **{rf: user}))
-    return Response({"ok": True, "actualizados": updated}, status=200)
+    updated = _mark_qs_as_read(
+        scope_queryset_to_school(
+            Mensaje.objects.filter(thread_id=tid, **{rf: user}),
+            active_school,
+        )
+    )
+    return Response({"actualizados": updated}, status=200)
 
 
 # ===================== Responder =====================
@@ -1009,6 +1276,7 @@ def mensajes_marcar_thread_leidos(request, thread_id: str):
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def responder_mensaje(request):
+    active_school = get_request_school(request)
     flags = _flags()
     try:
         data = request.data if hasattr(request, "data") else json.loads(request.body.decode("utf-8"))
@@ -1023,13 +1291,12 @@ def responder_mensaje(request):
         return Response({"detail": "mensaje_id y contenido son requeridos."}, status=400)
 
     try:
-        original = Mensaje.objects.get(id=mensaje_id)
+        original = scope_queryset_to_school(Mensaje.objects.all(), active_school).get(id=mensaje_id)
     except Mensaje.DoesNotExist:
         return Response({"detail": "Mensaje no encontrado."}, status=404)
 
     sf = _sender_field()
     rf = _recipient_field()
-    cf = _curso_field()
 
     if getattr(original, rf, None) != request.user:
         return Response({"detail": "No podés responder un mensaje que no recibiste."}, status=403)
@@ -1052,8 +1319,9 @@ def responder_mensaje(request):
         "contenido": contenido,
     }
 
-    if cf:
-        nuevo_kwargs[cf] = getattr(original, cf, None)
+    original_course_code = _get_curso_value(original)
+    if original_course_code:
+        nuevo_kwargs["curso"] = original_course_code
 
     if flags["has_reply_to"]:
         nuevo_kwargs["reply_to"] = original
@@ -1070,9 +1338,26 @@ def responder_mensaje(request):
     if flags["has_fecha_envio"]:
         nuevo_kwargs["fecha_envio"] = timezone.now()
 
+    alumno_ref = getattr(original, "alumno", None) if flags["has_alumno"] else None
+    if alumno_ref is not None and flags["has_alumno"]:
+        nuevo_kwargs["alumno"] = alumno_ref
+
+    if _has_field(Mensaje, "school"):
+        nuevo_kwargs["school"] = (
+            getattr(original, "school", None)
+            or getattr(alumno_ref, "school", None)
+            or active_school
+        )
+    if _has_field(Mensaje, "school_course"):
+        school_course_ref = (
+            getattr(original, "school_course", None)
+            or getattr(alumno_ref, "school_course", None)
+        )
+        if school_course_ref is not None:
+            nuevo_kwargs["school_course"] = school_course_ref
+
     nuevo = Mensaje.objects.create(**nuevo_kwargs)
     try:
-        alumno_ref = getattr(original, "alumno", None) if flags["has_alumno"] else None
         _notify_msg(msg=nuevo, receptor=original_sender, alumno=alumno_ref, actor=request.user)
     except Exception:
         pass
@@ -1094,7 +1379,6 @@ def responder_mensaje(request):
 
     return Response(
         {
-            "ok": True,
             "id": nuevo.id,
             "thread_id": str(getattr(nuevo, "thread_id")) if _threads_enabled() else str(original.id),
         },
@@ -1111,6 +1395,7 @@ mensajes_responder = responder_mensaje
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def mensajes_normalizar_flags(request):
+    active_school = get_request_school(request)
     body = {}
     try:
         body = request.data if hasattr(request, "data") else json.loads(request.body.decode("utf-8"))
@@ -1128,8 +1413,11 @@ def mensajes_normalizar_flags(request):
     has_leido_en = flags["has_leido_en"]
 
     if not (has_leido and has_leido_en):
-        return Response({"ok": True, "actualizados": 0, "scope": "self" if not scope_all else "all"}, status=200)
+        return Response({"actualizados": 0, "scope": "self" if not scope_all else "all"}, status=200)
 
-    base_qs = Mensaje.objects.all() if scope_all else _qs_inbox_for_user(request.user)
+    if scope_all:
+        base_qs = scope_queryset_to_school(Mensaje.objects.all(), active_school)
+    else:
+        base_qs = _qs_inbox_for_user(request.user, school=active_school)
     updated = base_qs.filter(leido=True, leido_en__isnull=True).update(leido_en=timezone.now())
-    return Response({"ok": True, "actualizados": updated, "scope": "all" if scope_all else "self"}, status=200)
+    return Response({"actualizados": updated, "scope": "all" if scope_all else "self"}, status=200)

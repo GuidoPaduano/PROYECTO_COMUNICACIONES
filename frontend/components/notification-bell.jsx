@@ -17,7 +17,7 @@ import {
 
 import { authFetch } from "@/app/_lib/auth"
 import { INBOX_EVENT } from "@/app/_lib/inbox"
-import { getUnreadSnapshot, subscribeUnread } from "@/app/_lib/unread-store"
+import { getUnreadSnapshot, requestUnreadRefresh, subscribeUnread } from "@/app/_lib/unread-store"
 
 /**
  * Campanita reutilizable (NOTIFICACIONES del sistema).
@@ -26,8 +26,8 @@ import { getUnreadSnapshot, subscribeUnread } from "@/app/_lib/unread-store"
  * - unreadCount: solo se usa cuando `items` viene seteado (modo controlado).
  *
  * Si NO se provee `items`, la campanita:
- * - calcula su propio contador desde /notificaciones/unread_count/
- * - trae un preview desde /notificaciones/recientes/?solo_no_leidas=1
+ * - usa el unread-store compartido para el contador
+ * - trae un preview desde /api/notificaciones/recientes/?solo_no_leidas=1
  */
 export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5 }) {
   const router = useRouter()
@@ -159,23 +159,7 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
     return { ok: res.ok, status: res.status, data }
   }
 
-  async function markNotifRead(notifId) {
-    const urls = [
-      `/notificaciones/${notifId}/marcar_leida/`,
-      `/api/notificaciones/${notifId}/marcar_leida/`,
-      `/notificaciones/${notifId}/marcar_leida`,
-      `/api/notificaciones/${notifId}/marcar_leida`,
-    ]
-
-    for (const u of urls) {
-      try {
-        const r = await authFetch(u, { method: "POST" })
-        if (r.ok) break
-      } catch {
-        // seguimos
-      }
-    }
-
+  function dispatchInboxRefresh() {
     try {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(INBOX_EVENT))
@@ -185,114 +169,41 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
     }
   }
 
-  async function markAllNotifsRead() {
-    setMarkAllLoading(true)
-
-    const urls = [
-      "/notificaciones/marcar_todas_leidas/",
-      "/api/notificaciones/marcar_todas_leidas/",
-      "/notificaciones/marcar_todas_leidas",
-      "/api/notificaciones/marcar_todas_leidas",
-    ]
-
+  async function postIfOk(url) {
     try {
-      for (const u of urls) {
-        try {
-          const r = await authFetch(u, { method: "POST" })
-          if (r.ok) break
-        } catch {
-          // seguimos
-        }
-      }
-
-      // UI: bajar badge y limpiar preview
-      if (!Array.isArray(items)) {
-        setNotifCount(0)
-        setAutoItems([])
-      }
-
-      try {
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event(INBOX_EVENT))
-        }
-      } catch {
-        // ignore
-      }
-    } finally {
-      setMarkAllLoading(false)
+      const r = await authFetch(url, { method: "POST" })
+      return r.ok
+    } catch {
+      return false
     }
+  }
+
+  async function markNotifRead(notifId) {
+    await postIfOk(`/api/notificaciones/${notifId}/marcar_leida/`)
+    dispatchInboxRefresh()
   }
 
   async function markMensajeRead(mensajeId) {
-    const urls = [
-      `/mensajes/${mensajeId}/marcar_leido/`,
-      `/api/mensajes/${mensajeId}/marcar_leido/`,
-      `/mensajes/${mensajeId}/marcar_leido`,
-      `/api/mensajes/${mensajeId}/marcar_leido`,
-    ]
-
-    for (const u of urls) {
-      try {
-        const r = await authFetch(u, { method: "POST" })
-        if (r.ok) break
-      } catch {
-        // seguimos
-      }
-    }
-
-    try {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event(INBOX_EVENT))
-      }
-    } catch {
-      // ignore
-    }
+    await postIfOk(`/api/mensajes/${mensajeId}/marcar_leido/`)
+    dispatchInboxRefresh()
   }
 
   async function markAllNotifsRead() {
-    if (Array.isArray(items)) {
-      // Modo controlado: no podemos mutar items, pero igual intentamos marcar en backend.
-    }
-
     if (markAllLoading) return
     setMarkAllLoading(true)
 
-    const urls = [
-      "/notificaciones/marcar_todas_leidas/",
-      "/api/notificaciones/marcar_todas_leidas/",
-      "/notificaciones/marcar_todas_leidas",
-      "/api/notificaciones/marcar_todas_leidas",
-    ]
-
-    let ok = false
-    for (const u of urls) {
-      try {
-        const r = await authFetch(u, { method: "POST" })
-        if (r.ok) {
-          ok = true
-          break
-        }
-      } catch {
-        // seguimos
-      }
-    }
+    const ok = await postIfOk("/api/notificaciones/marcar_todas_leidas/")
 
     if (ok) {
       // Bajamos el badge al toque.
       setNotifCount(0)
       setAutoItems((prev) => prev.map((x) => ({ ...x, unread: false })))
 
-      try {
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event(INBOX_EVENT))
-        }
-      } catch {
-        // ignore
-      }
+      dispatchInboxRefresh()
 
       // Refrescamos preview para que no queden items viejos visibles.
       try {
-        await loadNotifCount()
+        await refreshNotifCount()
         await loadPreview()
       } catch {
         // ignore
@@ -328,33 +239,17 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
     router.push(href)
   }
 
-  async function loadNotifCount() {
+  async function refreshNotifCount() {
     if (Array.isArray(items)) return
 
-    const urls = [
-      "/notificaciones/unread_count/",
-      "/api/notificaciones/unread_count/",
-      "/notificaciones/unread_count",
-      "/api/notificaciones/unread_count",
-    ]
-
-    for (const u of urls) {
-      try {
-        const sep = u.includes("?") ? "&" : "?"
-        const finalUrl = `${u}${sep}t=${Date.now()}`
-        const res = await authFetch(finalUrl, { cache: "no-store" })
-        if (!res.ok) continue
-        const j = await res.json().catch(() => ({}))
-        if (typeof j?.count === "number") {
-          setNotifCount(Number(j.count || 0))
-          return
-        }
-      } catch {
-        // seguimos
-      }
+    try {
+      await requestUnreadRefresh()
+      setNotifCount(Number(getUnreadSnapshot().notifications || 0))
+      return
+    } catch {
+      // ignore
     }
 
-    // fallback seguro
     setNotifCount(0)
   }
 
@@ -364,29 +259,12 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
     setLoading(true)
     try {
       const limit = Math.max(1, Math.min(Number(maxPreview) || 5, 12))
-      const urls = [
-        `/notificaciones/recientes/?solo_no_leidas=1&limit=${limit}`,
-        `/api/notificaciones/recientes/?solo_no_leidas=1&limit=${limit}`,
-        `/notificaciones/recientes?solo_no_leidas=1&limit=${limit}`,
-        `/api/notificaciones/recientes?solo_no_leidas=1&limit=${limit}`,
-      ]
-
       let list = null
-      for (const u of urls) {
-        try {
-          const r = await fetchJSON(u)
-          if (!r.ok) continue
-          if (Array.isArray(r.data)) {
-            list = r.data
-            break
-          }
-          if (Array.isArray(r.data?.mensajes)) {
-            list = r.data.mensajes
-            break
-          }
-        } catch {
-          // seguimos
-        }
+      try {
+        const r = await fetchJSON(`/api/notificaciones/recientes/?solo_no_leidas=1&limit=${limit}`)
+        if (r.ok && Array.isArray(r.data)) list = r.data
+      } catch {
+        // ignore
       }
 
       if (!Array.isArray(list)) {
@@ -433,7 +311,7 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
         <Button
           variant="ghost"
           size="icon"
-          className="relative text-white hover:bg-white/15 data-[state=open]:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none focus-visible:outline-none outline-none ring-0"
+          className="relative !text-white !border-transparent hover:!bg-white/15 data-[state=open]:!bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none focus-visible:outline-none outline-none ring-0"
         >
           <Bell className="h-5 w-5" />
           {badgeCount > 0 && (
@@ -479,10 +357,10 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
                 >
                   {/* Puntito azul solo si está no leído */}
                   <span
-                    className={
-                      "mt-1.5 h-2 w-2 rounded-full flex-none " +
-                      (n.unread ? "bg-blue-600" : "bg-transparent")
-                    }
+                    className="mt-1.5 h-2 w-2 rounded-full flex-none"
+                    style={{
+                      backgroundColor: n.unread ? "var(--school-primary)" : "transparent",
+                    }}
                   />
 
                   <div className="min-w-0 flex-1 flex flex-col gap-1 text-left">

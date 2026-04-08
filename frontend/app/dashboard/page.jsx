@@ -1,9 +1,19 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
-import { useAuthGuard, authFetch } from "../_lib/auth"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useAuthGuard, authFetch, getCachedSessionProfileData, getSessionProfile, useSessionContext } from "../_lib/auth"
 import { INBOX_EVENT } from "../_lib/inbox"
+import {
+  getCourseDisplayName,
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  getCourseValue,
+  loadCourseCatalog,
+  normalizeCourseList,
+} from "../_lib/courses"
 
 import {
   Calendar,
@@ -34,13 +44,20 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
-import ComposeComunicadoFamilia from "../mensajes/_compose-comunicado-familia"
+const ComposeComunicadoFamilia = dynamic(() => import("../mensajes/_compose-comunicado-familia"), {
+  loading: () => null,
+})
 
 const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores", "Directivos"]
 const PREVIEW_KEY = "preview_role"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 const LAST_HIJO_KEY = "mis_hijos_last_alumno"
 const PROXIMOS_EVENTOS_DIAS = 8
+const DASHBOARD_RESOURCE_MAX_AGE_MS = 30000
+const DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS = 10000
+
+const dashboardResourceCache = new Map()
+const dashboardResourcePromises = new Map()
 
 function hoyISO() {
   const d = new Date()
@@ -213,125 +230,104 @@ function isJustificadaFromAny(a) {
 function alumnoRouteIdFromMe(me) {
   if (!me || typeof me !== "object") return null
 
-  const legajoPaths = [
-    ["alumno", "id_alumno"],
-    ["alumno_id"],
-    ["id_alumno"],
-    ["user", "alumno", "id_alumno"],
-    ["user", "alumno_id"],
-    ["user", "id_alumno"],
-    ["profile", "alumno_id"],
-    ["user", "profile", "alumno_id"],
-  ]
-  for (const path of legajoPaths) {
-    let cur = me
-    for (const k of path) cur = cur?.[k]
-    if (cur != null && cur !== "") return cur
-  }
+  const legajo = me?.alumno?.id_alumno
+  if (legajo != null && legajo !== "") return legajo
 
-  const pkPaths = [
-    ["alumno", "id"],
-    ["alumno", "pk"],
-    ["user", "alumno", "id"],
-    ["user", "alumno", "pk"],
-  ]
-  for (const path of pkPaths) {
-    let cur = me
-    for (const k of path) cur = cur?.[k]
-    if (cur != null && cur !== "") return cur
-  }
+  const pk = me?.alumno?.id ?? me?.alumno?.pk
+  if (pk != null && pk !== "") return pk
 
   return null
 }
 
-async function fetchAlumnoIdSelfFallback(previewRole) {
-  const candidates = ["/perfil_api/"]
+async function resolveAlumnoRouteId(me) {
+  return alumnoRouteIdFromMe(me)
+}
 
-  for (const url of candidates) {
-    try {
-      const res = await authFetch(url.endsWith("/") ? url : `${url}/`, {
-        headers: previewRole ? { "X-Preview-Role": previewRole } : undefined,
-      })
-      if (!res.ok) continue
-      const data = await res.json().catch(() => ({}))
-      const a = data?.alumno || data
-
-      const legajo =
-        a?.id_alumno ??
-        a?.alumno_id ??
-        a?.user?.alumno_id ??
-        a?.user?.id_alumno ??
-        a?.profile?.alumno_id
-      if (legajo) return legajo
-
-      const pk =
-        a?.id ??
-        a?.pk ??
-        a?.alumno?.id ??
-        a?.alumno?.pk ??
-        a?.user?.alumno?.id ??
-        a?.user?.alumno?.pk
-      if (pk != null) return pk
-    } catch {}
+async function fetchProfile(fetcher) {
+  try {
+    return await getSessionProfile()
+  } catch (err) {
+    throw new Error(err?.message || "No se pudo obtener el perfil")
   }
-  return null
 }
 
-async function resolveAlumnoRouteId(me, previewRole) {
-  const direct = alumnoRouteIdFromMe(me)
-  if (direct != null) return direct
-  return await fetchAlumnoIdSelfFallback(previewRole)
-}
+async function loadDashboardResource(cacheKey, loader, maxAgeMs = DASHBOARD_RESOURCE_MAX_AGE_MS) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
 
-async function fetchProfileWithFallback(fetcher) {
-  const candidates = ["/auth/whoami/", "/perfil_api/"]
-  let lastError = ""
+  const cached = dashboardResourceCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
 
-  for (const url of candidates) {
-    try {
-      const res = await fetcher(url)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        lastError = data?.detail || data?.error || `Error ${res.status}`
-        continue
-      }
+  if (dashboardResourcePromises.has(key)) {
+    return await dashboardResourcePromises.get(key)
+  }
 
-      if (url === "/perfil_api/") {
-        const user = data?.user || {}
-        return {
-          id: user?.id,
-          username: user?.username || "",
-          first_name: user?.first_name || "",
-          last_name: user?.last_name || "",
-          full_name:
-            [user?.first_name || "", user?.last_name || ""].filter(Boolean).join(" ").trim() ||
-            user?.username ||
-            "",
-          email: user?.email || "",
-          groups: Array.isArray(user?.grupos) ? user.grupos : [],
-          rol: user?.rol || "",
-          is_superuser: !!user?.is_superuser,
-          alumno: data?.alumno || null,
-          hijos: Array.isArray(data?.alumnos_del_padre) ? data.alumnos_del_padre : [],
-          alumno_resolution: data?.alumno_resolution || null,
-        }
-      }
+  const promise = (async () => {
+    const data = await loader()
+    dashboardResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
 
-      return data
-    } catch {
-      lastError = "No se pudo obtener el perfil"
+  dashboardResourcePromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (dashboardResourcePromises.get(key) === promise) {
+      dashboardResourcePromises.delete(key)
     }
   }
-
-  throw new Error(lastError || "No se pudo obtener el perfil")
 }
 
 export default function DashboardPage() {
   useAuthGuard()
+  const router = useRouter()
+  const sessionContext = useSessionContext()
+  const cachedProfile = useMemo(() => getCachedSessionProfileData(), [])
 
-  const [me, setMe] = useState(null)
+  const [me, setMe] = useState(() => {
+    if (cachedProfile) return cachedProfile
+    if (
+      sessionContext &&
+      (Array.isArray(sessionContext.groups) || sessionContext.userLabel || sessionContext.username)
+    ) {
+      return {
+        full_name: sessionContext.userLabel || "",
+        username: sessionContext.username || "",
+        groups: Array.isArray(sessionContext.groups) ? sessionContext.groups : [],
+        rol: sessionContext.role || "",
+        is_superuser: !!sessionContext.isSuperuser,
+        school: sessionContext.school || null,
+      }
+    }
+    return null
+  })
   const [error, setError] = useState("")
-  const [previewRole, setPreviewRole] = useState("")
+  const [previewRole, setPreviewRole] = useState(() => {
+    try {
+      if (typeof window !== "undefined") return localStorage.getItem(PREVIEW_KEY) || ""
+    } catch {}
+    return ""
+  })
+  const blockAdminDashboard = !!sessionContext?.isSuperuser && !previewRole
+  const adminRedirectStartedRef = useRef(false)
+  const courseCatalogCacheKey = useMemo(
+    () =>
+      `dashboard:${sessionContext?.username || "anon"}:${sessionContext?.school?.id || "default"}:${previewRole || "base"}`,
+    [sessionContext?.school?.id, sessionContext?.username, previewRole]
+  )
+  const dashboardScopeKey = useMemo(
+    () =>
+      `${sessionContext?.username || "anon"}:${sessionContext?.school?.id || "default"}:${previewRole || "base"}`,
+    [sessionContext?.school?.id, sessionContext?.username, previewRole]
+  )
   const userLabel = useMemo(
     () => (me?.full_name?.trim?.() ? me.full_name : me?.username || ""),
     [me]
@@ -415,17 +411,31 @@ const [mensajeSan, setMensajeSan] = useState("")
   const [destinatariosProf, setDestinatariosProf] = useState([])
   const [destinatariosPrec, setDestinatariosPrec] = useState([])
 
-  const getCursoId = (c) => (c?.id ?? c?.value ?? c)
-  const getCursoNombre = (c) => (c?.nombre ?? c?.label ?? String(getCursoId(c)))
+  const getCursoId = (c) => getCourseValue(c) || ""
+  const getCursoNombre = (c) => getCourseLabel(c) || String(getCursoId(c))
+  const cursoIndId = useMemo(() => getCourseSchoolCourseId(cursoInd, cursos), [cursoInd, cursos])
+  const cursoGrpId = useMemo(() => getCourseSchoolCourseId(cursoGrp, cursos), [cursoGrp, cursos])
+  const cursoSanId = useMemo(() => getCourseSchoolCourseId(cursoSan, cursos), [cursoSan, cursos])
+  const profesorCursoSelId = useMemo(
+    () => getCourseSchoolCourseId(profesorCursoSel, cursos),
+    [profesorCursoSel, cursos]
+  )
+  const alumnoCursoId = useMemo(() => getCourseSchoolCourseId(alumnoCurso, cursos), [alumnoCurso, cursos])
 
   useEffect(() => {
     try {
       if (typeof window !== "undefined") {
         const saved = localStorage.getItem(PREVIEW_KEY) || ""
-        setPreviewRole(saved)
+        setPreviewRole((current) => (current === saved ? current : saved))
       }
     } catch {}
   }, [])
+
+  useEffect(() => {
+    if (!blockAdminDashboard || adminRedirectStartedRef.current) return
+    adminRedirectStartedRef.current = true
+    router.replace("/admin")
+  }, [blockAdminDashboard, router])
 
   useEffect(() => {
     const openIndHandler = () => setOpenInd(true)
@@ -442,13 +452,10 @@ const [mensajeSan, setMensajeSan] = useState("")
   }, [])
 
   useEffect(() => {
+    if (blockAdminDashboard) return
     ;(async () => {
       try {
-        const data = await fetchProfileWithFallback(pfetch)
-        if (data?.is_superuser && !previewRole) {
-          window.location.replace("/admin")
-          return
-        }
+        const data = await fetchProfile(pfetch)
         setMe(data)
         setError("")
       } catch (err) {
@@ -456,14 +463,14 @@ const [mensajeSan, setMensajeSan] = useState("")
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewRole])
+  }, [blockAdminDashboard, previewRole])
 
   useEffect(() => {
     let alive = true
     ;(async () => {
       setLoadingAlumnoId(true)
       try {
-        const id = await resolveAlumnoRouteId(me || {}, previewRole)
+        const id = await resolveAlumnoRouteId(me || {})
         if (alive) setAlumnoIdSelf(id)
       } finally {
         if (alive) setLoadingAlumnoId(false)
@@ -472,18 +479,21 @@ const [mensajeSan, setMensajeSan] = useState("")
     return () => {
       alive = false
     }
-  }, [me, previewRole])
+  }, [me])
 
   useEffect(() => {
     ;(async () => {
       try {
-        const res = await pfetch("/notas/catalogos/")
-        const j = await res.json().catch(() => ({}))
-        setCursos(j?.cursos || [])
+        const list = await loadCourseCatalog({
+          fetcher: pfetch,
+          urls: ["/api/notas/catalogos/"],
+          cacheKey: courseCatalogCacheKey,
+        })
+        setCursos(normalizeCourseList(list))
       } catch {}
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewRole])
+  }, [courseCatalogCacheKey])
 
   useEffect(() => {
     if (!cursoInd) {
@@ -491,17 +501,33 @@ const [mensajeSan, setMensajeSan] = useState("")
       setAlumnoInd("")
       return
     }
+    if (cursoIndId == null) {
+      setAlumnosInd([])
+      setAlumnoInd("")
+      setMsgIndErr("No se pudo resolver el curso seleccionado.")
+      return
+    }
     ;(async () => {
       try {
-        const res = await pfetch(`/alumnos/?curso=${encodeURIComponent(cursoInd)}`)
-        const j = await res.json().catch(() => ({}))
-        setAlumnosInd(j?.alumnos || [])
+        const alumnos = await loadDashboardResource(
+          `dashboard-curso-alumnos:${dashboardScopeKey}:${cursoIndId}`,
+          async () => {
+            const res = await pfetch(
+              `/api/alumnos/?school_course_id=${encodeURIComponent(String(cursoIndId))}`
+            )
+            if (!res.ok) return []
+            const j = await res.json().catch(() => ({}))
+            return Array.isArray(j?.alumnos) ? j.alumnos : []
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
+        setAlumnosInd(Array.isArray(alumnos) ? alumnos : [])
       } catch {
         setMsgIndErr("No se pudieron cargar los alumnos.")
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursoInd, previewRole])
+  }, [cursoInd, cursoIndId, dashboardScopeKey, previewRole, cursos])
 
   useEffect(() => {
     if (!cursoSan) {
@@ -509,17 +535,33 @@ const [mensajeSan, setMensajeSan] = useState("")
       setAlumnoSan("")
       return
     }
+    if (cursoSanId == null) {
+      setAlumnosSan([])
+      setAlumnoSan("")
+      setMsgSanErr("No se pudo resolver el curso seleccionado.")
+      return
+    }
     ;(async () => {
       try {
-        const res = await pfetch(`/alumnos/?curso=${encodeURIComponent(cursoSan)}`)
-        const j = await res.json().catch(() => ({}))
-        setAlumnosSan(j?.alumnos || [])
+        const alumnos = await loadDashboardResource(
+          `dashboard-curso-alumnos:${dashboardScopeKey}:${cursoSanId}`,
+          async () => {
+            const res = await pfetch(
+              `/api/alumnos/?school_course_id=${encodeURIComponent(String(cursoSanId))}`
+            )
+            if (!res.ok) return []
+            const j = await res.json().catch(() => ({}))
+            return Array.isArray(j?.alumnos) ? j.alumnos : []
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
+        setAlumnosSan(Array.isArray(alumnos) ? alumnos : [])
       } catch {
         setMsgSanErr("No se pudieron cargar los alumnos.")
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursoSan, previewRole])
+  }, [cursoSan, cursoSanId, dashboardScopeKey, previewRole, cursos])
 
   useEffect(() => {
     try {
@@ -553,7 +595,7 @@ const [mensajeSan, setMensajeSan] = useState("")
             ? Number(alumnoPk)
             : null
 
-        const res = await pfetch("/mensajes/enviar/", {
+        const res = await pfetch("/api/mensajes/enviar/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -564,7 +606,7 @@ const [mensajeSan, setMensajeSan] = useState("")
           }),
         })
         const j = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
+      if (!res.ok) throw new Error(j?.detail || `Error (HTTP ${res.status})`)
       setMsgIndOk("✅ Mensaje enviado.")
       setTimeout(() => {
         setOpenInd(false)
@@ -588,17 +630,20 @@ const [mensajeSan, setMensajeSan] = useState("")
     setMsgGrpOk("")
     setLoadingGrp(true)
     try {
-      const res = await pfetch("/mensajes/enviar_grupal/", {
+      if (cursoGrpId == null) {
+        throw new Error("No se pudo resolver el curso seleccionado.")
+      }
+      const res = await pfetch("/api/mensajes/enviar_grupal/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          curso: cursoGrp,
+          school_course_id: cursoGrpId,
           asunto: asuntoGrp.trim(),
           contenido: cuerpoGrp.trim(),
         }),
       })
       const j = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
+      if (!res.ok) throw new Error(j?.detail || `Error (HTTP ${res.status})`)
       setMsgGrpOk(
         `✅ Enviado a ${j?.creados ?? "varios"} destinatarios${
           j?.sin_receptor ? `, ${j.sin_receptor} sin receptor` : ""
@@ -624,7 +669,7 @@ const [mensajeSan, setMensajeSan] = useState("")
     setMsgSanOk("")
     setLoadingSan(true)
     try {
-      const res = await pfetch("/sanciones/", {
+      const res = await pfetch("/api/sanciones/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -634,7 +679,7 @@ mensaje: mensajeSan.trim(),
         }),
       })
       const j = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
+        if (!res.ok) throw new Error(j?.detail || `Error (HTTP ${res.status})`)
       // ✅ UX: si se registró OK, cerramos el modal automáticamente.
       // De paso limpiamos campos para la próxima vez.
       setMsgSanOk("✅ Sanción registrada.")
@@ -655,7 +700,13 @@ setMensajeSan("")
     }
   }
 
-  const cursoSugeridoAlumno = me?.alumno?.curso || me?.curso || me?.user?.alumno?.curso || ""
+  const cursoSugeridoAlumnoId = useMemo(() => {
+    const schoolCourseId = me?.alumno?.school_course_id ?? null
+    if (schoolCourseId == null || schoolCourseId === "") return null
+    const parsed = Number(schoolCourseId)
+    if (Number.isNaN(parsed)) return null
+    return parsed
+  }, [me])
 
   useEffect(() => {
     if (!openAlumnoMsg) return
@@ -664,20 +715,21 @@ setMensajeSan("")
       setLoadingAlumnoMsg(true)
       setAlumnoMsgErr("")
       try {
-        const base = "/api/mensajes/destinatarios_docentes/"
-        const withCurso = cursoSugeridoAlumno
-          ? `${base}?curso=${encodeURIComponent(cursoSugeridoAlumno)}`
-          : base
-        const fallbacks = [withCurso, base, "/mensajes/destinatarios_docentes/"]
-        let data = null
-        for (const url of fallbacks) {
-          try {
+        const data = await loadDashboardResource(
+          `dashboard-destinatarios:${dashboardScopeKey}:${cursoSugeridoAlumnoId ?? "none"}`,
+          async () => {
+            const base = "/api/mensajes/destinatarios_docentes/"
+            const courseQuery =
+              cursoSugeridoAlumnoId != null
+                ? `school_course_id=${encodeURIComponent(String(cursoSugeridoAlumnoId))}`
+                : ""
+            const url = courseQuery ? `${base}?${courseQuery}` : base
             const r = await pfetch(url)
-            if (!r.ok) continue
-            data = await r.json().catch(() => ({}))
-            break
-          } catch {}
-        }
+            if (!r.ok) return {}
+            return await r.json().catch(() => ({}))
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
 
         let arr = []
         if (Array.isArray(data?.profesores) || Array.isArray(data?.preceptores)) {
@@ -703,7 +755,7 @@ setMensajeSan("")
     return () => {
       alive = false
     }
-  }, [openAlumnoMsg, cursoSugeridoAlumno, previewRole])
+  }, [openAlumnoMsg, cursoSugeridoAlumnoId, dashboardScopeKey, previewRole])
 
   async function enviarMensajeAlumno() {
     if (!destSel) return setAlumnoMsgErr("Elegí un destinatario.")
@@ -716,14 +768,12 @@ setMensajeSan("")
       receptor_id: Number(destSel),
       asunto: asuntoAlu.trim(),
       contenido: contenidoAlu.trim(),
-      ...(cursoSugeridoAlumno ? { curso: cursoSugeridoAlumno } : {}),
+      ...(cursoSugeridoAlumnoId != null ? { school_course_id: cursoSugeridoAlumnoId } : {}),
     }
 
     const tries = [
       "/api/mensajes/alumno/enviar/",
-      "/mensajes/alumno/enviar/",
       "/api/mensajes/enviar/",
-      "/mensajes/enviar/",
     ]
 
     let sent = false
@@ -838,21 +888,32 @@ setMensajeSan("")
       setEventosProfesor([])
       return
     }
+    if (profesorCursoSelId == null) {
+      setEventosProfesor([])
+      return
+    }
     let alive = true
     ;(async () => {
       setEventosProfesorLoading(true)
       try {
         const desde = hoyISO()
         const hasta = addDaysISO(desde, PROXIMOS_EVENTOS_DIAS)
-        const res = await pfetch(
-          `/eventos/?curso=${encodeURIComponent(profesorCursoSel)}&desde=${desde}&hasta=${hasta}`
+        const eventos = await loadDashboardResource(
+          `profesor-eventos:${dashboardScopeKey}:${profesorCursoSelId}:${desde}:${hasta}`,
+          async () => {
+            const params = new URLSearchParams({
+              school_course_id: String(profesorCursoSelId),
+              desde,
+              hasta,
+            })
+            const res = await pfetch(`/eventos/?${params.toString()}`)
+            if (!res.ok) return []
+            const raw = await res.json().catch(() => ({}))
+            return parseEventosPayload(raw)
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
         )
-        if (!res.ok) {
-          if (alive) setEventosProfesor([])
-          return
-        }
-        const raw = await res.json().catch(() => ({}))
-        if (alive) setEventosProfesor(parseEventosPayload(raw))
+        if (alive) setEventosProfesor(Array.isArray(eventos) ? eventos : [])
       } catch {
         if (alive) setEventosProfesor([])
       } finally {
@@ -863,7 +924,7 @@ setMensajeSan("")
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDocenteCursos, profesorCursoSel, previewRole])
+  }, [showDocenteCursos, profesorCursoSel, profesorCursoSelId, previewRole])
 
   useEffect(() => {
     if (!showAlumno) return
@@ -871,12 +932,16 @@ setMensajeSan("")
     ;(async () => {
       setAlumnoCursoLoaded(false)
       try {
-        const res = await pfetch("/mi-curso/")
-        if (res.ok) {
-          const data = await res.json().catch(() => ({}))
-          const curso = String(data?.curso ?? "").trim()
-          if (alive) setAlumnoCurso(curso)
-        }
+        const courseValue = await loadDashboardResource(
+          `alumno-curso:${dashboardScopeKey}`,
+          async () => {
+            const res = await pfetch("/api/mi-curso/")
+            if (!res.ok) return ""
+            const data = await res.json().catch(() => ({}))
+            return String(data?.school_course_id ?? "").trim()
+          }
+        )
+        if (alive) setAlumnoCurso(courseValue)
       } catch {
       } finally {
         if (alive) setAlumnoCursoLoaded(true)
@@ -886,7 +951,7 @@ setMensajeSan("")
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAlumno, previewRole])
+  }, [dashboardScopeKey, showAlumno, previewRole])
 
   useEffect(() => {
     if (!showPadre) return
@@ -895,21 +960,16 @@ setMensajeSan("")
     ;(async () => {
       setPadreHijosLoaded(false)
       try {
-        const tries = ["/padres/mis-hijos/", "/api/padres/mis-hijos/"]
-        let data = null
-        for (const url of tries) {
-          try {
-            const r = await pfetch(url)
-            if (!r.ok) continue
-            data = await r.json().catch(() => ({}))
-            break
-          } catch {}
-        }
-
-        const arr = Array.isArray(data)
-          ? data
-          : data?.results || data?.hijos || []
-        const hijos = Array.isArray(arr) ? arr : []
+        const hijos = await loadDashboardResource(
+          `padre-hijos:${dashboardScopeKey}`,
+          async () => {
+            const r = await pfetch("/api/padres/mis-hijos/")
+            if (!r.ok) return []
+            const data = await r.json().catch(() => ({}))
+            const arr = Array.isArray(data) ? data : data?.results || []
+            return Array.isArray(arr) ? arr : []
+          }
+        )
         const ids = hijos
           .map((h) => hijoRouteId(h))
           .filter((x) => x != null && String(x) !== "")
@@ -939,7 +999,7 @@ setMensajeSan("")
     return () => {
       alive = false
     }
-  }, [showPadre, previewRole])
+  }, [dashboardScopeKey, showPadre, previewRole])
 
   useEffect(() => {
     if (!showPadre) return
@@ -953,15 +1013,19 @@ setMensajeSan("")
       try {
         const desde = hoyISO()
         const hasta = addDaysISO(desde, PROXIMOS_EVENTOS_DIAS)
-        const res = await pfetch(
-          `/padres/hijos/${encodeURIComponent(padreKidId)}/eventos/?desde=${desde}&hasta=${hasta}`
+        const eventos = await loadDashboardResource(
+          `padre-eventos:${dashboardScopeKey}:${padreKidId}:${desde}:${hasta}`,
+          async () => {
+            const res = await pfetch(
+              `/api/padres/hijos/${encodeURIComponent(padreKidId)}/eventos/?desde=${desde}&hasta=${hasta}`
+            )
+            if (!res.ok) return []
+            const raw = await res.json().catch(() => ({}))
+            return parseEventosPayload(raw)
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
         )
-        if (!res.ok) {
-          if (alive) setEventosPadre([])
-          return
-        }
-        const raw = await res.json().catch(() => ({}))
-        if (alive) setEventosPadre(parseEventosPayload(raw))
+        if (alive) setEventosPadre(Array.isArray(eventos) ? eventos : [])
       } catch {
         if (alive) setEventosPadre([])
       } finally {
@@ -979,35 +1043,25 @@ setMensajeSan("")
     ;(async () => {
       setMensajesHomeLoading(true)
       try {
-        const candidates = ["/mensajes/recibidos/", "/mensajes/listar/"]
-        let list = null
-        for (const url of candidates) {
-          try {
-            const r = await pfetch(url)
-            if (!r.ok) continue
-            const data = await r.json().catch(() => ({}))
-            const arr = Array.isArray(data)
-              ? data
-              : Array.isArray(data?.results)
-              ? data.results
-              : Array.isArray(data?.mensajes)
-              ? data.mensajes
-              : null
-            if (arr) {
-              list = arr
-              break
+        const list = await loadDashboardResource(
+          `mensajes-home:${dashboardScopeKey}`,
+          async () => {
+            const r = await pfetch("/api/mensajes/recibidos/?limit=5")
+            let next = []
+            if (r.ok) {
+              const data = await r.json().catch(() => ({}))
+              next = Array.isArray(data) ? data : []
             }
-          } catch {}
-        }
-
-        const normalized = Array.isArray(list) ? list : []
-        normalized.sort((a, b) => {
-          const da = new Date(a?.fecha || a?.fecha_envio || 0).getTime()
-          const db = new Date(b?.fecha || b?.fecha_envio || 0).getTime()
-          return db - da
-        })
-
-        if (alive) setMensajesHome(normalized.slice(0, 5))
+            next.sort((a, b) => {
+              const da = new Date(a?.fecha || a?.fecha_envio || 0).getTime()
+              const db = new Date(b?.fecha || b?.fecha_envio || 0).getTime()
+              return db - da
+            })
+            return next.slice(0, 5)
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
+        if (alive) setMensajesHome(Array.isArray(list) ? list : [])
       } catch {
         if (alive) setMensajesHome([])
       } finally {
@@ -1024,52 +1078,46 @@ setMensajeSan("")
     let alive = true
     ;(async () => {
       setPreceptorAlertasLoading(true)
-      try {
-        const tries = ["/preceptor/alertas-academicas/?limit=12", "/api/preceptor/alertas-academicas/?limit=12"]
-        let data = null
-        for (const url of tries) {
-          try {
-            const r = await pfetch(url)
-            if (!r.ok) continue
-            data = await r.json().catch(() => ({}))
-            break
-          } catch {}
-        }
-        const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
-        if (alive) setPreceptorAlertas(rows)
-      } catch {
-        if (alive) setPreceptorAlertas([])
-      } finally {
-        if (alive) setPreceptorAlertasLoading(false)
-      }
-    })()
-    return () => {
-      alive = false
-    }
-  }, [showPreceptor, previewRole])
-
-  useEffect(() => {
-    if (!showPreceptor) return
-    let alive = true
-    ;(async () => {
       setPreceptorAlertasInasistenciasLoading(true)
       try {
-        const tries = ["/preceptor/alertas-inasistencias/?limit=12", "/api/preceptor/alertas-inasistencias/?limit=12"]
-        let data = null
-        for (const url of tries) {
-          try {
-            const r = await pfetch(url)
-            if (!r.ok) continue
-            data = await r.json().catch(() => ({}))
-            break
-          } catch {}
+        const data = await loadDashboardResource(
+          `preceptor-alertas:${dashboardScopeKey}`,
+          async () => {
+            const [academicasRes, inasistenciasRes] = await Promise.all([
+              pfetch("/api/preceptor/alertas-academicas/?limit=12"),
+              pfetch("/api/preceptor/alertas-inasistencias/?limit=12"),
+            ])
+            const academicasData = academicasRes.ok
+              ? await academicasRes.json().catch(() => ({}))
+              : {}
+            const inasistenciasData = inasistenciasRes.ok
+              ? await inasistenciasRes.json().catch(() => ({}))
+              : {}
+            return {
+              academicas: Array.isArray(academicasData?.results) ? academicasData.results : [],
+              inasistencias: Array.isArray(inasistenciasData?.results)
+                ? inasistenciasData.results
+                : [],
+            }
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
+        if (alive) {
+          setPreceptorAlertas(Array.isArray(data?.academicas) ? data.academicas : [])
+          setPreceptorAlertasInasistencias(
+            Array.isArray(data?.inasistencias) ? data.inasistencias : []
+          )
         }
-        const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
-        if (alive) setPreceptorAlertasInasistencias(rows)
       } catch {
-        if (alive) setPreceptorAlertasInasistencias([])
+        if (alive) {
+          setPreceptorAlertas([])
+          setPreceptorAlertasInasistencias([])
+        }
       } finally {
-        if (alive) setPreceptorAlertasInasistenciasLoading(false)
+        if (alive) {
+          setPreceptorAlertasLoading(false)
+          setPreceptorAlertasInasistenciasLoading(false)
+        }
       }
     })()
     return () => {
@@ -1080,21 +1128,32 @@ setMensajeSan("")
   useEffect(() => {
     if (!isAlumnoOnly) return
     if (!alumnoCurso) return
+    if (alumnoCursoId == null) {
+      setEventosProximos([])
+      return
+    }
     let alive = true
     ;(async () => {
       setEventosLoading(true)
       try {
         const desde = hoyISO()
         const hasta = addDaysISO(desde, PROXIMOS_EVENTOS_DIAS)
-        const res = await pfetch(
-          `/eventos/?curso=${encodeURIComponent(alumnoCurso)}&desde=${desde}&hasta=${hasta}`
+        const eventos = await loadDashboardResource(
+          `alumno-eventos:${dashboardScopeKey}:${alumnoCursoId}:${desde}:${hasta}`,
+          async () => {
+            const params = new URLSearchParams({
+              school_course_id: String(alumnoCursoId),
+              desde,
+              hasta,
+            })
+            const res = await pfetch(`/eventos/?${params.toString()}`)
+            if (!res.ok) return []
+            const raw = await res.json().catch(() => ({}))
+            return parseEventosPayload(raw)
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
         )
-        if (!res.ok) {
-          if (alive) setEventosProximos([])
-          return
-        }
-        const raw = await res.json().catch(() => ({}))
-        if (alive) setEventosProximos(parseEventosPayload(raw))
+        if (alive) setEventosProximos(Array.isArray(eventos) ? eventos : [])
       } catch {
         if (alive) setEventosProximos([])
       } finally {
@@ -1105,7 +1164,7 @@ setMensajeSan("")
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAlumnoOnly, alumnoCurso, previewRole])
+  }, [isAlumnoOnly, alumnoCurso, alumnoCursoId, previewRole])
 
   useEffect(() => {
     if (!isAlumnoOnly) return
@@ -1114,44 +1173,37 @@ setMensajeSan("")
     ;(async () => {
       setInasistenciasLoading(true)
       try {
-        const encoded = encodeURIComponent(alumnoIdSelf)
-        const isNumericId = /^\d+$/.test(String(alumnoIdSelf || ""))
-        const tries = [
-          `/asistencias/?alumno=${encoded}`,
-          `/api/asistencias/?alumno=${encoded}`,
-          `/asistencias/alumno/${encoded}/`,
-          ...(isNumericId
-            ? []
-            : [
-                `/asistencias/?id_alumno=${encoded}`,
-                `/api/asistencias/?id_alumno=${encoded}`,
-                `/asistencias/alumno_codigo/${encoded}/`,
-              ]),
-        ]
-        let asistencias = []
-        for (const url of tries) {
-          const res = await pfetch(url)
-          if (!res.ok) continue
-          const data = await res.json().catch(() => ({}))
-          const list = Array.isArray(data)
-            ? data
-            : data?.asistencias || data?.results || []
-          if (Array.isArray(list)) {
-            asistencias = list
-            break
-          }
-        }
+        const total = await loadDashboardResource(
+          `alumno-inasistencias:${dashboardScopeKey}:${alumnoIdSelf}`,
+          async () => {
+            const encoded = encodeURIComponent(alumnoIdSelf)
+            const isNumericId = /^\d+$/.test(String(alumnoIdSelf || ""))
+            let asistencias = []
+            const url = isNumericId
+              ? `/api/asistencias/?alumno=${encoded}`
+              : `/api/asistencias/?id_alumno=${encoded}`
+            const res = await pfetch(url)
+            if (res.ok) {
+              const data = await res.json().catch(() => ({}))
+              const list = data?.results || []
+              if (Array.isArray(list)) {
+                asistencias = list
+              }
+            }
 
-        let total = 0
-        for (const a of asistencias) {
-          const tipo = normalizeAsistenciaTipo(asistenciaTipoFromAny(a)) || "clases"
-          if (tipo !== "clases") continue
-          if (isJustificadaFromAny(a)) continue
-          const estado = estadoTexto(asistenciaEstadoFromAny(a))
-          if (estado === "Ausente") total += 1
-          else if (estado === "Tarde") total += 0.5
-        }
-
+            let nextTotal = 0
+            for (const a of asistencias) {
+              const tipo = normalizeAsistenciaTipo(asistenciaTipoFromAny(a)) || "clases"
+              if (tipo !== "clases") continue
+              if (isJustificadaFromAny(a)) continue
+              const estado = estadoTexto(asistenciaEstadoFromAny(a))
+              if (estado === "Ausente") nextTotal += 1
+              else if (estado === "Tarde") nextTotal += 0.5
+            }
+            return nextTotal
+          },
+          DASHBOARD_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
         if (alive) setInasistenciasCount(total)
       } catch {
         if (alive) setInasistenciasCount(0)
@@ -1168,6 +1220,12 @@ setMensajeSan("")
   if (error) {
     return (
       <div className="surface-card surface-card-pad text-red-600">{error}</div>
+    )
+  }
+
+  if (blockAdminDashboard) {
+    return (
+      <div className="surface-card surface-card-pad">Redirigiendo al panel de administracion...</div>
     )
   }
 
@@ -1258,7 +1316,7 @@ setMensajeSan("")
                   setAlumnoDestType("profesor")
                   setTimeout(() => setOpenAlumnoMsg(true), 0)
                 }}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">Profesores</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje a un profesor</div>
@@ -1270,7 +1328,7 @@ setMensajeSan("")
                   setAlumnoDestType("preceptor")
                   setTimeout(() => setOpenAlumnoMsg(true), 0)
                 }}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">Preceptores</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje a un preceptor</div>
@@ -1281,7 +1339,7 @@ setMensajeSan("")
               <button
                 type="button"
                 onClick={abrirIndividualDesdePicker}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A un alumno</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje individual a un alumno</div>
@@ -1289,7 +1347,7 @@ setMensajeSan("")
               <button
                 type="button"
                 onClick={abrirGrupalDesdePicker}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A un curso</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje grupal a un curso</div>
@@ -1297,7 +1355,7 @@ setMensajeSan("")
               <button
                 type="button"
                 onClick={abrirFamiliaDesdePicker}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A la familia</div>
                 <div className="text-xs text-slate-500 mt-1">Comunicado para padres o tutores</div>
@@ -1371,7 +1429,7 @@ setMensajeSan("")
                       a?.id_alumno ??
                       a?.codigo ??
                       a?.legajo ??
-                      a?.curso ??
+                      getCourseDisplayName(a) ??
                       ""
                     return (
                       <option key={String(key)} value={String(key)}>
@@ -1646,12 +1704,13 @@ setMensajeSan("")
         </DialogContent>
       </Dialog>
 
-      <ComposeComunicadoFamilia
-        open={openComFam}
-        onOpenChange={setOpenComFam}
-        // Mostrar todos los cursos en el selector de mensajes (también para preceptores).
-        cursosEndpoint="/alumnos/cursos/"
-      />
+      {openComFam ? (
+        <ComposeComunicadoFamilia
+          open={openComFam}
+          onOpenChange={setOpenComFam}
+          cursosEndpoint="/alumnos/cursos/"
+        />
+      ) : null}
     </div>
   )
 }
@@ -1685,8 +1744,11 @@ function ProximosEventosCard({
       <CardContent className="surface-card-pad flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Calendar className="h-6 w-6 text-blue-600" />
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: "var(--school-accent-soft)" }}
+            >
+              <Calendar className="h-6 w-6" style={{ color: "var(--school-accent)" }} />
             </div>
             <div>
               <h3 className="tile-title">{titleText || "Proximos eventos"}</h3>
@@ -1774,8 +1836,11 @@ function AlumnoInicio({
         <Card className="surface-card h-full">
           <CardContent className="surface-card-pad h-full flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                <CheckSquare className="h-6 w-6 text-blue-600" />
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: "var(--school-accent-soft)" }}
+              >
+                <CheckSquare className="h-6 w-6" style={{ color: "var(--school-accent)" }} />
               </div>
               <div>
                 <h3 className="tile-title">Inasistencias</h3>
@@ -1784,7 +1849,13 @@ function AlumnoInicio({
             </div>
 
             <div className="flex flex-col items-start sm:items-end">
-              <div className="min-w-[96px] h-12 px-4 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-2xl font-semibold">
+              <div
+                className="min-w-[96px] h-12 px-4 rounded-full flex items-center justify-center text-2xl font-semibold"
+                style={{
+                  backgroundColor: "var(--school-accent-soft)",
+                  color: "var(--school-accent)",
+                }}
+              >
                 {inasistenciasLoading ? "..." : inasistenciasCount}
               </div>
             </div>
@@ -1830,8 +1901,11 @@ function ProfesorInicio({
         <Card className="surface-card">
           <CardContent className="surface-card-pad flex flex-col gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                <Plus className="h-6 w-6 text-blue-600" />
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: "var(--school-accent-soft)" }}
+              >
+                <Plus className="h-6 w-6" style={{ color: "var(--school-accent)" }} />
               </div>
               <div>
                 <h3 className="tile-title">Accesos rapidos</h3>
@@ -1978,7 +2052,7 @@ function AlertasAcademicasCard({ alertas, loading }) {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900 truncate">{nombre}</p>
                     <p className="text-xs text-slate-600 truncate">
-                      {a?.curso ? `Curso ${a.curso}` : "Curso s/d"}
+                      {getCourseDisplayName(a) ? `Curso ${getCourseDisplayName(a)}` : "Curso s/d"}
                       {materias.length ? ` · ${materias.join(", ")}` : ""}
                     </p>
                   </div>
@@ -2034,7 +2108,7 @@ function AlertasInasistenciasCard({ alertas, loading }) {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900 truncate">{nombre}</p>
                     <p className="text-xs text-slate-600 truncate">
-                      {a?.curso ? `Curso ${a.curso}` : "Curso s/d"}
+                      {getCourseDisplayName(a) ? `Curso ${getCourseDisplayName(a)}` : "Curso s/d"}
                       {totalInas > 0 ? ` · ${totalInas} inasistencias totales a clases` : " · 0 inasistencias totales a clases"}
                     </p>
                   </div>
@@ -2097,8 +2171,11 @@ function MensajesRecientesCard({ mensajes, loading, myId }) {
       <CardContent className="surface-card-pad flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Inbox className="h-6 w-6 text-blue-600" />
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: "var(--school-accent-soft)" }}
+            >
+              <Inbox className="h-6 w-6" style={{ color: "var(--school-accent)" }} />
             </div>
             <div>
               <h3 className="tile-title">Ultimos mensajes</h3>
@@ -2139,15 +2216,23 @@ function MensajesRecientesCard({ mensajes, loading, myId }) {
                   className={
                     "relative flex items-center justify-between gap-4 rounded-xl border px-4 py-3 transition " +
                     (unread
-                      ? "border-blue-200 bg-blue-50 hover:bg-blue-50/80 shadow-sm"
+                      ? "shadow-sm"
                       : "border-slate-200 bg-white/80 hover:bg-white hover:shadow-md")
+                  }
+                  style={
+                    unread
+                      ? {
+                          borderColor: "var(--school-accent-soft-strong)",
+                          backgroundColor: "var(--school-accent-soft)",
+                        }
+                      : undefined
                   }
                 >
                   <span
-                    className={
-                      "absolute left-4 top-1/2 -translate-y-1/2 h-2.5 w-2.5 rounded-full " +
-                      (unread ? "bg-blue-600" : "bg-transparent")
-                    }
+                    className="absolute left-4 top-1/2 -translate-y-1/2 h-2.5 w-2.5 rounded-full"
+                    style={{
+                      backgroundColor: unread ? "var(--school-accent)" : "transparent",
+                    }}
                   />
                   <div className="min-w-0 pl-6">
                     <p
@@ -2182,7 +2267,10 @@ function MensajesRecientesCard({ mensajes, loading, myId }) {
 function Tile({ icon, title, desc }) {
   return (
     <div className="flex items-start gap-4">
-      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+      <div
+        className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ backgroundColor: "var(--school-accent-soft)" }}
+      >
         {icon}
       </div>
       <div className="flex-1">
@@ -2202,16 +2290,24 @@ function TileButton({ title, desc, icon, onClick, emphasis = false }) {
   }
 
   const base =
-    "p-4 border rounded-lg transition-colors cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+    "p-4 border rounded-lg transition-colors cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
 
-  const normal = "border-gray-200 hover:border-blue-300 hover:bg-blue-50/50"
+  const normal = "border-gray-200"
 
-  const emph =
-    "border-blue-200 bg-blue-100 text-blue-700 shadow-sm hover:bg-blue-100/80 hover:border-blue-300"
+  const emph = "shadow-sm"
 
   return (
     <div
       className={`${base} ${emphasis ? emph : normal}`}
+      style={
+        emphasis
+          ? {
+              borderColor: "var(--school-accent-soft-strong)",
+              backgroundColor: "var(--school-accent-soft)",
+              color: "var(--school-accent)",
+            }
+          : undefined
+      }
       role="button"
       tabIndex={0}
       onClick={onClick}
@@ -2220,21 +2316,24 @@ function TileButton({ title, desc, icon, onClick, emphasis = false }) {
     >
       <div className="flex items-center gap-3 mb-2">
         <div
-          className={`w-8 h-8 rounded-full flex items-center justify-center ${
-            emphasis ? "bg-white" : "bg-blue-100"
-          }`}
+          className="w-8 h-8 rounded-full flex items-center justify-center"
+          style={{
+            backgroundColor: emphasis ? "#ffffff" : "var(--school-accent-soft)",
+          }}
         >
-          <span className={emphasis ? "text-blue-600" : ""}>{icon}</span>
+          <span style={emphasis ? { color: "var(--school-accent)" } : undefined}>{icon}</span>
         </div>
         <h4
-          className={`font-medium whitespace-nowrap text-sm ${
-            emphasis ? "text-blue-800" : "text-gray-900"
-          }`}
+          className="font-medium whitespace-nowrap text-sm text-gray-900"
+          style={emphasis ? { color: "var(--school-accent)" } : undefined}
         >
           {title}
         </h4>
       </div>
-      <p className={`text-sm ${emphasis ? "text-blue-700/80" : "text-gray-600"}`}>
+      <p
+        className="text-sm text-gray-600"
+        style={emphasis ? { color: "color-mix(in srgb, var(--school-accent) 82%, white)" } : undefined}
+      >
         {desc}
       </p>
     </div>

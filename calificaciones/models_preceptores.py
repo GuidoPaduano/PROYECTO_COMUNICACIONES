@@ -1,28 +1,38 @@
 # calificaciones/models_preceptores.py
-from django.db import models
 from django.contrib.auth import get_user_model
+from django.db import models
 
-# Importamos Alumno para reutilizar el catálogo de cursos (choices)
-from .models import Alumno
+from .models import Alumno, School, SchoolCourse, ensure_school_course_for_save
 
 User = get_user_model()
 
+
 class PreceptorCurso(models.Model):
+    school = models.ForeignKey(
+        School,
+        on_delete=models.PROTECT,
+        related_name="preceptor_asignaciones",
+    )
+    school_course = models.ForeignKey(
+        SchoolCourse,
+        on_delete=models.PROTECT,
+        related_name="preceptor_asignaciones",
+    )
     preceptor = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name="cursos_asignados"
+        related_name="cursos_asignados",
     )
     curso = models.CharField(
         max_length=20,
         choices=Alumno.CURSOS,
-        db_index=True
+        db_index=True,
     )
     asignado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("preceptor", "curso")
-        verbose_name = "Asignación de curso a preceptor"
+        unique_together = ("preceptor", "school", "curso")
+        verbose_name = "Asignaci\u00f3n de curso a preceptor"
         verbose_name_plural = "Asignaciones de cursos a preceptores"
         indexes = [
             models.Index(fields=["curso"]),
@@ -30,10 +40,24 @@ class PreceptorCurso(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.preceptor} → {self.curso}"
+        return f"{self.preceptor} -> {self.curso}"
+
+    def save(self, *args, **kwargs):
+        ensure_school_course_for_save(self, kwargs)
+        return super().save(*args, **kwargs)
 
 
 class ProfesorCurso(models.Model):
+    school = models.ForeignKey(
+        School,
+        on_delete=models.PROTECT,
+        related_name="profesor_asignaciones",
+    )
+    school_course = models.ForeignKey(
+        SchoolCourse,
+        on_delete=models.PROTECT,
+        related_name="profesor_asignaciones",
+    )
     profesor = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -47,8 +71,8 @@ class ProfesorCurso(models.Model):
     asignado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("profesor", "curso")
-        verbose_name = "Asignación de curso a profesor"
+        unique_together = ("profesor", "school", "curso")
+        verbose_name = "Asignaci\u00f3n de curso a profesor"
         verbose_name_plural = "Asignaciones de cursos a profesores"
         indexes = [
             models.Index(fields=["curso"]),
@@ -56,4 +80,8 @@ class ProfesorCurso(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.profesor} → {self.curso}"
+        return f"{self.profesor} -> {self.curso}"
+
+    def save(self, *args, **kwargs):
+        ensure_school_course_for_save(self, kwargs)
+        return super().save(*args, **kwargs)

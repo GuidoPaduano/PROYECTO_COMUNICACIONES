@@ -6,34 +6,49 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import validate_password
 from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import ValidationError
-from django import forms
+from django.core.cache import cache
 
 from datetime import date
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 
-from rest_framework import viewsets, status
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from rest_framework.decorators import (
-    action, api_view, authentication_classes, permission_classes, parser_classes, throttle_classes
+    api_view, authentication_classes, permission_classes, parser_classes, throttle_classes
 )
 from rest_framework.throttling import UserRateThrottle
-from django.utils.decorators import method_decorator
 
 from reportlab.pdfgen import canvas
 
 from django.db.models import Q, Count  # âœ… NUEVO (para filtros robustos de no leÃ­dos)
 from functools import lru_cache
 
-from .models import Alumno, Nota, Mensaje, Evento, Asistencia, Notificacion
-from .utils_cursos import filtrar_cursos_validos
-from .serializers import EventoSerializer, AlumnoFullSerializer, NotaCreateSerializer, NotaPublicSerializer
-from .forms import NotaForm
+from .course_access import (
+    CourseRef,
+    assignment_matches_course,
+    build_course_membership_q,
+    course_ref_matches,
+    filter_course_options_by_refs,
+    get_assignment_course_refs,
+    normalize_course_code,
+)
+from .models import Alumno, Nota, Mensaje, Evento, Asistencia, Notificacion, SchoolCourse, resolve_school_course_for_value
+from .utils_cursos import get_course_label, get_school_course_by_id, get_school_course_choices, get_school_course_dicts, resolve_course_reference
+from .serializers import AlumnoFullSerializer, NotaCreateSerializer, NotaPublicSerializer
+from .forms import EventoForm as BaseEventoForm, NotaForm
 from .constants import MATERIAS
 from .contexto import resolve_alumno_for_user
+from .schools import (
+    get_available_school_dicts_for_user,
+    get_request_school,
+    school_to_dict,
+    scope_queryset_to_school,
+)
+from .user_groups import get_user_group_names
 from django.contrib.auth import logout as dj_logout, update_session_auth_hash
 from django.contrib.auth import get_user_model
 from .auth_api import clear_auth_cookies
@@ -42,6 +57,7 @@ import json
 import logging
 
 logger = logging.getLogger(__name__)
+ASSIGNMENT_REFS_CACHE_TTL = 120
 
 try:
     # âœ… NUEVO: si existen los modelos reales preceptor/profesorâ†’cursos, los usamos para permisos
@@ -55,25 +71,11 @@ except Exception:
 #  Notificaciones por NOTA (campanita: Notificacion del sistema)
 # =========================================================
 
-def _infer_tipo_remitente_local(user) -> str:
-    """Devuelve un tipo vÃ¡lido para Mensaje.tipo_remitente."""
-    try:
-        if user.groups.filter(name__icontains="precep").exists():
-            return "Preceptor"
-        if user.groups.filter(name__icontains="direct").exists():
-            return "Directivo"
-        if user.groups.filter(name__icontains="profe").exists():
-            return "Profesor"
-    except Exception:
-        pass
-    return "Profesor"
-
-
 def _resolver_destinatario_padre(alumno):
     """Destinatario para notificaciÃ³n.
 
     Preferencia: Alumno.padre (FK real)
-    Fallback legacy: User.username == alumno.id_alumno
+    Fallback por username==id_alumno
     """
     padre = getattr(alumno, "padre", None)
     if padre:
@@ -132,7 +134,7 @@ def _resolver_destinatarios_notif(alumno):
     except Exception:
         pass
 
-    # Ãšltimo fallback: el resolver legacy de padre
+    # Ultimo intento: resolver destinatario por legajo
     if not destinatarios:
         try:
             u_fb, _src = _resolver_destinatario_padre(alumno)
@@ -141,6 +143,33 @@ def _resolver_destinatarios_notif(alumno):
             pass
 
     return destinatarios
+
+
+def _notification_course_name(*, alumno=None, school_course=None, course_code="", school=None):
+    resolved_school_course = school_course or getattr(alumno, "school_course", None)
+    return (
+        getattr(resolved_school_course, "name", None)
+        or getattr(resolved_school_course, "code", None)
+        or get_course_label(
+            course_code or getattr(alumno, "curso", ""),
+            school=school or getattr(alumno, "school", None),
+        )
+        or course_code
+        or getattr(alumno, "curso", None)
+        or None
+    )
+
+
+def _notification_course_meta(*, alumno=None, school_course=None, course_code="", school=None):
+    return {
+        "school_course_id": getattr(school_course, "id", None) or getattr(alumno, "school_course_id", None),
+        "school_course_name": _notification_course_name(
+            alumno=alumno,
+            school_course=school_course,
+            course_code=course_code,
+            school=school,
+        ),
+    }
 
 
 def _notify_padre_por_nota(remitente, nota, *, silent=True):
@@ -165,6 +194,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
             nombre = (getattr(alumno, "nombre", "") or "").strip() or str(getattr(alumno, "id_alumno", ""))
 
         curso = (getattr(alumno, "curso", "") or "").strip()
+        course_name = _notification_course_name(alumno=alumno, course_code=curso)
         materia = (getattr(nota, "materia", "") or "").strip()
         tipo = (getattr(nota, "tipo", "") or "").strip()
         calif = (getattr(nota, "calificacion", "") or "").strip()
@@ -177,8 +207,8 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
         # DescripciÃ³n compacta (no hace falta que parezca un email)
         parts = []
         parts.append("Se registrÃ³ una nueva calificaciÃ³n.")
-        if curso:
-            parts.append(f"Curso: {curso}")
+        if course_name:
+            parts.append(f"Curso: {course_name}")
         if materia:
             parts.append(f"Materia: {materia}")
         if tipo:
@@ -199,6 +229,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
 
         for destinatario in destinatarios:
             Notificacion.objects.create(
+                school=getattr(alumno, "school", None),
                 destinatario=destinatario,
                 tipo="nota",
                 titulo=titulo,
@@ -207,7 +238,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
                 meta={
                     "alumno_id": alumno.id,
                     "nota_id": getattr(nota, "id", None),
-                    "curso": curso or None,
+                    **_notification_course_meta(alumno=alumno, course_code=curso),
                 },
                 leida=False,
             )
@@ -264,6 +295,7 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
             alumno = g["alumno"]
             nombre = g["nombre"]
             curso = g["curso"]
+            course_name = _notification_course_name(alumno=alumno, course_code=curso)
             notas_alumno = g["notas"]
 
             titulo = f"Nueva nota para {nombre}" if len(notas_alumno) == 1 else f"Nuevas notas para {nombre}"
@@ -294,8 +326,8 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
                 lines.append(base)
 
             descripcion = "Se registraron nuevas calificaciones."
-            if curso:
-                descripcion += f" Curso: {curso}."
+            if course_name:
+                descripcion += f" Curso: {course_name}."
             if lines:
                 # Guardamos en texto (la UI lo truncarÃ¡ si hace falta)
                 descripcion += " " + " ".join(lines)
@@ -304,6 +336,7 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
 
             notifs.append(
                 Notificacion(
+                    school=getattr(alumno, "school", None),
                     destinatario=g["dest"],
                     tipo="nota",
                     titulo=titulo,
@@ -312,7 +345,7 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
                     meta={
                         "alumno_id": alumno.id,
                         "nota_ids": [getattr(x, "id", None) for x in notas_alumno],
-                        "curso": curso or None,
+                        **_notification_course_meta(alumno=alumno, course_code=curso),
                     },
                     leida=False,
                 )
@@ -351,13 +384,8 @@ def _get_preview_role(request):
 # =========================================================
 #  Formularios
 # =========================================================
-class EventoForm(forms.ModelForm):
-    class Meta:
-        model = Evento
-        fields = ['titulo', 'descripcion', 'fecha', 'curso', 'tipo_evento']
-        widgets = {
-            'fecha': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-        }
+class EventoForm(BaseEventoForm):
+    pass
 
 
 # =========================================================
@@ -373,46 +401,12 @@ def _coerce_json(request):
     except Exception:
         return {}
 
-
-def _normalize_event_payload(payload):
-    """
-    Acepta claves alternativas desde el front:
-      - titulo|title
-      - descripcion|description
-      - fecha|date
-      - curso|course
-      - tipo_evento|tipo|type
-    """
-    def first(*keys):
-        for k in keys:
-            if k in payload:
-                return payload.get(k)
-        return None
-
-    return {
-        "titulo":      first("titulo", "title") or "",
-        "descripcion": first("descripcion", "description") or "",
-        "fecha":       first("fecha", "date"),
-        "curso":       first("curso", "course") or "",
-        "tipo_evento": first("tipo_evento", "tipo", "type") or "",
-    }
-
-
-def obtener_curso_del_preceptor(usuario):
-    # Mapeo simple para pruebas. Cambialo cuando tengas el modelo real de preceptores.
-    cursos_por_usuario = {
-        'preceptor1': '1A',
-        'preceptor2': '3B',
-        'preceptor3': '5NAT',
-    }
-    return cursos_por_usuario.get(usuario.username, None)
-
-
 def _rol_principal(user):
     if getattr(user, "is_superuser", False):
         return "superusuario"
+    group_names = set(get_user_group_names(user))
     for g in ("Directivos", "Profesores", "Padres", "Alumnos", "Preceptores"):
-        if user.groups.filter(name=g).exists():
+        if g in group_names:
             return g
     return "â€”"
 
@@ -420,11 +414,13 @@ def _rol_principal(user):
 def _alumno_to_dict(a: Alumno):
     if not a:
         return None
+    school_course = getattr(a, "school_course", None)
     return {
         "id": a.id,
         "id_alumno": getattr(a, "id_alumno", None),
         "nombre": a.nombre,
-        "curso": a.curso,
+        "school_course_id": getattr(a, "school_course_id", None),
+        "school_course_name": getattr(school_course, "name", None) or getattr(school_course, "code", None) or getattr(a, "curso", None),
         "padre_id": a.padre_id,
         "usuario_id": getattr(a, "usuario_id", None),
     }
@@ -432,13 +428,20 @@ def _alumno_to_dict(a: Alumno):
 
 # ===== Helpers de rol efectivos (aplican vista previa) =====
 def _effective_groups(request):
+    cached = getattr(request, "_cached_effective_groups", None)
+    if cached is not None:
+        return cached
     pr = _get_preview_role(request)
     if pr and getattr(request.user, "is_superuser", False):
-        return [pr]
+        groups = [pr]
+        setattr(request, "_cached_effective_groups", groups)
+        return groups
     try:
-        return list(request.user.groups.values_list("name", flat=True))
+        groups = list(get_user_group_names(request.user))
     except Exception:
-        return []
+        groups = []
+    setattr(request, "_cached_effective_groups", groups)
+    return groups
 
 
 def _has_role(request, *roles):
@@ -457,100 +460,540 @@ def _has_model_field(model, name: str) -> bool:
 
 
 # =========================================================
-#  âœ… NUEVO: permisos de PRECEPTOR por curso (PreceptorCurso o fallback)
+#  âœ… NUEVO: permisos de PRECEPTOR por curso (PreceptorCurso real)
 # =========================================================
 def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     """
     Permite acceso a preceptor SOLO si el alumno pertenece a un curso asignado a ese preceptor.
-
-    - Si existe PreceptorCurso, se consulta ahÃ­.
-    - Si NO existe, se usa el helper obtener_curso_del_preceptor() como fallback.
     """
     curso_alumno = getattr(alumno, "curso", None)
-    if not curso_alumno:
+    if not curso_alumno or PreceptorCurso is None:
         return False
 
-    if PreceptorCurso is not None:
-        # Intento "directo" por convenciÃ³n habitual
-        try:
-            if PreceptorCurso.objects.filter(preceptor=user, curso=curso_alumno).exists():
-                return True
-        except Exception:
-            pass
-
-        # Intentos robustos por si cambian nombres de campos
-        possible_user_fields = ["preceptor", "usuario", "user"]
-        possible_curso_fields = ["curso", "curso_id", "curso_codigo", "curso_nombre"]
-        for uf in possible_user_fields:
-            for cf in possible_curso_fields:
-                try:
-                    if PreceptorCurso.objects.filter(**{uf: user, cf: curso_alumno}).exists():
-                        return True
-                except Exception:
-                    continue
-
-        return False
-
-    # Fallback (tu mapeo hardcodeado)
-    return obtener_curso_del_preceptor(user) == curso_alumno
-
-
-def _preceptor_can_access_curso(user, curso: str) -> bool:
-    curso = (curso or "").strip()
-    if not curso:
-        return False
-
-    if PreceptorCurso is not None:
-        try:
-            if PreceptorCurso.objects.filter(preceptor=user, curso=curso).exists():
-                return True
-        except Exception:
-            pass
-
-    return obtener_curso_del_preceptor(user) == curso
-
-
-def _profesor_cursos_asignados(user):
-    if ProfesorCurso is None:
-        return []
     try:
-        return list(
-            ProfesorCurso.objects.filter(profesor=user)
-            .values_list("curso", flat=True)
-            .distinct()
+        school_ref = getattr(alumno, "school", None)
+        refs = _preceptor_assignment_refs(user, school=school_ref)
+        return course_ref_matches(refs, obj=alumno)
+    except Exception:
+        return False
+
+
+def _preceptor_can_access_curso(user, curso: str = "", school=None, school_course=None) -> bool:
+    curso = (curso or "").strip()
+    if (not curso and school_course is None) or PreceptorCurso is None:
+        return False
+
+    try:
+        refs = _preceptor_assignment_refs(user, school=school)
+        return course_ref_matches(
+            refs,
+            school=school,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso,
         )
     except Exception:
-        return []
-
-
-def _profesor_can_access_curso(user, curso: str) -> bool:
-    curso = (curso or "").strip()
-    if not curso:
         return False
 
-    asignados = _profesor_cursos_asignados(user)
-    if not asignados:
+
+def _assignment_cache_user_fragment(user) -> str:
+    user_id = getattr(user, "id", None)
+    username = str(getattr(user, "username", "") or "").strip().lower() or "anon"
+    return f"{user_id or 'x'}:{username}"
+
+
+def _assignment_cache_scope_id(school) -> int:
+    return int(getattr(school, "id", None) or 0)
+
+
+def _assignment_cache_key(prefix: str, user, school=None) -> str:
+    return f"views:{prefix}:u{_assignment_cache_user_fragment(user)}:s{_assignment_cache_scope_id(school)}"
+
+
+def _serialize_course_refs(refs) -> tuple[tuple[int | None, int | None, str], ...]:
+    return tuple(
+        (
+            getattr(ref, "school_id", None),
+            getattr(ref, "school_course_id", None),
+            str(getattr(ref, "course_code", "") or ""),
+        )
+        for ref in (refs or [])
+    )
+
+
+def _deserialize_course_refs(rows) -> list[CourseRef]:
+    out = []
+    for row in rows or []:
+        try:
+            school_id, school_course_id, course_code = row
+        except Exception:
+            continue
+        out.append(
+            CourseRef(
+                school_id=int(school_id) if school_id is not None else None,
+                school_course_id=int(school_course_id) if school_course_id is not None else None,
+                course_code=normalize_course_code(course_code),
+            )
+        )
+    return out
+
+
+def _profesor_assignment_refs(user, school=None):
+    if ProfesorCurso is None:
+        return []
+    school_id = getattr(school, "id", None) or 0
+    cache_attr = "_cached_profesor_assignment_refs_by_school"
+    cached = getattr(user, cache_attr, None)
+    if isinstance(cached, dict) and school_id in cached:
+        return list(cached[school_id])
+    cache_key = _assignment_cache_key("profesor_refs", user, school=school)
+    try:
+        shared_cached = cache.get(cache_key)
+        if shared_cached is not None:
+            refs = _deserialize_course_refs(shared_cached)
+            try:
+                if not isinstance(cached, dict):
+                    cached = {}
+                cached[school_id] = tuple(refs)
+                setattr(user, cache_attr, cached)
+            except Exception:
+                pass
+            return refs
+    except Exception:
+        pass
+    try:
+        qs = ProfesorCurso.objects.filter(profesor=user)
+        if school is not None:
+            qs = scope_queryset_to_school(qs, school)
+        refs = get_assignment_course_refs(qs)
+    except Exception:
+        refs = []
+    try:
+        if not isinstance(cached, dict):
+            cached = {}
+        cached[school_id] = tuple(refs)
+        setattr(user, cache_attr, cached)
+    except Exception:
+        pass
+    try:
+        cache.set(cache_key, _serialize_course_refs(refs), ASSIGNMENT_REFS_CACHE_TTL)
+    except Exception:
+        pass
+    return refs
+
+
+def _preceptor_assignment_refs(user, school=None):
+    if PreceptorCurso is None:
+        return []
+    school_id = getattr(school, "id", None) or 0
+    cache_attr = "_cached_preceptor_assignment_refs_by_school"
+    cached = getattr(user, cache_attr, None)
+    if isinstance(cached, dict) and school_id in cached:
+        return list(cached[school_id])
+    cache_key = _assignment_cache_key("preceptor_refs", user, school=school)
+    try:
+        shared_cached = cache.get(cache_key)
+        if shared_cached is not None:
+            refs = _deserialize_course_refs(shared_cached)
+            try:
+                if not isinstance(cached, dict):
+                    cached = {}
+                cached[school_id] = tuple(refs)
+                setattr(user, cache_attr, cached)
+            except Exception:
+                pass
+            return refs
+    except Exception:
+        pass
+    try:
+        qs = PreceptorCurso.objects.filter(preceptor=user)
+        if school is not None:
+            qs = scope_queryset_to_school(qs, school)
+        refs = get_assignment_course_refs(qs)
+    except Exception:
+        refs = []
+    try:
+        if not isinstance(cached, dict):
+            cached = {}
+        cached[school_id] = tuple(refs)
+        setattr(user, cache_attr, cached)
+    except Exception:
+        pass
+    try:
+        cache.set(cache_key, _serialize_course_refs(refs), ASSIGNMENT_REFS_CACHE_TTL)
+    except Exception:
+        pass
+    return refs
+
+
+def _assignment_course_options(qs, *, user, school=None, cache_prefix: str):
+    school_id = _assignment_cache_scope_id(school)
+    cache_attr = f"_cached_{cache_prefix}_course_options_by_school"
+    cached = getattr(user, cache_attr, None)
+    if isinstance(cached, dict) and school_id in cached:
+        return [dict(item) for item in cached[school_id]]
+
+    cache_key = _assignment_cache_key(f"{cache_prefix}_course_options", user, school=school)
+    try:
+        shared_cached = cache.get(cache_key)
+        if shared_cached is not None:
+            options = [dict(item) for item in (shared_cached or [])]
+            try:
+                if not isinstance(cached, dict):
+                    cached = {}
+                cached[school_id] = tuple(dict(item) for item in options)
+                setattr(user, cache_attr, cached)
+            except Exception:
+                pass
+            return options
+    except Exception:
+        pass
+
+    out = []
+    seen = set()
+    missing_catalog_data = False
+    try:
+        rows = qs.values_list(
+            "school_course_id",
+            "school_course__code",
+            "school_course__name",
+            "curso",
+        )
+    except Exception:
+        rows = []
+
+    for school_course_id, school_course_code, school_course_name, curso in rows:
+        code = normalize_course_code(school_course_code or curso)
+        if not code:
+            continue
+        key = (school_course_id, code)
+        if key in seen:
+            continue
+        seen.add(key)
+        nombre = str(school_course_name or code).strip() or code
+        if school_course_id is None or not school_course_name:
+            missing_catalog_data = True
+        out.append(
+            {
+                "school_course_id": school_course_id,
+                "code": code,
+                "nombre": nombre,
+            }
+        )
+
+    if missing_catalog_data and out:
+        catalog_options = _school_course_options_for_ui(school=school)
+        by_id = {
+            option.get("school_course_id"): dict(option)
+            for option in catalog_options
+            if option.get("school_course_id") is not None
+        }
+        by_code = {
+            normalize_course_code(option.get("code") or option.get("id")): dict(option)
+            for option in catalog_options
+            if normalize_course_code(option.get("code") or option.get("id"))
+        }
+        merged = []
+        for option in out:
+            resolved = None
+            option_id = option.get("school_course_id")
+            option_code = normalize_course_code(option.get("code"))
+            if option_id is not None:
+                resolved = by_id.get(option_id)
+            if resolved is None and option_code:
+                resolved = by_code.get(option_code)
+            if resolved is not None:
+                merged.append(
+                    {
+                        "school_course_id": resolved.get("school_course_id"),
+                        "code": normalize_course_code(resolved.get("code") or resolved.get("id")),
+                        "nombre": str(resolved.get("nombre") or option_code).strip() or option_code,
+                    }
+                )
+            else:
+                merged.append(option)
+        out = merged
+
+    try:
+        if not isinstance(cached, dict):
+            cached = {}
+        cached[school_id] = tuple(dict(item) for item in out)
+        setattr(user, cache_attr, cached)
+    except Exception:
+        pass
+    try:
+        cache.set(cache_key, tuple(dict(item) for item in out), ASSIGNMENT_REFS_CACHE_TTL)
+    except Exception:
+        pass
+    return [dict(item) for item in out]
+
+
+def _profesor_assignment_course_options(user, *, school=None):
+    if ProfesorCurso is None:
+        return []
+    qs = ProfesorCurso.objects.filter(profesor=user)
+    if school is not None:
+        qs = scope_queryset_to_school(qs, school)
+    return _assignment_course_options(qs, user=user, school=school, cache_prefix="profesor")
+
+
+def _preceptor_assignment_course_options(user, *, school=None):
+    if PreceptorCurso is None:
+        return []
+    qs = PreceptorCurso.objects.filter(preceptor=user)
+    if school is not None:
+        qs = scope_queryset_to_school(qs, school)
+    return _assignment_course_options(qs, user=user, school=school, cache_prefix="preceptor")
+
+
+def _school_course_options_for_ui(*, school=None, allowed_codes=None):
+    allowed = {
+        str(code or "").strip().upper()
+        for code in (allowed_codes or [])
+        if str(code or "").strip()
+    }
+    options = get_school_course_dicts(
+        school=school,
+        fallback_to_defaults=False,
+        catalog_only=True,
+    )
+    out = []
+    for option in options:
+        code = str(option.get("code") or option.get("id") or "").strip()
+        if not code:
+            continue
+        if allowed and code.upper() not in allowed:
+            continue
+        out.append(
+            {
+                "school_course_id": option.get("school_course_id"),
+                "code": code,
+                "nombre": str(option.get("nombre") or code),
+            }
+        )
+    return out
+
+
+def _profile_assigned_school_courses(*, user, groups, school=None, preview_role=None):
+    effective_groups = {str(group or "").strip() for group in (groups or []) if str(group or "").strip()}
+
+    if "Directivos" in effective_groups:
+        return _school_course_options_for_ui(school=school)
+
+    if "Preceptores" in effective_groups:
+        options = _preceptor_assignment_course_options(user, school=school)
+        if options:
+            return options
+        if preview_role and getattr(user, "is_superuser", False):
+            return _school_course_options_for_ui(school=school)[:1]
+        return []
+
+    if "Profesores" in effective_groups:
+        options = _profesor_assignment_course_options(user, school=school)
+        if options:
+            return options
+        if preview_role and getattr(user, "is_superuser", False):
+            return _school_course_options_for_ui(school=school)[:1]
+        return []
+
+    return []
+
+
+def _resolve_request_course_selection(
+    request,
+    *,
+    school=None,
+    required=False,
+    allow_all_markers=False,
+):
+    raw_course = (
+        request.POST.get("curso")
+        or request.GET.get("curso")
+        or ""
+    )
+    raw_school_course_id = (
+        request.POST.get("school_course_id")
+        or request.GET.get("school_course_id")
+        or ""
+    )
+    school_course, course_code, error = resolve_course_reference(
+        school=school,
+        raw_course=raw_course,
+        raw_school_course_id=raw_school_course_id,
+        required=required,
+        allow_all_markers=allow_all_markers,
+    )
+    return {
+        "school_course": school_course,
+        "school_course_id": getattr(school_course, "id", None),
+        "course_code": course_code,
+        "error": error,
+    }
+
+
+def _course_selection_querystring(*, school_course_id=None, course_code="") -> str:
+    if school_course_id not in (None, "", []):
+        return f"?school_course_id={school_course_id}"
+    if str(course_code or "").strip().upper() in {"ALL", "TODOS", "*"}:
+        return f"?curso={course_code}"
+    return ""
+
+
+def _course_payload(*, school=None, course_code="", school_course=None):
+    resolved_code = str(course_code or "").strip().upper()
+    resolved_school_course = school_course
+    if resolved_school_course is None and school is not None and resolved_code:
+        resolved_school_course = resolve_school_course_for_value(school=school, curso=resolved_code)
+
+    if resolved_school_course is not None:
+        resolved_code = str(getattr(resolved_school_course, "code", "") or resolved_code).strip().upper()
+        course_name = (
+            str(getattr(resolved_school_course, "name", "") or "").strip()
+            or resolved_code
+            or None
+        )
+    else:
+        course_name = get_course_label(resolved_code, school=school) if resolved_code else None
+
+    return {
+        "curso": resolved_code or None,
+        "school_course_id": getattr(resolved_school_course, "id", None),
+        "school_course_name": course_name,
+    }
+
+
+def _public_course_payload(*, school=None, course_code="", school_course=None):
+    return {
+        key: value
+        for key, value in _course_payload(
+            school=school,
+            course_code=course_code,
+            school_course=school_course,
+        ).items()
+        if key != "curso"
+    }
+
+
+def _public_course_payload_from_option(option: dict) -> dict:
+    payload = _course_option_payload(option)
+    return {
+        "school_course_id": payload.get("school_course_id"),
+        "school_course_name": payload.get("nombre"),
+    }
+
+
+def _course_option_payload(option: dict) -> dict:
+    code = str(option.get("code") or option.get("id") or "").strip().upper()
+    nombre = str(option.get("nombre") or code).strip() or code
+    return {
+        "id": code,
+        "code": code,
+        "nombre": nombre,
+        "school_course_id": option.get("school_course_id"),
+    }
+
+
+def _resolve_path_course_selection(
+    raw_value,
+    *,
+    school=None,
+    required=False,
+    deprecated_course_error=None,
+):
+    raw = str(raw_value or "").strip()
+    if not raw:
+        if required:
+            return {
+                "school_course": None,
+                "school_course_id": None,
+                "course_code": "",
+                "error": "Falta el campo requerido: school_course_id o curso.",
+            }
+        return {
+            "school_course": None,
+            "school_course_id": None,
+            "course_code": "",
+            "error": None,
+        }
+
+    school_course = get_school_course_by_id(raw, school=school, include_inactive=True)
+    if school_course is not None:
+        return {
+            "school_course": school_course,
+            "school_course_id": school_course.id,
+            "course_code": str(getattr(school_course, "code", "") or "").strip().upper(),
+            "error": None,
+        }
+
+    school_course, course_code, error = resolve_course_reference(
+        school=school,
+        raw_course=raw,
+        required=required,
+        deprecated_course_error=deprecated_course_error,
+    )
+    return {
+        "school_course": school_course,
+        "school_course_id": getattr(school_course, "id", None),
+        "course_code": course_code,
+        "error": error,
+    }
+
+
+def _profesor_can_access_curso(user, curso: str = "", school=None, school_course=None) -> bool:
+    curso = (curso or "").strip()
+    if not curso and school_course is None:
+        return False
+
+    if ProfesorCurso is None:
         return True
-    return curso in set(asignados)
+
+    try:
+        refs = _profesor_assignment_refs(user, school=school)
+        if not refs:
+            return True
+        return course_ref_matches(
+            refs,
+            school=school,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso,
+        )
+    except Exception:
+        return True
 
 
 def _profesor_can_access_alumno(user, alumno: Alumno) -> bool:
-    curso_alumno = getattr(alumno, "curso", None)
-    if not curso_alumno:
+    school_course = getattr(alumno, "school_course", None)
+    curso_alumno = getattr(school_course, "code", None) or getattr(alumno, "curso", None)
+    if not curso_alumno and school_course is None:
         return False
-    return _profesor_can_access_curso(user, curso_alumno)
+    return _profesor_can_access_curso(
+        user,
+        curso_alumno,
+        school=getattr(alumno, "school", None),
+        school_course=school_course,
+    )
 
 
-def _can_access_course_roster(request, curso: str) -> bool:
+def _can_access_course_roster(request, curso: str, *, school_course=None) -> bool:
     user = request.user
+    active_school = get_request_school(request)
     if getattr(user, "is_superuser", False):
         return True
     if _has_role(request, "Directivos"):
         return True
     if _has_role(request, "Preceptores"):
-        return _preceptor_can_access_curso(user, curso)
+        return _preceptor_can_access_curso(
+            user,
+            curso,
+            school=active_school,
+            school_course=school_course,
+        )
     if _has_role(request, "Profesores"):
-        return _profesor_can_access_curso(user, curso)
+        return _profesor_can_access_curso(
+            user,
+            curso,
+            school=active_school,
+            school_course=school_course,
+        )
     return False
 
 
@@ -574,7 +1017,7 @@ def _can_access_alumno_data(request, alumno: Alumno) -> bool:
         pass
 
     try:
-        resolution = resolve_alumno_for_user(user)
+        resolution = resolve_alumno_for_user(user, school=get_request_school(request))
         return bool(resolution.alumno and resolution.alumno.id == alumno.id)
     except Exception:
         return False
@@ -593,23 +1036,14 @@ def _mensaje_recipient_field() -> str:
     return "destinatario" if _has_model_field(Mensaje, "destinatario") else "receptor"
 
 
-@lru_cache(maxsize=1)
-def _mensaje_curso_field() -> str:
-    if _has_model_field(Mensaje, "curso_asociado"):
-        return "curso_asociado"
-    if _has_model_field(Mensaje, "curso"):
-        return "curso"
-    return ""
-
-
-def _mensajes_inbox_qs(user):
+def _mensajes_inbox_qs(user, school=None):
     rf = _mensaje_recipient_field()
-    return Mensaje.objects.filter(**{rf: user})
+    return scope_queryset_to_school(Mensaje.objects.filter(**{rf: user}), school)
 
 
-def _mensajes_sent_qs(user):
+def _mensajes_sent_qs(user, school=None):
     sf = _mensaje_sender_field()
-    return Mensaje.objects.filter(**{sf: user})
+    return scope_queryset_to_school(Mensaje.objects.filter(**{sf: user}), school)
 
 
 def _mensajes_unread_count_from_qs(inbox_qs) -> int:
@@ -626,18 +1060,65 @@ def _mensajes_unread_count_from_qs(inbox_qs) -> int:
     return 0
 
 
+def _mensajes_count_stats_from_qs(inbox_qs) -> tuple[int, int]:
+    has_leido = _has_model_field(Mensaje, "leido")
+    has_leido_en = _has_model_field(Mensaje, "leido_en")
+    if has_leido and has_leido_en:
+        stats = inbox_qs.aggregate(
+            received=Count("id"),
+            unread=Count("id", filter=Q(leido=False) | Q(leido_en__isnull=True)),
+        )
+        return int(stats.get("received") or 0), int(stats.get("unread") or 0)
+    if has_leido:
+        stats = inbox_qs.aggregate(
+            received=Count("id"),
+            unread=Count("id", filter=Q(leido=False)),
+        )
+        return int(stats.get("received") or 0), int(stats.get("unread") or 0)
+    if has_leido_en:
+        stats = inbox_qs.aggregate(
+            received=Count("id"),
+            unread=Count("id", filter=Q(leido_en__isnull=True)),
+        )
+        return int(stats.get("received") or 0), int(stats.get("unread") or 0)
+    if _has_model_field(Mensaje, "fecha_lectura"):
+        stats = inbox_qs.aggregate(
+            received=Count("id"),
+            unread=Count("id", filter=Q(fecha_lectura__isnull=True)),
+        )
+        return int(stats.get("received") or 0), int(stats.get("unread") or 0)
+    return int(inbox_qs.count()), 0
+
+
 # =========================================================
 #  Vistas HTML / Index
 # =========================================================
 @login_required
 def index(request):
     # Usa roles efectivos (respetan vista previa)
-    if _has_role(request, 'Padres'):
-        return render(request, 'calificaciones/index.html')
-    elif _has_role(request, 'Profesores', 'Directivos') or request.user.is_superuser:
-        return render(request, 'calificaciones/index.html')
-    else:
+    active_school = get_request_school(request)
+    is_padre = _has_role(request, 'Padres')
+    is_staff_role = _has_role(request, 'Profesores', 'Directivos', 'Preceptores') or request.user.is_superuser
+    puede_pasar_asistencia = bool(
+        request.user.is_superuser
+        or (
+            _has_role(request, 'Preceptores')
+            and _preceptor_assignment_refs(request.user, school=active_school)
+        )
+    )
+
+    if not (is_padre or is_staff_role):
         return HttpResponse("No tienes permiso.", status=403)
+
+    return render(
+        request,
+        'calificaciones/index.html',
+        {
+            "is_padre": is_padre,
+            "is_staff_role": is_staff_role,
+            "puede_pasar_asistencia": puede_pasar_asistencia,
+        },
+    )
 
 
 # =========================================================
@@ -653,6 +1134,7 @@ def perfil_api(request):
     - PATCH: actualiza first_name, last_name, email del usuario autenticado.
     """
     user = request.user
+    active_school = get_request_school(request)
 
     # ===== Vista previa de rol (â€œVista comoâ€¦â€) para superusuario =====
     try:
@@ -661,7 +1143,7 @@ def perfil_api(request):
         preview_role = None
 
     # Grupos efectivos
-    grupos_reales = list(user.groups.values_list('name', flat=True))
+    grupos_reales = list(get_user_group_names(user))
     grupos = [preview_role] if preview_role else grupos_reales
 
     # Rol real + rol efectivo para UI
@@ -673,50 +1155,42 @@ def perfil_api(request):
 
     # ===== Contextos =====
     alumno_propio = None
-    alumnos_del_padre = []
-    curso_preceptor = None
+    children = []
+    assigned_school_courses = _profile_assigned_school_courses(
+        user=user,
+        groups=grupos,
+        school=active_school,
+        preview_role=preview_role,
+    )
+    alumno_select_qs = scope_queryset_to_school(
+        Alumno.objects.select_related("school_course"),
+        active_school,
+    )
 
-    alumno_resolution = None
-
-    # Alumno (robusto/retrocompatible)
+    # Alumno (resolucion tolerante)
     if "Alumnos" in grupos:
-        r = resolve_alumno_for_user(user)
-        alumno_resolution = {"method": r.method, "candidates": r.candidates}
-
+        r = resolve_alumno_for_user(user, school=active_school)
         if r.alumno:
             alumno_propio = _alumno_to_dict(r.alumno)
         else:
             # Fallback para vista previa: tomar cualquier alumno
             if preview_role:
-                a0 = Alumno.objects.order_by('id').first()
+                a0 = alumno_select_qs.order_by('id').first()
                 alumno_propio = _alumno_to_dict(a0) if a0 else None
 
     # Padre
     if "Padres" in grupos:
         try:
-            hijos = Alumno.objects.filter(padre=user).order_by('curso', 'nombre')
-            alumnos_del_padre = [_alumno_to_dict(x) for x in hijos]
+            hijos = alumno_select_qs.filter(padre=user).order_by('curso', 'nombre')
+            children = [_alumno_to_dict(x) for x in hijos]
         except Exception:
-            alumnos_del_padre = []
+            children = []
         # Fallback vista previa: elegir un padre real y listar sus hijos
-        if preview_role and not alumnos_del_padre:
-            a0 = Alumno.objects.filter(padre__isnull=False).order_by('padre_id').first()
+        if preview_role and not children:
+            a0 = alumno_select_qs.filter(padre__isnull=False).order_by('padre_id').first()
             if a0 and a0.padre_id:
-                hijos = Alumno.objects.filter(padre_id=a0.padre_id).order_by('curso', 'nombre')
-                alumnos_del_padre = [_alumno_to_dict(x) for x in hijos]
-
-    # Preceptor / Directivo
-    if "Preceptores" in grupos or "Directivos" in grupos:
-        try:
-            a0 = Alumno.objects.order_by('curso').first()
-            if a0 and a0.curso:
-                curso_preceptor = a0.curso
-            elif getattr(Alumno, "CURSOS", None):
-                curso_preceptor = Alumno.CURSOS[0][0]
-            else:
-                curso_preceptor = None
-        except Exception:
-            curso_preceptor = None
+                hijos = alumno_select_qs.filter(padre_id=a0.padre_id).order_by('curso', 'nombre')
+                children = [_alumno_to_dict(x) for x in hijos]
 
     # ===== PATCH =====
     if request.method == "PATCH":
@@ -752,20 +1226,21 @@ def perfil_api(request):
 
     # ===== Stats =====
     if "Alumnos" in grupos and alumno_propio:
-        notas_count = Nota.objects.filter(alumno_id=alumno_propio["id"]).count()
-    elif "Padres" in grupos and alumnos_del_padre:
-        notas_count = Nota.objects.filter(alumno_id__in=[a["id"] for a in alumnos_del_padre]).count()
+        notas_count = scope_queryset_to_school(Nota.objects.filter(alumno_id=alumno_propio["id"]), active_school).count()
+    elif "Padres" in grupos and children:
+        notas_count = scope_queryset_to_school(
+            Nota.objects.filter(alumno_id__in=[a["id"] for a in children]),
+            active_school,
+        ).count()
     else:
         notas_count = 0
 
-    # âœ… FIX: Mensajes (compat emisor/receptor vs remitente/destinatario)
-    inbox_qs = _mensajes_inbox_qs(user)
-    sent_qs = _mensajes_sent_qs(user)
+    # Mensajes: unificar variantes de emisor/receptor
+    inbox_qs = _mensajes_inbox_qs(user, school=active_school)
+    sent_qs = _mensajes_sent_qs(user, school=active_school)
 
-    mensajes_recibidos = inbox_qs.count()
+    mensajes_recibidos, mensajes_no_leidos = _mensajes_count_stats_from_qs(inbox_qs)
     mensajes_enviados = sent_qs.count()
-
-    mensajes_no_leidos = _mensajes_unread_count_from_qs(inbox_qs)
 
     data = {
         "user": {
@@ -775,13 +1250,14 @@ def perfil_api(request):
             "last_name": user.last_name,
             "email": user.email,
             "is_superuser": user.is_superuser,
-            "grupos": grupos,   # efectivos
+            "groups": grupos,   # efectivos
             "rol": rol,         # efectivo
         },
         "alumno": alumno_propio,
-        "alumno_resolution": alumno_resolution,
-        "alumnos_del_padre": alumnos_del_padre,
-        "curso_preceptor": curso_preceptor,
+        "children": children,
+        "assigned_school_courses": assigned_school_courses,
+        "school": school_to_dict(active_school),
+        "available_schools": get_available_school_dicts_for_user(user, active_school=active_school),
         "stats": {
             "notas_count": notas_count,
             "mensajes_recibidos": mensajes_recibidos,
@@ -793,8 +1269,8 @@ def perfil_api(request):
 
 
 # =========================================================
-#  âœ… FIX NUEVO: endpoint que tu front espera para calendario
-#      GET /api/mi-curso/  ->  { "curso": "1A" }
+#  Endpoint de contexto de curso para calendario
+#      GET /api/mi-curso/  ->  { "school_course_id": 14, "school_course_name": "1A Norte" }
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -807,78 +1283,168 @@ def mi_curso(request):
     Casos:
     - Alumno: curso del alumno vinculado (resolve_alumno_for_user)
     - Padre: curso del hijo (primero), o seleccionar por ?id_alumno=... o ?alumno_id=...
-    - Preceptor: curso asignado por obtener_curso_del_preceptor
-    - Superuser: si estÃ¡ en vista previa, se comporta como ese rol; si no, devuelve ?curso=... o el primer curso disponible
+    - Preceptor: primer curso asignado real en PreceptorCurso
+    - Superuser: si estÃ¡ en vista previa, se comporta como ese rol; si no, devuelve el curso pedido por
+      `school_course_id`, o cae al primero disponible
     """
     user = request.user
+    active_school = get_request_school(request)
     preview_role = _get_preview_role(request)
-    grupos = [preview_role] if (preview_role and user.is_superuser) else list(user.groups.values_list("name", flat=True))
+    grupos = [preview_role] if (preview_role and user.is_superuser) else list(get_user_group_names(user))
 
     curso = None
+    school_course = None
+    payload = None
 
     # 1) Alumno
     if "Alumnos" in grupos:
-        r = resolve_alumno_for_user(user)
+        r = resolve_alumno_for_user(user, school=active_school)
         if r.alumno:
-            curso = getattr(r.alumno, "curso", None)
+            school_course = getattr(r.alumno, "school_course", None)
+            curso = getattr(school_course, "code", None) or getattr(r.alumno, "curso", None)
         elif preview_role and user.is_superuser:
-            a0 = Alumno.objects.order_by("curso", "id").first()
-            curso = getattr(a0, "curso", None) if a0 else None
+            a0 = scope_queryset_to_school(
+                Alumno.objects.select_related("school_course"),
+                active_school,
+            ).order_by("school_course__sort_order", "curso", "id").first()
+            school_course = getattr(a0, "school_course", None) if a0 else None
+            curso = getattr(school_course, "code", None) or (getattr(a0, "curso", None) if a0 else None)
 
     # 2) Padre
     if curso is None and "Padres" in grupos:
         alumno_pk = (request.GET.get("alumno_id") or "").strip()
         legajo = (request.GET.get("id_alumno") or "").strip()
+        alumno_qs = scope_queryset_to_school(
+            Alumno.objects.select_related("school_course"),
+            active_school,
+        )
 
         alumno = None
         if alumno_pk.isdigit():
             try:
-                alumno = Alumno.objects.get(pk=int(alumno_pk), padre=user) if not preview_role else Alumno.objects.get(pk=int(alumno_pk))
+                alumno = alumno_qs.get(pk=int(alumno_pk), padre=user) if not preview_role else alumno_qs.get(pk=int(alumno_pk))
             except Exception:
                 alumno = None
         elif legajo:
             try:
-                alumno = Alumno.objects.get(id_alumno=str(legajo), padre=user) if not preview_role else Alumno.objects.get(id_alumno=str(legajo))
+                alumno = alumno_qs.get(id_alumno=str(legajo), padre=user) if not preview_role else alumno_qs.get(id_alumno=str(legajo))
             except Exception:
                 alumno = None
 
         if alumno is None:
-            qs = Alumno.objects.filter(padre=user).order_by("curso", "nombre")
-            if not qs.exists() and preview_role and user.is_superuser:
-                a0 = Alumno.objects.filter(padre__isnull=False).order_by("padre_id", "curso").first()
-                if a0 and a0.padre_id:
-                    qs = Alumno.objects.filter(padre_id=a0.padre_id).order_by("curso", "nombre")
+            qs = alumno_qs.filter(padre=user).order_by("curso", "nombre")
             alumno = qs.first() if qs is not None else None
+            if alumno is None and preview_role and user.is_superuser:
+                a0 = alumno_qs.filter(
+                    padre__isnull=False
+                ).order_by("padre_id", "curso").first()
+                if a0 and a0.padre_id:
+                    alumno = (
+                        alumno_qs.filter(
+                            padre_id=a0.padre_id
+                        )
+                        .order_by("curso", "nombre")
+                        .first()
+                    )
 
-        curso = getattr(alumno, "curso", None) if alumno else None
+        school_course = getattr(alumno, "school_course", None) if alumno else None
+        curso = getattr(school_course, "code", None) or (getattr(alumno, "curso", None) if alumno else None)
 
     # 3) Preceptor / Directivo
     if curso is None and ("Preceptores" in grupos or "Directivos" in grupos):
-        curso = obtener_curso_del_preceptor(user)
+        if "Preceptores" in grupos:
+            assigned_refs = _preceptor_assignment_refs(user, school=active_school)
+            assigned_options = (
+                filter_course_options_by_refs(_school_course_options_for_ui(school=active_school), assigned_refs)
+                if assigned_refs
+                else []
+            )
+            selected_course = _resolve_request_course_selection(
+                request,
+                school=active_school,
+                required=False,
+            )
+            if selected_course["error"]:
+                return Response({"detail": selected_course["error"]}, status=400)
+            if assigned_options:
+                selected_option = None
+                if (selected_course["school_course_id"] or selected_course["course_code"]) and course_ref_matches(
+                    assigned_refs,
+                    school_course_id=selected_course["school_course_id"],
+                    course_code=selected_course["course_code"],
+                ):
+                    if selected_course["school_course_id"]:
+                        selected_option = next(
+                            (
+                                option
+                                for option in assigned_options
+                                if option.get("school_course_id") == selected_course["school_course_id"]
+                            ),
+                            None,
+                        )
+                    if selected_option is None and selected_course["course_code"]:
+                        selected_option = next(
+                            (
+                                option
+                                for option in assigned_options
+                                if option.get("code") == selected_course["course_code"]
+                            ),
+                            None,
+                        )
+                if selected_option is None:
+                    selected_option = assigned_options[0]
+                payload = _public_course_payload_from_option(selected_option)
+                curso = str(selected_option.get("code") or "").strip().upper() or None
+
         if (curso is None) and preview_role and user.is_superuser:
-            a0 = Alumno.objects.order_by("curso", "id").first()
-            curso = getattr(a0, "curso", None) if a0 else None
+            first_course = _school_course_options_for_ui(school=active_school)
+            if first_course:
+                payload = _public_course_payload_from_option(first_course[0])
+                curso = str(first_course[0].get("code") or "").strip().upper() or None
         if curso is None and "Directivos" in grupos:
-            try:
-                curso = Alumno.CURSOS[0][0] if getattr(Alumno, "CURSOS", None) else None
-            except Exception:
-                curso = None
+            first_course = _school_course_options_for_ui(school=active_school)
+            if first_course:
+                payload = _public_course_payload_from_option(first_course[0])
+                curso = str(first_course[0].get("code") or "").strip().upper() or None
 
     # 4) Superuser sin vista previa: permitir querystring o fallback
     if curso is None and user.is_superuser and not preview_role:
-        curso_qs = (request.GET.get("curso") or "").strip()
-        if curso_qs:
-            curso = curso_qs
+        selected_course = _resolve_request_course_selection(
+            request,
+            school=active_school,
+        )
+        if selected_course["error"]:
+            return Response({"detail": selected_course["error"]}, status=400)
+        if selected_course["school_course"] is not None or selected_course["course_code"]:
+            school_course = selected_course["school_course"]
+            curso = selected_course["course_code"]
         else:
-            try:
-                curso = Alumno.CURSOS[0][0] if getattr(Alumno, "CURSOS", None) else None
-            except Exception:
-                curso = None
+            first_course = _school_course_options_for_ui(school=active_school)
+            if first_course:
+                payload = _public_course_payload_from_option(first_course[0])
+                curso = str(first_course[0].get("code") or "").strip().upper() or None
 
     if not curso:
-        return Response({"detail": "No se pudo resolver el curso para este usuario.", "curso": None}, status=200)
+        return Response(
+            {
+                "detail": "No se pudo resolver el curso para este usuario.",
+                "school_course_id": None,
+                "school_course_name": None,
+            },
+            status=200,
+        )
 
-    return Response({"curso": curso}, status=200)
+    if payload is not None and school_course is None:
+        return Response(payload, status=200)
+
+    return Response(
+        _public_course_payload(
+            school=active_school,
+            course_code=curso,
+            school_course=school_course,
+        ),
+        status=200,
+    )
 
 
 # =========================================================
@@ -891,17 +1457,27 @@ def mi_curso(request):
 def notas_catalogos(request):
     """
     Devuelve catÃ¡logos base para la pantalla de "Nueva nota".
-    - cursos: lista id/nombre sacada de Alumno.CURSOS
+    - cursos: lista normalizada de `SchoolCourse` para el colegio activo
     - materias: lista desde constants.MATERIAS
     - tipos: (opcional) vacÃ­o por ahora; se puede poblar luego si definen choices
     """
-    cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
-    cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
+    active_school = get_request_school(request)
+    cursos = [
+        _course_option_payload(option)
+        for option in _school_course_options_for_ui(school=active_school)
+    ]
     if _has_role(request, "Profesores") and not request.user.is_superuser:
-        asignados = _profesor_cursos_asignados(request.user)
-        if asignados:
-            asignados_set = set(asignados)
-            cursos = [c for c in cursos if c.get("id") in asignados_set]
+        assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+        if not assigned_refs:
+            cursos = []
+        else:
+            cursos = [
+                _course_option_payload(option)
+                for option in filter_course_options_by_refs(
+                    _school_course_options_for_ui(school=active_school),
+                    assigned_refs,
+                )
+            ]
     materias = list(MATERIAS)
     tipos = []  # futuro: mapear choices de Nota si existen
 
@@ -911,38 +1487,32 @@ def notas_catalogos(request):
         "tipos": tipos,
     })
 
+def _alumnos_por_curso_qs(curso: str, *, school=None, school_course=None, school_course_id=None):
+    curso = str(curso or "").strip().upper()
+    resolved_school_course = school_course
+    if resolved_school_course is None and school_course_id is not None:
+        resolved_school_course = get_school_course_by_id(school_course_id, school=school, include_inactive=True)
+    if resolved_school_course is None and school is not None and curso:
+        resolved_school_course = resolve_school_course_for_value(school=school, curso=curso)
 
-# =========================================================
-#  âœ… NUEVO: API cursos del preceptor (para selects del front)
-# =========================================================
-@csrf_exempt
-@api_view(["GET"])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def preceptor_cursos(request):
-    """
-    GET /preceptor/cursos/
-    - Superusuario: devuelve todos los cursos definidos en Alumno.CURSOS
-    - Preceptor: devuelve sÃ³lo su curso (segÃºn helper obtener_curso_del_preceptor)
-    """
-    user = request.user
-    if user.is_superuser:
-        cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
-        cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
-    elif _has_role(request, 'Preceptores', 'Directivos'):
-        cid = obtener_curso_del_preceptor(user)
-        if _has_role(request, 'Directivos'):
-            cursos_base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
-            cursos = [{"id": c[0], "nombre": c[1]} for c in cursos_base]
-        else:
-            nombre = dict(getattr(Alumno, "CURSOS", [])).get(cid, cid)
-            cursos = [{"id": cid, "nombre": nombre}] if cid else []
-    else:
-        cursos = []
-    return Response(cursos)
+    if not curso and resolved_school_course is not None:
+        curso = str(getattr(resolved_school_course, "code", "") or "").strip().upper()
+
+    if not curso and resolved_school_course is None:
+        return Alumno.objects.none()
+
+    course_q = build_course_membership_q(
+        school_course_id=getattr(resolved_school_course, "id", None) or school_course_id,
+        course_code=curso,
+        school_course_field="school_course",
+        code_field="curso",
+    )
+    if course_q is None:
+        return Alumno.objects.none()
+    return scope_queryset_to_school(Alumno.objects.all(), school).filter(course_q)
 
 
-def _build_alumnos_payload(qs):
+def _build_alumnos_payload(qs, *, school=None, course_code="", school_course=None):
     """
     Helper interno: arma el JSON de alumnos para UI.
     (Se usa tanto para querystring como para ruta /curso/<id>/)
@@ -962,7 +1532,8 @@ def _build_alumnos_payload(qs):
             "id_alumno": getattr(a, "id_alumno", None),
             "nombre": a.nombre,
             "apellido": getattr(a, "apellido", "") if _has_model_field(Alumno, "apellido") else "",
-            "curso": a.curso,
+            "school_course_id": getattr(a, "school_course_id", None),
+            "school_course_name": getattr(getattr(a, "school_course", None), "name", None) or getattr(getattr(a, "school_course", None), "code", None) or a.curso,
             "padre": {
                 "id": getattr(p, "id", None) if p else None,
                 "username": getattr(p, "username", "") if p else "",
@@ -972,7 +1543,9 @@ def _build_alumnos_payload(qs):
                 "nombre_completo": padre_nombre,
             }
         })
-    return {"alumnos": data}
+    payload = {"alumnos": data}
+    payload.update(_public_course_payload(school=school, course_code=course_code, school_course=school_course))
+    return payload
 
 
 @csrf_exempt
@@ -981,28 +1554,50 @@ def _build_alumnos_payload(qs):
 @permission_classes([IsAuthenticated])
 def alumnos_por_curso(request):
     """
-    GET /api/alumnos/?curso=ID
+    GET /api/alumnos/?school_course_id=ID
+    Requiere school_course_id para seleccionar curso.
     Devuelve alumnos de un curso, incluyendo datos del padre/tutor para UI.
     """
-    curso = (request.GET.get("curso") or "").strip()
-    if not curso:
-        return Response({"detail": "ParÃ¡metro 'curso' es requerido."}, status=400)
+    active_school = get_request_school(request)
+    selected_course = _resolve_request_course_selection(
+        request,
+        school=active_school,
+        required=True,
+    )
+    if selected_course["error"]:
+        return Response({"detail": selected_course["error"]}, status=400)
 
-    if not _can_access_course_roster(request, curso):
+    curso = selected_course["course_code"]
+    school_course = selected_course["school_course"]
+
+    if not _can_access_course_roster(request, curso, school_course=school_course):
         return Response({"detail": "No autorizado para ese curso."}, status=403)
 
     # âœ… FIX: si Alumno no tiene apellido, no explota
     if _has_model_field(Alumno, "apellido"):
-        qs = Alumno.objects.filter(curso=curso).order_by("apellido", "nombre")
+        qs = _alumnos_por_curso_qs(
+            curso,
+            school=active_school,
+            school_course=school_course,
+            school_course_id=selected_course["school_course_id"],
+        ).order_by("apellido", "nombre")
     else:
-        qs = Alumno.objects.filter(curso=curso).order_by("nombre")
+        qs = _alumnos_por_curso_qs(
+            curso,
+            school=active_school,
+            school_course=school_course,
+            school_course_id=selected_course["school_course_id"],
+        ).order_by("nombre")
 
-    return Response(_build_alumnos_payload(qs), status=200)
+    return Response(
+        _build_alumnos_payload(qs, school=active_school, course_code=curso, school_course=school_course),
+        status=200,
+    )
 
 
 # =========================================================
-#  âœ… NUEVO: endpoint compatible con tu front:
-#      GET /api/alumnos/curso/<curso>/
+#  Endpoint por path con SchoolCourse:
+#      GET /api/alumnos/curso/<school_course_id>/
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -1010,27 +1605,50 @@ def alumnos_por_curso(request):
 @permission_classes([IsAuthenticated])
 def alumnos_por_curso_path(request, curso: str):
     """
-    GET /api/alumnos/curso/<curso>/
+    GET /api/alumnos/curso/<school_course_id>/
 
-    Este endpoint existe porque tu front estÃ¡ pidiendo:
-      /api/alumnos/curso/1A/
-
-    y antes solo existÃ­a:
-      /api/alumnos/?curso=1A
+    Este endpoint solo acepta ids numericos de SchoolCourse en la ruta.
     """
-    curso = (curso or "").strip()
-    if not curso:
-        return Response({"detail": "curso vacÃ­o."}, status=400)
+    active_school = get_request_school(request)
+    selected_course = _resolve_path_course_selection(
+        curso,
+        school=active_school,
+        required=True,
+        deprecated_course_error="El código legacy de curso en la ruta está deprecado. Usa school_course_id.",
+    )
+    if selected_course["error"]:
+        return Response({"detail": selected_course["error"]}, status=400)
 
-    if not _can_access_course_roster(request, curso):
+    course_code = selected_course["course_code"]
+    school_course = selected_course["school_course"]
+
+    if not _can_access_course_roster(request, course_code, school_course=school_course):
         return Response({"detail": "No autorizado para ese curso."}, status=403)
 
     if _has_model_field(Alumno, "apellido"):
-        qs = Alumno.objects.filter(curso=curso).order_by("apellido", "nombre")
+        qs = _alumnos_por_curso_qs(
+            course_code,
+            school=active_school,
+            school_course=school_course,
+            school_course_id=selected_course["school_course_id"],
+        ).order_by("apellido", "nombre")
     else:
-        qs = Alumno.objects.filter(curso=curso).order_by("nombre")
+        qs = _alumnos_por_curso_qs(
+            course_code,
+            school=active_school,
+            school_course=school_course,
+            school_course_id=selected_course["school_course_id"],
+        ).order_by("nombre")
 
-    return Response(_build_alumnos_payload(qs), status=200)
+    return Response(
+        _build_alumnos_payload(
+            qs,
+            school=active_school,
+            course_code=course_code,
+            school_course=school_course,
+        ),
+        status=200,
+    )
 
 
 # =========================================================
@@ -1048,14 +1666,20 @@ def alumno_detalle(request, alumno_id):
       1) Buscar por legajo `id_alumno` (string exacto).
       2) Si no existe y es numÃ©rico, intentar como PK (id interno).
     """
+    active_school = get_request_school(request)
+    alumnos_qs = scope_queryset_to_school(
+        Alumno.objects.select_related("school", "school_course"),
+        active_school,
+    )
+
     try:
         # 1) intentar por legajo
-        a = Alumno.objects.get(id_alumno=str(alumno_id))
+        a = alumnos_qs.get(id_alumno=str(alumno_id))
     except Alumno.DoesNotExist:
         # 2) fallback a PK si es numÃ©rico
         if str(alumno_id).isdigit():
             try:
-                a = Alumno.objects.get(pk=int(alumno_id))
+                a = alumnos_qs.get(pk=int(alumno_id))
             except Alumno.DoesNotExist:
                 return Response({"detail": "No encontrado"}, status=404)
         else:
@@ -1076,7 +1700,7 @@ def alumno_detalle(request, alumno_id):
         is_alumno_mismo = False
     if not is_alumno_mismo:
         try:
-            r = resolve_alumno_for_user(user)
+            r = resolve_alumno_for_user(user, school=active_school)
             if r.alumno and r.alumno.id == a.id:
                 is_alumno_mismo = True
         except Exception:
@@ -1107,12 +1731,15 @@ def alumno_notas(request, alumno_id):
       1) Buscar por legajo `id_alumno`.
       2) Si no existe y es numÃ©rico, intentar como PK (id).
     """
+    active_school = get_request_school(request)
+    alumnos_qs = scope_queryset_to_school(Alumno.objects.all(), active_school)
+
     try:
-        alumno = Alumno.objects.get(id_alumno=str(alumno_id))
+        alumno = alumnos_qs.get(id_alumno=str(alumno_id))
     except Alumno.DoesNotExist:
         if str(alumno_id).isdigit():
             try:
-                alumno = Alumno.objects.get(pk=int(alumno_id))
+                alumno = alumnos_qs.get(pk=int(alumno_id))
             except Alumno.DoesNotExist:
                 return Response({"detail": "Alumno no encontrado"}, status=404)
         else:
@@ -1121,14 +1748,10 @@ def alumno_notas(request, alumno_id):
     user = request.user
 
     # Alumno propio (mismo criterio que en alumno_detalle)
-    is_alumno_mismo = False
-    try:
-        is_alumno_mismo = (getattr(alumno, "usuario_id", None) == user.id)
-    except Exception:
-        is_alumno_mismo = False
-    if not is_alumno_mismo:
+    is_alumno_mismo = (getattr(alumno, "usuario_id", None) == user.id)
+    if not is_alumno_mismo and "Alumnos" in viewer_groups:
         try:
-            r = resolve_alumno_for_user(user)
+            r = resolve_alumno_for_user(user, school=active_school)
             if r.alumno and r.alumno.id == alumno.id:
                 is_alumno_mismo = True
         except Exception:
@@ -1136,10 +1759,10 @@ def alumno_notas(request, alumno_id):
 
     # âœ… NUEVO: sumar Preceptores (pero solo si tienen el curso asignado)
     is_preceptor_ok = (
-        _has_role(request, "Directivos")
-        or (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, alumno))
+        ("Directivos" in viewer_groups)
+        or ("Preceptores" in viewer_groups and _preceptor_can_access_alumno(user, alumno))
     )
-    is_prof_ok = (_has_role(request, "Profesores") and _profesor_can_access_alumno(user, alumno))
+    is_prof_ok = ("Profesores" in viewer_groups and _profesor_can_access_alumno(user, alumno))
 
     # AutorizaciÃ³n: superuser, profesores, preceptor por curso, padre o el propio alumno
     if not (
@@ -1151,7 +1774,7 @@ def alumno_notas(request, alumno_id):
     ):
         return Response({"detail": "No autorizado"}, status=403)
 
-    qs = Nota.objects.filter(alumno=alumno)
+    qs = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school)
     # Orden consistente: por cuatrimestre y, si existe, por fecha
     if any(f.name == 'fecha' for f in Nota._meta.fields):
         qs = qs.order_by('cuatrimestre', 'fecha', 'materia')
@@ -1173,14 +1796,26 @@ def agregar_nota(request):
     if not (_has_role(request, "Profesores") or request.user.is_superuser):
         return HttpResponse("No tenes permiso.", status=403)
 
-    cursos = getattr(Alumno, "CURSOS", [])
-    curso_seleccionado = request.GET.get("curso") or request.POST.get("curso")
+    active_school = get_request_school(request)
+    cursos = get_school_course_choices(school=active_school)
+    selected_course = _resolve_request_course_selection(
+        request,
+        school=active_school,
+        required=False,
+    )
+    if selected_course["error"]:
+        return HttpResponse(selected_course["error"], status=400)
+    curso_seleccionado = selected_course["course_code"]
+    curso_seleccionado_id = selected_course["school_course_id"]
     if _has_role(request, "Profesores") and not request.user.is_superuser:
-        asignados = _profesor_cursos_asignados(request.user)
-        if asignados:
-            asignados_set = set(asignados)
-            cursos = [c for c in cursos if c[0] in asignados_set]
-            if curso_seleccionado and curso_seleccionado not in asignados_set:
+        assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+        if assigned_refs:
+            cursos = filter_course_options_by_refs(cursos, assigned_refs)
+            if (curso_seleccionado_id or curso_seleccionado) and not course_ref_matches(
+                assigned_refs,
+                school_course_id=curso_seleccionado_id,
+                course_code=curso_seleccionado,
+            ):
                 return HttpResponse("No tenes permiso para ese curso.", status=403)
 
     if request.method == "POST":
@@ -1215,7 +1850,7 @@ def agregar_nota(request):
                     continue
 
                 try:
-                    alumno = Alumno.objects.get(id_alumno=alum_id)
+                    alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(id_alumno=alum_id)
                 except Alumno.DoesNotExist:
                     errores += 1
                     continue
@@ -1232,7 +1867,7 @@ def agregar_nota(request):
                 }
                 ser = NotaCreateSerializer(data=payload)
                 if ser.is_valid():
-                    nota = ser.save()
+                    nota = ser.save(school=active_school or getattr(alumno, "school", None))
                     notas_creadas.append(nota)
                     creadas += 1
                 else:
@@ -1247,7 +1882,9 @@ def agregar_nota(request):
                 messages.success(request, f"Se guardaron {creadas} nota(s).")
             if errores:
                 messages.error(request, f"{errores} fila(s) no pudieron guardarse. Revisa los datos.")
-            return redirect(f"{request.path}?curso={curso_seleccionado or ''}")
+            return redirect(
+                f"{request.path}{_course_selection_querystring(school_course_id=curso_seleccionado_id, course_code=curso_seleccionado or '')}"
+            )
 
         alumno_id = request.POST.get("alumno")
         materia = request.POST.get("materia")
@@ -1259,7 +1896,7 @@ def agregar_nota(request):
         fecha_nota = parse_date(request.POST.get("fecha") or "") or date.today()
 
         try:
-            alumno = Alumno.objects.get(id_alumno=alumno_id)
+            alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(id_alumno=alumno_id)
             payload = {
                 "alumno": alumno.id,
                 "materia": materia or "",
@@ -1273,7 +1910,7 @@ def agregar_nota(request):
             ser = NotaCreateSerializer(data=payload)
             if not ser.is_valid():
                 raise ValidationError(str(ser.errors))
-            nota = ser.save()
+            nota = ser.save(school=active_school or getattr(alumno, "school", None))
 
             try:
                 _notify_padre_por_nota(request.user, nota)
@@ -1291,7 +1928,7 @@ def agregar_nota(request):
 
     alumnos = []
     if curso_seleccionado:
-        alumnos = Alumno.objects.filter(curso=curso_seleccionado).order_by("nombre")
+        alumnos = _alumnos_por_curso_qs(curso_seleccionado, school=active_school).order_by("nombre")
     nota_form = NotaForm()
     nota_form.fields["alumno"].queryset = alumnos or Alumno.objects.none()
 
@@ -1301,6 +1938,7 @@ def agregar_nota(request):
         {
             "cursos": cursos,
             "curso_seleccionado": curso_seleccionado,
+            "curso_seleccionado_id": curso_seleccionado_id,
             "alumnos": alumnos,
             "materias": MATERIAS,
             "resultados_catalogo": Nota.RESULTADO_CHOICES,
@@ -1315,15 +1953,35 @@ def agregar_nota_masiva(request):
     if not (_has_role(request, "Profesores") or request.user.is_superuser):
         return HttpResponse("No tenes permiso.", status=403)
 
+    active_school = get_request_school(request)
+
     if request.method != "POST":
-        return JsonResponse({"error": "Metodo no permitido"}, status=405)
+        return JsonResponse({"detail": "Metodo no permitido"}, status=405)
 
     if _has_role(request, "Profesores") and not request.user.is_superuser:
-        asignados = _profesor_cursos_asignados(request.user)
-        if asignados:
-            curso_qs = (request.POST.get("curso") or "").strip()
-            if curso_qs and curso_qs not in asignados:
+        assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+        selected_course = _resolve_request_course_selection(
+            request,
+            school=active_school,
+            required=False,
+        )
+        if selected_course["error"]:
+            return JsonResponse({"detail": selected_course["error"]}, status=400)
+        if assigned_refs:
+            if (selected_course["school_course_id"] or selected_course["course_code"]) and not course_ref_matches(
+                assigned_refs,
+                school_course_id=selected_course["school_course_id"],
+                course_code=selected_course["course_code"],
+            ):
                 return JsonResponse({"detail": "No autorizado para ese curso."}, status=403)
+    else:
+        selected_course = _resolve_request_course_selection(
+            request,
+            school=active_school,
+            required=False,
+        )
+        if selected_course["error"]:
+            return JsonResponse({"detail": selected_course["error"]}, status=400)
 
     alumnos_ids = request.POST.getlist("alumno[]")
     materias = request.POST.getlist("materia[]")
@@ -1345,7 +2003,7 @@ def agregar_nota_masiva(request):
         fechas = [request.POST.get("fecha")] if request.POST.get("fecha") else []
 
     if len(alumnos_ids) == 0:
-        return JsonResponse({"ok": False, "creadas": 0, "detail": "Sin filas validas"}, status=400)
+        return JsonResponse({"creadas": 0, "detail": "Sin filas validas"}, status=400)
 
     errores = 0
     notas_creadas = []
@@ -1365,7 +2023,7 @@ def agregar_nota_masiva(request):
             continue
 
         try:
-            alumno = Alumno.objects.get(id_alumno=alum_id)
+            alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(id_alumno=alum_id)
         except Alumno.DoesNotExist:
             errores += 1
             continue
@@ -1382,7 +2040,7 @@ def agregar_nota_masiva(request):
         }
         ser = NotaCreateSerializer(data=payload)
         if ser.is_valid():
-            notas_creadas.append(ser.save())
+            notas_creadas.append(ser.save(school=active_school or getattr(alumno, "school", None)))
         else:
             errores += 1
 
@@ -1394,26 +2052,42 @@ def agregar_nota_masiva(request):
             pass
 
     accept = (request.headers.get("Accept") or "").lower()
-    curso_qs = request.POST.get("curso") or ""
+    selected_course = _resolve_request_course_selection(
+        request,
+        school=active_school,
+        required=False,
+    )
+    if selected_course["error"]:
+        return JsonResponse({"detail": selected_course["error"]}, status=400)
+    curso_qs = selected_course["course_code"] or ""
+    curso_qs_id = selected_course["school_course_id"]
     if "text/html" in accept:
-        return redirect(f"/agregar_nota?curso={curso_qs}")
+        return redirect(f"/agregar_nota{_course_selection_querystring(school_course_id=curso_qs_id, course_code=curso_qs)}")
 
-    return JsonResponse({"ok": True, "creadas": creadas, "errores": errores})
+    return JsonResponse({"creadas": creadas, "errores": errores})
 
 
 @login_required
 def ver_notas(request):
     # Permitir ver esta pantalla si la vista previa es "Padres"
     if _has_role(request, 'Padres') or request.user.is_superuser:
-        alumnos = Alumno.objects.filter(padre=request.user)
+        active_school = get_request_school(request)
+        alumnos_qs = scope_queryset_to_school(
+            Alumno.objects.select_related("school_course"),
+            active_school,
+        )
+        alumnos = alumnos_qs.filter(padre=request.user)
 
         # Fallback para vista previa: tomar un padre real y sus hijos si no hay vÃ­nculos
         if not alumnos.exists() and _get_preview_role(request):
-            a0 = Alumno.objects.filter(padre__isnull=False).order_by('padre_id').first()
+            a0 = alumnos_qs.filter(padre__isnull=False).order_by('padre_id').first()
             if a0 and a0.padre_id:
-                alumnos = Alumno.objects.filter(padre_id=a0.padre_id)
+                alumnos = alumnos_qs.filter(padre_id=a0.padre_id)
 
-        notas = Nota.objects.filter(alumno__in=alumnos).order_by('cuatrimestre')
+        notas = scope_queryset_to_school(
+            Nota.objects.filter(alumno__in=alumnos).select_related("alumno", "alumno__school_course"),
+            active_school,
+        ).order_by('cuatrimestre')
         return render(request, 'calificaciones/ver_notas.html', {'notas': notas})
     else:
         return HttpResponse("No tienes permiso para ver notas.", status=403)
@@ -1427,37 +2101,54 @@ def enviar_mensaje(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
         return HttpResponse("No tenÃ©s permiso.", status=403)
 
-    cursos_disponibles = Alumno.CURSOS
-    curso_seleccionado = request.GET.get('curso')
+    active_school = get_request_school(request)
+    cursos_disponibles = _school_course_options_for_ui(school=active_school)
+    selected_course = _resolve_request_course_selection(
+        request,
+        school=active_school,
+        required=False,
+    )
+    if selected_course["error"]:
+        return HttpResponse(selected_course["error"], status=400)
+    curso_seleccionado = selected_course["course_code"]
+    curso_seleccionado_id = selected_course["school_course_id"]
     if _has_role(request, "Profesores") and not request.user.is_superuser:
-        asignados = _profesor_cursos_asignados(request.user)
-        if asignados:
-            asignados_set = set(asignados)
-            cursos_disponibles = [c for c in cursos_disponibles if c[0] in asignados_set]
-            if curso_seleccionado and curso_seleccionado not in asignados_set:
+        assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+        if assigned_refs:
+            cursos_disponibles = filter_course_options_by_refs(cursos_disponibles, assigned_refs)
+            if (curso_seleccionado_id or curso_seleccionado) and not course_ref_matches(
+                assigned_refs,
+                school_course_id=curso_seleccionado_id,
+                course_code=curso_seleccionado,
+            ):
                 return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
-    alumnos = Alumno.objects.filter(curso=curso_seleccionado) if curso_seleccionado else []
+    alumnos = _alumnos_por_curso_qs(curso_seleccionado, school=active_school) if curso_seleccionado else []
 
     if request.method == 'POST':
         alumno_id = request.POST['alumno']
         asunto = request.POST['asunto']
         contenido = request.POST['contenido']
-        alumno = Alumno.objects.get(id=alumno_id)
+        try:
+            alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(id=int(alumno_id))
+        except Exception:
+            alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(id_alumno=alumno_id)
         receptor = alumno.padre
 
         if receptor:
             sf = _mensaje_sender_field()
             rf = _mensaje_recipient_field()
-            cf = _mensaje_curso_field()
 
             kwargs = {
                 sf: request.user,
                 rf: receptor,
                 "asunto": asunto,
                 "contenido": contenido,
+                "school": active_school or getattr(alumno, "school", None),
             }
-            if cf:
-                kwargs[cf] = getattr(alumno, "curso", None)
+            if _has_model_field(Mensaje, "school_course") and getattr(alumno, "school_course", None) is not None:
+                kwargs["school_course"] = getattr(alumno, "school_course", None)
+            if getattr(alumno, "curso", None):
+                kwargs["curso"] = getattr(alumno, "curso", None)
 
             msg = Mensaje.objects.create(**kwargs)
             try:
@@ -1468,6 +2159,7 @@ def enviar_mensaje(request):
                 actor_label = (request.user.get_full_name() or request.user.username or "Usuario").strip()
                 titulo = f"{actor_label}: {asunto}" if asunto else f"Nuevo mensaje de {actor_label}"
                 Notificacion.objects.create(
+                    school=active_school or getattr(alumno, "school", None),
                     destinatario=receptor,
                     tipo="mensaje",
                     titulo=titulo,
@@ -1477,7 +2169,12 @@ def enviar_mensaje(request):
                     meta={
                         "mensaje_id": getattr(msg, "id", None),
                         "thread_id": str(getattr(msg, "thread_id", "")) if hasattr(msg, "thread_id") else str(getattr(msg, "id", "")),
-                        "curso": getattr(alumno, "curso", "") if alumno else "",
+                        **_notification_course_meta(
+                            alumno=alumno,
+                            school_course=getattr(msg, "school_course", None),
+                            course_code=getattr(alumno, "curso", "") if alumno else "",
+                            school=active_school,
+                        ),
                         "remitente_id": getattr(request.user, "id", None),
                         "alumno_id": getattr(alumno, "id", None) if alumno else None,
                     },
@@ -1491,6 +2188,7 @@ def enviar_mensaje(request):
     return render(request, 'calificaciones/enviar_mensaje.html', {
         'cursos': cursos_disponibles,
         'curso_seleccionado': curso_seleccionado,
+        'curso_seleccionado_id': curso_seleccionado_id,
         'alumnos': alumnos
     })
 
@@ -1500,26 +2198,40 @@ def enviar_comunicado(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
         return HttpResponse("No tenÃ©s permiso.", status=403)
 
-    cursos = Alumno.CURSOS
+    active_school = get_request_school(request)
+    cursos = _school_course_options_for_ui(school=active_school)
     if _has_role(request, "Profesores") and not request.user.is_superuser:
-        asignados = _profesor_cursos_asignados(request.user)
-        if asignados:
-            asignados_set = set(asignados)
-            cursos = [c for c in cursos if c[0] in asignados_set]
+        assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+        if assigned_refs:
+            cursos = filter_course_options_by_refs(cursos, assigned_refs)
 
     if request.method == 'POST':
-        curso = request.POST['curso']
+        selected_course = _resolve_request_course_selection(
+            request,
+            school=active_school,
+            required=True,
+        )
+        if selected_course["error"]:
+            return HttpResponse(selected_course["error"], status=400)
+        curso = selected_course["course_code"]
+        curso_id = selected_course["school_course_id"]
         if _has_role(request, "Profesores") and not request.user.is_superuser:
-            asignados = _profesor_cursos_asignados(request.user)
-            if asignados and curso not in set(asignados):
+            assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+            if assigned_refs and not course_ref_matches(
+                assigned_refs,
+                school_course_id=curso_id,
+                course_code=curso,
+            ):
                 return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
         asunto = request.POST['asunto']
         contenido = request.POST['contenido']
-        alumnos = Alumno.objects.filter(curso=curso, padre__isnull=False)
+        alumnos = scope_queryset_to_school(Alumno.objects.all(), active_school).filter(
+            school_course_id=curso_id,
+            padre__isnull=False,
+        )
 
         sf = _mensaje_sender_field()
         rf = _mensaje_recipient_field()
-        cf = _mensaje_curso_field()
 
         notifs = []
         for alumno in alumnos:
@@ -1528,9 +2240,11 @@ def enviar_comunicado(request):
                 rf: alumno.padre,
                 "asunto": asunto,
                 "contenido": contenido,
+                "school": active_school or getattr(alumno, "school", None),
             }
-            if cf:
-                kwargs[cf] = curso
+            if _has_model_field(Mensaje, "school_course") and getattr(alumno, "school_course", None) is not None:
+                kwargs["school_course"] = getattr(alumno, "school_course", None)
+            kwargs["curso"] = curso
             msg = Mensaje.objects.create(**kwargs)
             try:
                 contenido_corto = (contenido[:160] + "...") if len(contenido) > 160 else contenido
@@ -1541,6 +2255,7 @@ def enviar_comunicado(request):
                 titulo = f"{actor_label}: {asunto}" if asunto else f"Nuevo mensaje de {actor_label}"
                 notifs.append(
                     Notificacion(
+                        school=active_school or getattr(alumno, "school", None),
                         destinatario=alumno.padre,
                         tipo="mensaje",
                         titulo=titulo,
@@ -1550,7 +2265,12 @@ def enviar_comunicado(request):
                         meta={
                             "mensaje_id": getattr(msg, "id", None),
                             "thread_id": str(getattr(msg, "thread_id", "")) if hasattr(msg, "thread_id") else str(getattr(msg, "id", "")),
-                            "curso": curso or "",
+                            **_notification_course_meta(
+                                alumno=alumno,
+                                school_course=getattr(msg, "school_course", None),
+                                course_code=curso,
+                                school=active_school,
+                            ),
                             "remitente_id": getattr(request.user, "id", None),
                             "alumno_id": getattr(alumno, "id", None),
                         },
@@ -1567,91 +2287,17 @@ def enviar_comunicado(request):
 
         return redirect('index')
 
-    return render(request, 'calificaciones/enviar_comunicado.html', {'cursos': cursos})
-
-
-# =========================================================
-#  âœ… NUEVO: MensajerÃ­a API (JSON) para modales del front
-# =========================================================
-@csrf_exempt
-@api_view(["POST"])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-@parser_classes([JSONParser, FormParser])
-def mensajes_enviar_api(request):
-    """
-    POST /mensajes/enviar/
-    Body JSON: { alumno_id (PK) | id_alumno (legajo), asunto, contenido }
-    EnvÃ­a el mensaje al PADRE del alumno. Opcionalmente setea curso_asociado/curso si el modelo lo posee.
-    """
-    payload = _coerce_json(request)
-    alumno_pk = payload.get("alumno_id")
-    legajo = payload.get("id_alumno")
-    asunto = (payload.get("asunto") or "").strip()
-    contenido = (payload.get("contenido") or payload.get("cuerpo") or "").strip()
-
-    if not asunto or not contenido:
-        return Response({"detail": "Faltan asunto y/o contenido."}, status=400)
-
-    # Resolver alumno por PK o legajo
-    alumno = None
-    if alumno_pk:
-        try:
-            alumno = Alumno.objects.get(pk=int(alumno_pk))
-        except Exception:
-            return Response({"detail": "alumno_id invÃ¡lido."}, status=400)
-    elif legajo:
-        try:
-            alumno = Alumno.objects.get(id_alumno=str(legajo))
-        except Alumno.DoesNotExist:
-            return Response({"detail": "id_alumno no encontrado."}, status=404)
-    else:
-        return Response({"detail": "Debe enviar alumno_id o id_alumno."}, status=400)
-
-    receptor = getattr(alumno, "padre", None)
-    if not receptor:
-        return Response({"detail": "El alumno no tiene padre/tutor asignado."}, status=400)
-
-    sf = _mensaje_sender_field()
-    rf = _mensaje_recipient_field()
-    cf = _mensaje_curso_field()
-
-    kwargs = {
-        sf: request.user,
-        rf: receptor,
-        "asunto": asunto,
-        "contenido": contenido
-    }
-    if cf:
-        kwargs[cf] = alumno.curso
-
-    m = Mensaje.objects.create(**kwargs)
-    try:
-        contenido_corto = (contenido[:160] + "...") if len(contenido) > 160 else contenido
-        url = "/mensajes"
-        if hasattr(m, "thread_id") and getattr(m, "thread_id", None):
-            url = f"/mensajes/hilo/{getattr(m, 'thread_id')}"
-        actor_label = (request.user.get_full_name() or request.user.username or "Usuario").strip()
-        titulo = f"{actor_label}: {asunto}" if asunto else f"Nuevo mensaje de {actor_label}"
-        Notificacion.objects.create(
-            destinatario=receptor,
-            tipo="mensaje",
-            titulo=titulo,
-            descripcion=contenido_corto.strip() or None,
-            url=url,
-            leida=False,
-            meta={
-                "mensaje_id": getattr(m, "id", None),
-                "thread_id": str(getattr(m, "thread_id", "")) if hasattr(m, "thread_id") else str(getattr(m, "id", "")),
-                "curso": getattr(alumno, "curso", "") if alumno else "",
-                "remitente_id": getattr(request.user, "id", None),
-                "alumno_id": getattr(alumno, "id", None) if alumno else None,
-            },
-        )
-    except Exception:
-        pass
-    return Response({"ok": True, "mensaje_id": m.id}, status=201)
-
+    selected_course = _resolve_request_course_selection(
+        request,
+        school=active_school,
+        required=False,
+    )
+    if selected_course["error"]:
+        return HttpResponse(selected_course["error"], status=400)
+    return render(request, 'calificaciones/enviar_comunicado.html', {
+        'cursos': cursos,
+        'curso_seleccionado_id': selected_course["school_course_id"],
+    })
 
 @login_required
 def ver_mensajes(request):
@@ -1660,10 +2306,18 @@ def ver_mensajes(request):
     Evita usar campos inexistentes y ordena por 'fecha_envio' si existe.
     """
     if _has_role(request, 'Padres') or request.user.is_superuser:
+        active_school = get_request_school(request)
         order_field = 'fecha_envio' if _has_model_field(Mensaje, 'fecha_envio') else 'id'
 
         rf = _mensaje_recipient_field()
-        mensajes = Mensaje.objects.filter(**{rf: request.user}).order_by(f'-{order_field}')
+        mensajes = scope_queryset_to_school(
+            Mensaje.objects.filter(**{rf: request.user}),
+            active_school,
+        ).order_by(f'-{order_field}')
+        select_fields = [_mensaje_sender_field(), _mensaje_recipient_field()]
+        if _has_model_field(Mensaje, "school_course"):
+            select_fields.append("school_course")
+        mensajes = mensajes.select_related(*select_fields)
 
         return render(request, 'calificaciones/ver_mensajes.html', {'mensajes': mensajes})
     else:
@@ -1675,7 +2329,11 @@ def ver_mensajes(request):
 # =========================================================
 @login_required
 def generar_boletin_pdf(request, alumno_id):
-    alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
+    active_school = get_request_school(request)
+    alumno = get_object_or_404(
+        scope_queryset_to_school(Alumno.objects.select_related("school", "school_course"), active_school),
+        id_alumno=alumno_id,
+    )
     if not _can_access_alumno_data(request, alumno):
         return HttpResponse("No tenÃ©s permiso para ver este boletÃ­n.", status=403)
     response = HttpResponse(content_type='application/pdf')
@@ -1683,7 +2341,7 @@ def generar_boletin_pdf(request, alumno_id):
     p = canvas.Canvas(response)
     p.drawString(100, 800, f"BoletÃ­n de {alumno.nombre}")
     y = 750
-    notas = Nota.objects.filter(alumno=alumno).order_by('cuatrimestre')
+    notas = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school).order_by('cuatrimestre')
     for nota in notas:
         p.drawString(100, y, f"{nota.materia} - Cuatrimestre {nota.cuatrimestre}: {nota.calificacion}")
         y -= 20
@@ -1697,16 +2355,19 @@ def historial_notas_profesor(request, alumno_id):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
         return HttpResponse("No tenÃ©s permiso para ver esto.", status=403)
 
-    alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
-    if _has_role(request, "Profesores") and not request.user.is_superuser:
+    active_school = get_request_school(request)
+    alumno = get_object_or_404(scope_queryset_to_school(Alumno.objects.all(), active_school), id_alumno=alumno_id)
+    viewer_groups = set(_effective_groups(request))
+    if "Profesores" in viewer_groups and not request.user.is_superuser:
         if not _profesor_can_access_alumno(request.user, alumno):
             return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
-    materias = set(Nota.objects.filter(alumno=alumno).values_list('materia', flat=True))
+    notas_base_qs = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school)
+    materias = set(notas_base_qs.values_list('materia', flat=True))
     materia_seleccionada = request.GET.get('materia')
     notas = []
 
     if materia_seleccionada:
-        notas = Nota.objects.filter(alumno=alumno, materia=materia_seleccionada).order_by('cuatrimestre')
+        notas = notas_base_qs.filter(materia=materia_seleccionada).order_by('cuatrimestre')
 
     return render(request, 'calificaciones/historial_notas.html', {
         'alumno': alumno,
@@ -1721,19 +2382,25 @@ def historial_notas_padre(request):
     if not (_has_role(request, 'Padres') or request.user.is_superuser):
         return HttpResponse("No tenÃ©s permiso para ver esto.", status=403)
 
-    alumnos = Alumno.objects.filter(padre=request.user)
+    active_school = get_request_school(request)
+    alumnos_qs = scope_queryset_to_school(
+        Alumno.objects.select_related("school_course"),
+        active_school,
+    )
+    alumnos = alumnos_qs.filter(padre=request.user)
     if not alumnos.exists() and _get_preview_role(request):
-        a0 = Alumno.objects.filter(padre__isnull=False).order_by('padre_id').first()
+        a0 = alumnos_qs.filter(padre__isnull=False).order_by('padre_id').first()
         if a0 and a0.padre_id:
-            alumnos = Alumno.objects.filter(padre_id=a0.padre_id)
+            alumnos = alumnos_qs.filter(padre_id=a0.padre_id)
     alumno = alumnos.first()
 
-    materias = set(Nota.objects.filter(alumno=alumno).values_list('materia', flat=True)) if alumno else set()
+    notas_base_qs = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school) if alumno else Nota.objects.none()
+    materias = set(notas_base_qs.values_list('materia', flat=True)) if alumno else set()
     materia_seleccionada = request.GET.get('materia')
     notas = []
 
     if materia_seleccionada and alumno:
-        notas = Nota.objects.filter(alumno=alumno, materia=materia_seleccionada).order_by('cuatrimestre')
+        notas = notas_base_qs.filter(materia=materia_seleccionada).order_by('cuatrimestre')
 
     return render(request, 'calificaciones/historial_notas.html', {
         'alumno': alumno,
@@ -1744,164 +2411,11 @@ def historial_notas_padre(request):
 
 
 # =========================================================
-#  API EVENTOS (funcionales)
-# =========================================================
-@csrf_exempt
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def api_eventos_tipos(request):
-    return Response(["examen", "acto", "reuniÃ³n", "feriado"])
-
-
-@csrf_exempt
-@api_view(["GET", "POST"])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-@parser_classes([JSONParser, FormParser, MultiPartParser])
-def api_eventos(request):
-    user = request.user
-
-    if user.is_superuser or _has_role(request, 'Profesores'):
-        qs = Evento.objects.all()
-        if _has_role(request, "Profesores") and not user.is_superuser:
-            asignados = _profesor_cursos_asignados(user)
-            if asignados:
-                qs = qs.filter(curso__in=asignados)
-    else:
-        try:
-            alumno = Alumno.objects.get(padre=user)
-            qs = Evento.objects.filter(
-                Q(curso=alumno.curso)
-                | Q(curso__iexact="ALL")
-                | Q(curso__iexact="TODOS")
-                | Q(curso="*")
-            )
-        except Alumno.DoesNotExist:
-            qs = Evento.objects.none()
-
-    if request.method == "GET":
-        ser = EventoSerializer(qs, many=True)
-        return Response(ser.data)
-
-    # --- POST crear ---
-    payload = _coerce_json(request)
-    data = _normalize_event_payload(payload)
-
-    if _has_role(request, "Profesores") and not user.is_superuser:
-        asignados = _profesor_cursos_asignados(user)
-        if asignados and data.get("curso") not in set(asignados):
-            return Response({"detail": "No tenÃ©s permiso para ese curso."}, status=403)
-
-    ser = EventoSerializer(data=data)
-    if not ser.is_valid():
-        logger.warning("âŒ ValidaciÃ³n evento (POST) fallida. data=%s errors=%s", data, ser.errors)
-        return Response(
-            {"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    ser.save(creado_por=user)  # quitar si tu modelo no tiene creado_por
-    return Response(ser.data, status=status.HTTP_201_CREATED)
-
-
-@csrf_exempt
-@api_view(["PUT", "PATCH", "DELETE"])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-@parser_classes([JSONParser, FormParser, MultiPartParser])
-def api_evento_detalle(request, pk: int):
-    ev = get_object_or_404(Evento, pk=pk)
-
-    if not (request.user.is_superuser or getattr(ev, "creado_por_id", None) == request.user.id):
-        return Response({"detail": "No autorizado."}, status=403)
-
-    if request.method in ("PUT", "PATCH"):
-        payload = _coerce_json(request)
-        data = _normalize_event_payload(payload)
-        partial = (request.method == "PATCH")
-        ser = EventoSerializer(ev, data=data, partial=partial)
-        if not ser.is_valid():
-            logger.warning("âŒ ValidaciÃ³n evento (UPDATE) fallida. data=%s errors=%s", data, ser.errors)
-            return Response(
-                {"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        ser.save()
-        return Response(ser.data)
-
-    ev.delete()
-    return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-# =========================================================
-#  DRF ViewSet (opcional)
-# =========================================================
-@method_decorator(csrf_exempt, name="dispatch")
-class EventoViewSet(viewsets.ModelViewSet):
-    queryset = Evento.objects.all()
-    serializer_class = EventoSerializer
-    permission_classes = [IsAuthenticated]
-    authentication_classes = (JWTAuthentication,)
-    parser_classes = (JSONParser, FormParser, MultiPartParser)
-
-    @action(detail=False, methods=["get"], url_path="tipos",
-            permission_classes=[AllowAny], authentication_classes=[])
-    def tipos(self, request):
-        return Response(["examen", "acto", "reuniÃ³n", "feriado"])
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or _has_role(self.request, 'Profesores'):
-            qs = Evento.objects.all()
-            if _has_role(self.request, "Profesores") and not user.is_superuser:
-                asignados = _profesor_cursos_asignados(user)
-                if asignados:
-                    qs = qs.filter(curso__in=asignados)
-            return qs
-        try:
-            alumno = Alumno.objects.get(padre=user)
-            return Evento.objects.filter(curso=alumno.curso)
-        except Alumno.DoesNotExist:
-            return Evento.objects.none()
-
-    def create(self, request, *args, **kwargs):
-        payload = _coerce_json(request)
-        data = _normalize_event_payload(payload)
-        ser = self.get_serializer(data=data)
-        if not ser.is_valid():
-            logger.warning("âŒ ValidaciÃ³n evento (ViewSet.create) fallida. data=%s errors=%s", data, ser.errors)
-            return Response({"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
-                            status=status.HTTP_400_BAD_REQUEST)
-        self.perform_create(ser)
-        return Response(ser.data, status=status.HTTP_201_CREATED)
-
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        payload = _coerce_json(request)
-        data = _normalize_event_payload(payload)
-        ser = self.get_serializer(instance, data=data, partial=partial)
-        if not ser.is_valid():
-            logger.warning("âŒ ValidaciÃ³n evento (ViewSet.update) fallida. data=%s errors=%s", data, ser.errors)
-            return Response({"detail": "ValidaciÃ³n fallida", "errors": ser.errors, "data": data},
-                            status=status.HTTP_400_BAD_REQUEST)
-        self.perform_update(ser)
-        return Response(ser.data)
-
-    def partial_update(self, request, *args, **kwargs):
-        kwargs['partial'] = True
-        return self.update(request, *args, **kwargs)
-
-    def perform_create(self, serializer):
-        serializer.save(creado_por=self.request.user)
-
-
-# =========================================================
 #  Vistas HTML calendario
 # =========================================================
 @login_required
 def calendario_view(request):
-    form = EventoForm()
+    form = EventoForm(school=get_request_school(request))
     return render(request, 'calificaciones/calendario.html', {'form': form})
 
 
@@ -1910,56 +2424,88 @@ def crear_evento(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
         return HttpResponse("No tenÃ©s permiso para crear eventos.", status=403)
 
-    asignados = []
+    active_school = get_request_school(request)
+    assigned_refs = []
     if _has_role(request, "Profesores") and not request.user.is_superuser:
-        asignados = _profesor_cursos_asignados(request.user)
+        assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
 
     if request.method == 'POST':
-        form = EventoForm(request.POST)
-        if asignados:
-            curso = (request.POST.get("curso") or "").strip()
-            if curso and curso not in set(asignados):
-                return JsonResponse({"success": False, "detail": "No autorizado para ese curso."}, status=403)
+        form = EventoForm(request.POST, school=active_school)
+        if assigned_refs:
+            selected_course = _resolve_request_course_selection(
+                request,
+                school=active_school,
+                required=True,
+            )
+            if selected_course["error"]:
+                return JsonResponse({"detail": selected_course["error"]}, status=400)
+            if not course_ref_matches(
+                assigned_refs,
+                school_course_id=selected_course["school_course_id"],
+                course_code=selected_course["course_code"],
+            ):
+                return JsonResponse({"detail": "No autorizado para ese curso."}, status=403)
         if form.is_valid():
             evento = form.save(commit=False)
             evento.creado_por = request.user
+            evento.school = active_school
             evento.save()
             try:
                 from .api_eventos import _notify_evento_creado
                 _notify_evento_creado(request, evento)
             except Exception:
                 pass
-            return JsonResponse({'success': True})
+            return JsonResponse({"id": evento.id})
         else:
-            return JsonResponse({'success': False, 'errors': form.errors}, status=400)
+            return JsonResponse({"errors": form.errors}, status=400)
 
-    return JsonResponse({'error': 'MÃ©todo no permitido'}, status=405)
+    return JsonResponse({"detail": "Metodo no permitido"}, status=405)
 
 
 @login_required
 def editar_evento(request, evento_id):
-    evento = get_object_or_404(Evento, id=evento_id)
+    active_school = get_request_school(request)
+    evento = get_object_or_404(scope_queryset_to_school(Evento.objects.all(), active_school), id=evento_id)
+    evento_owner = getattr(evento, "creado_por", None)
 
-    if not (request.user == evento.creado_por or request.user.is_superuser):
+    if not (request.user == evento_owner or request.user.is_superuser):
         return HttpResponse("No tenÃ©s permiso para editar este evento.", status=403)
 
     if request.method == 'POST':
-        form = EventoForm(request.POST, instance=evento)
+        form = EventoForm(request.POST, instance=evento, school=active_school)
+        if _has_role(request, "Profesores") and not request.user.is_superuser:
+            assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+            if assigned_refs:
+                selected_course = _resolve_request_course_selection(
+                    request,
+                    school=active_school,
+                    required=True,
+                )
+                if selected_course["error"]:
+                    return JsonResponse({"detail": selected_course["error"]}, status=400)
+                if not course_ref_matches(
+                    assigned_refs,
+                    school_course_id=selected_course["school_course_id"],
+                    course_code=selected_course["course_code"],
+                ):
+                    return JsonResponse({"detail": "No autorizado para ese curso."}, status=403)
         if form.is_valid():
-            form.save()
-            return JsonResponse({'success': True})
+            evento = form.save()
+            return JsonResponse({"id": evento.id})
         else:
-            return JsonResponse({'success': False, 'errors': form.errors}, status=400)
+            return JsonResponse({"errors": form.errors}, status=400)
     else:
-        form = EventoForm(instance=evento)
+        form = EventoForm(instance=evento, school=active_school)
         return render(request, 'calificaciones/parcial_editar_evento.html', {'form': form, 'evento': evento})
 
 
 @login_required
 def eliminar_evento(request, evento_id):
-    evento = get_object_or_404(Evento, id=evento_id)
+    active_school = get_request_school(request)
+    evento = get_object_or_404(scope_queryset_to_school(Evento.objects.all(), active_school), id=evento_id)
+    evento_owner = getattr(evento, "creado_por", None)
 
-    if not (request.user == evento.creado_por or request.user.is_superuser):
+    if not (request.user == evento_owner or request.user.is_superuser):
         return HttpResponse("No tenÃ©s permiso para eliminar este evento.", status=403)
 
     if request.method == 'POST':
@@ -1975,24 +2521,68 @@ def eliminar_evento(request, evento_id):
 @login_required
 def pasar_asistencia(request):
     usuario = request.user
+    active_school = get_request_school(request)
     alumnos = []
     curso_id = None
-    curso_nombre = None
+    curso_code = None
+    school_course_name = None
 
     if usuario.is_superuser:
-        cursos = [{'id': c[0], 'nombre': c[1]} for c in Alumno.CURSOS]
-        curso_id = request.GET.get('curso')
-        if curso_id:
-            curso_nombre = dict(Alumno.CURSOS).get(curso_id)
+        cursos = _school_course_options_for_ui(school=active_school)
+        selected_course = _resolve_request_course_selection(
+            request,
+            school=active_school,
+            required=False,
+        )
+        if selected_course["error"]:
+            return render(request, 'calificaciones/error.html', {'mensaje': selected_course["error"]}, status=400)
+        curso_id = selected_course["school_course_id"]
+        curso_code = selected_course["course_code"]
+        if curso_code:
+            school_course_name = get_course_label(curso_code, school=active_school)
     else:
-        curso_id = obtener_curso_del_preceptor(usuario)
-        if not curso_id:
+        allowed_refs = _preceptor_assignment_refs(usuario, school=active_school)
+        if not allowed_refs:
             return render(request, 'calificaciones/error.html', {'mensaje': 'No tenÃ©s un curso asignado como preceptor.'})
-        curso_nombre = dict(Alumno.CURSOS).get(curso_id)
-        cursos = [{'id': curso_id, 'nombre': curso_nombre}]
+        cursos = filter_course_options_by_refs(_school_course_options_for_ui(school=active_school), allowed_refs)
+        selected_course = _resolve_request_course_selection(
+            request,
+            school=active_school,
+            required=False,
+        )
+        if selected_course["error"]:
+            return render(request, 'calificaciones/error.html', {'mensaje': selected_course["error"]}, status=400)
+        if (selected_course["school_course_id"] or selected_course["course_code"]) and not course_ref_matches(
+            allowed_refs,
+            school_course_id=selected_course["school_course_id"],
+            course_code=selected_course["course_code"],
+        ):
+            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenÃ©s permiso para ese curso.'})
+        selected_option = None
+        if selected_course["school_course_id"]:
+            selected_option = next(
+                (option for option in cursos if option.get("school_course_id") == selected_course["school_course_id"]),
+                None,
+            )
+        if selected_option is None and selected_course["course_code"]:
+            selected_option = next(
+                (option for option in cursos if option.get("code") == selected_course["course_code"]),
+                None,
+            )
+        if selected_option is None and cursos:
+            selected_option = cursos[0]
 
-    if curso_id:
-        alumnos = Alumno.objects.filter(curso=curso_id).order_by('nombre')
+        if selected_option is not None:
+            curso_id = selected_option.get("school_course_id")
+            curso_code = selected_option.get("code")
+            school_course_name = selected_option.get("nombre") or get_course_label(curso_code, school=active_school)
+
+    if curso_code:
+        alumnos = (
+            _alumnos_por_curso_qs(curso_code, school=active_school)
+            .select_related("school", "school_course", "padre", "usuario")
+            .order_by('nombre')
+        )
 
     if request.method == 'POST':
         fecha_actual = date.today()
@@ -2001,6 +2591,7 @@ def pasar_asistencia(request):
         for alumno in alumnos:
             presente = request.POST.get(f'asistencia_{alumno.id}') == 'on'
             asistencia_objs.append(Asistencia(
+                school=active_school or getattr(alumno, "school", None),
                 alumno=alumno,
                 fecha=fecha_actual,
                 presente=presente
@@ -2023,9 +2614,11 @@ def pasar_asistencia(request):
                 if not alumno_nombre:
                     alumno_nombre = getattr(alumno, "nombre", "") or str(getattr(alumno, "id_alumno", "")) or "Alumno"
                 titulo = f"Inasistencia registrada: {alumno_nombre}"
-                descripcion = f"Alumno: {alumno_nombre} Â· Curso: {getattr(alumno, 'curso', '')} Â· Fecha: {fecha_actual.isoformat()}"
+                course_name = _notification_course_name(alumno=alumno)
+                descripcion = f"Alumno: {alumno_nombre} Â· Curso: {course_name or 's/d'} Â· Fecha: {fecha_actual.isoformat()}"
                 for dest in destinatarios:
                     Notificacion.objects.create(
+                        school=active_school or getattr(alumno, "school", None),
                         destinatario=dest,
                         tipo="inasistencia",
                         titulo=titulo,
@@ -2035,7 +2628,7 @@ def pasar_asistencia(request):
                         meta={
                             "alumno_id": getattr(alumno, "id", None),
                             "alumno_legajo": getattr(alumno, "id_alumno", None),
-                            "curso": getattr(alumno, "curso", ""),
+                            **_notification_course_meta(alumno=alumno, school=active_school),
                             "fecha": fecha_actual.isoformat(),
                             "tipo_asistencia": "clases",
                         },
@@ -2044,33 +2637,38 @@ def pasar_asistencia(request):
             pass
 
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'success': True})
+            return JsonResponse({"registradas": len(asistencia_objs)})
         return redirect('index')
 
     return render(request, 'calificaciones/pasar_asistencia.html', {
         'alumnos': alumnos,
         'curso_id': curso_id,
-        'curso_nombre': curso_nombre,
+        'curso_code': curso_code,
+        'school_course_name': school_course_name,
         'cursos': cursos
     })
 
 
 @login_required
 def perfil_alumno(request, alumno_id):
-    alumno = get_object_or_404(Alumno, id_alumno=alumno_id)
+    active_school = get_request_school(request)
+    alumno = get_object_or_404(
+        scope_queryset_to_school(
+            Alumno.objects.select_related("school", "school_course", "padre", "usuario"),
+            active_school,
+        ),
+        id_alumno=alumno_id,
+    )
+    viewer_groups = set(_effective_groups(request))
 
     is_padre = (request.user == alumno.padre)
-    is_prof_ok = _has_role(request, 'Profesores') and _profesor_can_access_alumno(request.user, alumno)
+    is_prof_ok = ("Profesores" in viewer_groups) and _profesor_can_access_alumno(request.user, alumno)
     is_prof_or_super = (request.user.is_superuser or is_prof_ok)
     # Alumno propio (mismo criterio que en endpoints API)
-    is_alumno_mismo = False
-    try:
-        is_alumno_mismo = (getattr(alumno, "usuario_id", None) == request.user.id)
-    except Exception:
-        is_alumno_mismo = False
-    if not is_alumno_mismo:
+    is_alumno_mismo = getattr(alumno, "usuario_id", None) == request.user.id
+    if not is_alumno_mismo and "Alumnos" in viewer_groups:
         try:
-            r = resolve_alumno_for_user(request.user)
+            r = resolve_alumno_for_user(request.user, school=active_school)
             if r.alumno and r.alumno.id == alumno.id:
                 is_alumno_mismo = True
         except Exception:
@@ -2078,19 +2676,20 @@ def perfil_alumno(request, alumno_id):
 
     # âœ… NUEVO: permitir preceptor si el curso coincide
     is_preceptor_ok = (
-        _has_role(request, "Directivos")
-        or (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(request.user, alumno))
+        ("Directivos" in viewer_groups)
+        or (("Preceptores" in viewer_groups) and _preceptor_can_access_alumno(request.user, alumno))
     )
 
     if not (is_padre or is_prof_or_super or is_alumno_mismo or is_preceptor_ok):
         return HttpResponse("No tenÃ©s permiso para ver este perfil.", status=403)
 
     # âœ… NUEVO: contamos ausentes como 1 y "tarde" como 0.5
-    asistencias_irregulares = Asistencia.objects.filter(alumno=alumno).filter(
+    asistencias_base_qs = scope_queryset_to_school(Asistencia.objects.filter(alumno=alumno), active_school)
+    asistencias_irregulares = asistencias_base_qs.filter(
         Q(presente=False) | Q(tarde=True)
     ).order_by('-fecha')
 
-    resumen_asist = Asistencia.objects.filter(alumno=alumno).aggregate(
+    resumen_asist = asistencias_base_qs.aggregate(
         ausentes=Count("id", filter=Q(presente=False)),
         tardes=Count("id", filter=Q(presente=True, tarde=True)),
     )
@@ -2111,29 +2710,35 @@ def perfil_alumno(request, alumno_id):
 @login_required
 def mi_perfil(request):
     """
-    VersiÃ³n minimal (compat): ahora tambiÃ©n expone el alumno vinculado si existe,
-    para que el front pueda resolver el id incluso si no llama a /api/perfil_api/.
+    VersiÃ³n minimal del perfil del usuario autenticado.
     """
     user = request.user
+    viewer_groups = set(_effective_groups(request))
+    active_school = get_request_school(request)
+    groups = _effective_groups(request)
 
-    # Alumno propio (robusto/retrocompatible)
-    r = resolve_alumno_for_user(user)
+    # Alumno propio (resolucion tolerante)
+    r = resolve_alumno_for_user(user, school=active_school)
     alumno_vinculado = r.alumno
+    assigned_school_courses = _profile_assigned_school_courses(
+        user=user,
+        groups=groups,
+        school=active_school,
+    )
 
     data = {
         "username": user.username,
         "email": user.email,
-        "grupos": _effective_groups(request),
+        "groups": groups,
         "rol": _rol_principal(user),
         "is_superuser": user.is_superuser,
-        "alumno_resolution": {"method": r.method, "candidates": r.candidates},
+        "school": school_to_dict(active_school),
+        "available_schools": get_available_school_dicts_for_user(user, active_school=active_school),
+        "assigned_school_courses": assigned_school_courses,
     }
 
     if alumno_vinculado:
         data["alumno"] = _alumno_to_dict(alumno_vinculado)
-        # compat keys que tu front intenta leer en distintos flujos
-        data["alumno_id"] = alumno_vinculado.id
-        data["id_alumno"] = alumno_vinculado.id_alumno
 
     return JsonResponse(data)
 
@@ -2155,7 +2760,7 @@ def auth_logout(request):
             dj_logout(request)
     except Exception:
         pass
-    resp = JsonResponse({"detail": "ok"})
+    resp = HttpResponse(status=204)
     # Limpieza defensiva de cookies tÃ­picas
     resp.delete_cookie("sessionid")
     resp.delete_cookie("csrftoken")
@@ -2217,7 +2822,7 @@ def auth_change_password(request):
 @permission_classes([IsAuthenticated])
 def mensajes_unread_count(request):
     user = request.user
-    inbox_qs = _mensajes_inbox_qs(user)
+    inbox_qs = _mensajes_inbox_qs(user, school=get_request_school(request))
     count = _mensajes_unread_count_from_qs(inbox_qs)
     return Response({"count": count})
 

@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
+from collections import defaultdict
 
 from django.conf import settings
 from django.utils import timezone
 
+from .course_access import build_course_membership_q_for_refs, build_course_ref, filter_assignments_for_course
 from .models import AlertaAcademica, Nota, Notificacion
 from .resend_email import send_resend_email
 
@@ -193,39 +195,102 @@ def _estado_actual_alerta_from_notas(*, notas_ventana: list[Nota], desde, hoy):
     }
 
 
-def reconciliar_alertas_academicas(*, cursos=None):
+def _build_notas_ventana_lookup(*, keys, hoy):
+    ventana_dias = _cfg_int("ALERTAS_ACADEMICAS_VENTANA_DIAS", 45)
+    desde = hoy - timedelta(days=ventana_dias)
+    alumno_ids = sorted({int(key[0]) for key in keys if key[0] is not None})
+    materias = sorted({str(key[1] or "") for key in keys})
+
+    if not alumno_ids or not materias:
+        return {}, desde
+
+    notas_qs = (
+        Nota.objects.filter(
+            alumno_id__in=alumno_ids,
+            materia__in=materias,
+            fecha__gte=desde,
+            fecha__lte=hoy,
+        )
+        .order_by("alumno_id", "materia", "-fecha", "-id")
+    )
+
+    notas_por_par = defaultdict(list)
+    notas_por_triple = defaultdict(list)
+    for nota in notas_qs:
+        pair_key = (int(getattr(nota, "alumno_id", 0) or 0), str(getattr(nota, "materia", "") or ""))
+        notas_por_par[pair_key].append(nota)
+        triple_key = pair_key + (getattr(nota, "cuatrimestre", None),)
+        notas_por_triple[triple_key].append(nota)
+
+    lookup = {}
+    for alumno_id, materia, cuatrimestre in keys:
+        pair_key = (int(alumno_id), str(materia or ""))
+        if cuatrimestre in (1, 2):
+            lookup[(int(alumno_id), str(materia or ""), cuatrimestre)] = list(
+                notas_por_triple.get(pair_key + (cuatrimestre,), [])
+            )
+        else:
+            lookup[(int(alumno_id), str(materia or ""), cuatrimestre)] = list(
+                notas_por_par.get(pair_key, [])
+            )
+    return lookup, desde
+
+
+def reconciliar_alertas_academicas(*, cursos=None, course_refs=None, school=None):
     hoy = timezone.localdate()
-    base_qs = AlertaAcademica.objects.filter(estado="activa").select_related("alumno")
-    if cursos is not None:
-        base_qs = base_qs.filter(alumno__curso__in=list(cursos))
+    base_qs = AlertaAcademica.objects.filter(estado="activa")
+    if course_refs is None and cursos is not None:
+        course_refs = [
+            build_course_ref(school=school, course_code=curso)
+            for curso in (cursos or [])
+            if str(curso or "").strip()
+        ]
+
+    if course_refs is not None:
+        course_q = build_course_membership_q_for_refs(
+            course_refs,
+            school_course_field="alumno__school_course",
+            code_field="alumno__curso",
+            school_field="alumno__school",
+        )
+        if course_q is None:
+            return {"revisadas": 0, "cerradas": 0}
+        base_qs = base_qs.filter(course_q)
 
     cerradas = 0
     revisadas = set()
-    for alerta in base_qs.order_by("-creada_en", "-id"):
-        alumno = getattr(alerta, "alumno", None)
-        alumno_id = getattr(alumno, "id", None)
+    review_keys = []
+    for alumno_id, materia, cuatrimestre in base_qs.order_by("-creada_en", "-id").values_list(
+        "alumno_id",
+        "materia",
+        "cuatrimestre",
+    ):
         if alumno_id is None:
             continue
-        key = (int(alumno_id), str(getattr(alerta, "materia", "") or ""), getattr(alerta, "cuatrimestre", None))
+        key = (int(alumno_id), str(materia or ""), cuatrimestre)
         if key in revisadas:
             continue
         revisadas.add(key)
+        review_keys.append(key)
 
-        estado = _estado_actual_alerta(
-            alumno=alumno,
-            materia=key[1],
-            cuatrimestre=key[2],
+    notas_lookup, desde = _build_notas_ventana_lookup(keys=review_keys, hoy=hoy)
+    for alumno_id, materia, cuatrimestre in review_keys:
+        estado = _estado_actual_alerta_from_notas(
+            notas_ventana=notas_lookup.get((alumno_id, materia, cuatrimestre), []),
+            desde=desde,
             hoy=hoy,
         )
         if estado["active"]:
             continue
 
-        cerradas += _alertas_qs_para_nota(alerta).filter(
-            cuatrimestre=key[2],
+        cerradas += AlertaAcademica.objects.filter(
+            alumno_id=alumno_id,
+            materia=materia,
+            cuatrimestre=cuatrimestre,
             estado="activa",
         ).update(estado="cerrada")
 
-    return {"revisadas": len(revisadas), "cerradas": int(cerradas)}
+    return {"revisadas": len(review_keys), "cerradas": int(cerradas)}
 
 
 def _severidad_binaria(*, trigger_a: bool, trigger_b: bool, trigger_c: bool, trigger_d: bool) -> int:
@@ -249,13 +314,33 @@ def _destinatarios_alerta(alumno):
 
     if PreceptorCurso is not None:
         try:
-            qs = PreceptorCurso.objects.filter(curso=getattr(alumno, "curso", "")).select_related("preceptor")
+            qs = filter_assignments_for_course(
+                PreceptorCurso.objects.select_related("preceptor"),
+                obj=alumno,
+            )
             for pc in qs:
                 _add(getattr(pc, "preceptor", None))
         except Exception:
             pass
 
     return destinatarios
+
+
+def _course_display(alumno) -> str:
+    school_course = getattr(alumno, "school_course", None)
+    return (
+        getattr(school_course, "name", None)
+        or getattr(school_course, "code", None)
+        or getattr(alumno, "curso", "")
+        or "curso sin definir"
+    )
+
+
+def _course_meta(alumno) -> dict[str, Any]:
+    return {
+        "school_course_id": getattr(alumno, "school_course_id", None),
+        "school_course_name": _course_display(alumno),
+    }
 
 
 def _crear_notificaciones_alerta(*, alumno, destinatarios, severidad: int, riesgo: float, trigger_map: dict[str, bool], alerta_id: int):
@@ -267,18 +352,21 @@ def _crear_notificaciones_alerta(*, alumno, destinatarios, severidad: int, riesg
         alumno_nombre = str(getattr(alumno, "id_alumno", "") or "Alumno")
 
     triggers_txt = ", ".join(k for k, v in trigger_map.items() if k.startswith(("A_", "B_", "C_", "D_")) and v) or "sin trigger"
+    course_name = _course_display(alumno)
     titulo = f"{alumno_nombre} necesita atencion academica"
     descripcion = (
-        f"Riesgo academico en {getattr(alumno, 'curso', '') or 'curso sin definir'}"
+        f"Riesgo academico en {course_name}"
         f" - Materia: {trigger_map.get('materia', '') or 'N/A'}"
         f" - R={riesgo:.2f}"
         f" - Triggers: {triggers_txt}"
     )
 
     notifs = []
+    school_ref = getattr(alumno, "school", None)
     for dest in destinatarios:
         notifs.append(
             Notificacion(
+                school=school_ref,
                 destinatario=dest,
                 tipo="otro",
                 titulo=titulo,
@@ -290,7 +378,7 @@ def _crear_notificaciones_alerta(*, alumno, destinatarios, severidad: int, riesg
                     "alerta_id": alerta_id,
                     "alumno_id": getattr(alumno, "id", None),
                     "alumno_legajo": getattr(alumno, "id_alumno", None),
-                    "curso": getattr(alumno, "curso", None),
+                    **_course_meta(alumno),
                     "severidad": severidad,
                     "riesgo_ponderado": round(riesgo, 3),
                     "triggers": trigger_map,
@@ -311,10 +399,11 @@ def _enviar_email_alerta(*, alumno, destinatarios, severidad: int, riesgo: float
         alumno_nombre = str(getattr(alumno, "id_alumno", "") or "Alumno")
 
     triggers_txt = ", ".join(k for k, v in trigger_map.items() if k.startswith(("A_", "B_", "C_", "D_")) and v) or "sin trigger"
+    course_name = _course_display(alumno)
     subject = f"[Alerta academica] {alumno_nombre}"
     text = (
         f"Alumno: {alumno_nombre}\n"
-        f"Curso: {getattr(alumno, 'curso', '')}\n"
+        f"Curso: {course_name}\n"
         f"Materia: {trigger_map.get('materia', '')}\n"
         f"Riesgo ponderado: {riesgo:.2f}\n"
         f"Triggers: {triggers_txt}\n"
