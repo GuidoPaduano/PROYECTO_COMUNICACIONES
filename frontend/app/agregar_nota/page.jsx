@@ -4,12 +4,27 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, Save } from "lucide-react"
 
-import { authFetch, useAuthGuard } from "../_lib/auth"
+import {
+  authFetch,
+  getSessionProfile,
+  useAuthGuard,
+  useSessionContext,
+} from "../_lib/auth"
+import {
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  getCourseValue,
+  normalizeCourseList,
+} from "../_lib/courses"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import SuccessMessage from "@/components/ui/success-message"
 
 const ESTADOS_CALIFICACION = new Set(["TEA", "TEP", "TED"])
+const NOTAS_RAPIDAS_RESOURCE_MAX_AGE_MS = 15000
+
+const notasRapidasResourceCache = new Map()
+const notasRapidasResourcePromises = new Map()
 
 function buildCalificacionOptions() {
   const values = ["TEA", "TEP", "TED"]
@@ -66,9 +81,62 @@ function pickId(a) {
   return a?.id ?? a?.pk ?? a?.id_alumno ?? null
 }
 
+function buildNotasRapidasSessionProfile(session) {
+  const groups = Array.isArray(session?.groups) ? session.groups : []
+  const username = String(session?.username || "").trim()
+  const fullName = String(session?.userLabel || "").trim()
+  const hasRoleData = groups.length > 0 || !!session?.isSuperuser || !!username || !!fullName
+  if (!hasRoleData) return null
+  return {
+    username,
+    full_name: fullName,
+    groups,
+    rol: String(session?.role || "").trim(),
+    is_superuser: !!session?.isSuperuser,
+    school: session?.school || null,
+  }
+}
+
+async function loadNotasRapidasResource(cacheKey, loader, options = {}) {
+  const force = options?.force === true
+  const maxAgeMs =
+    Number.isFinite(Number(options?.maxAgeMs)) && Number(options?.maxAgeMs) > 0
+      ? Number(options.maxAgeMs)
+      : NOTAS_RAPIDAS_RESOURCE_MAX_AGE_MS
+  const now = Date.now()
+
+  if (!force) {
+    const cached = notasRapidasResourceCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return cached.data
+
+    const pending = notasRapidasResourcePromises.get(cacheKey)
+    if (pending) return pending
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    notasRapidasResourceCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  notasRapidasResourcePromises.set(cacheKey, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (notasRapidasResourcePromises.get(cacheKey) === promise) {
+      notasRapidasResourcePromises.delete(cacheKey)
+    }
+  }
+}
+
 export default function CargarNotasRapidas() {
   useAuthGuard()
   const selectAllRef = useRef(null)
+  const session = useSessionContext()
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -86,6 +154,25 @@ export default function CargarNotasRapidas() {
   const [calificaciones, setCalificaciones] = useState(buildCalificacionOptions())
   const [rows, setRows] = useState([])
   const [initialCursoLoaded, setInitialCursoLoaded] = useState("")
+  const schoolCourseIdSel = useMemo(
+    () => getCourseSchoolCourseId(cursoSel, cursos),
+    [cursoSel, cursos]
+  )
+  const notasRapidasScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
+  const sessionRoleKey = useMemo(
+    () =>
+      `${Array.isArray(session?.groups) ? session.groups.join("|") : ""}:${
+        session?.isSuperuser ? "1" : "0"
+      }:${session?.role || ""}:${session?.userLabel || ""}`,
+    [session?.groups, session?.isSuperuser, session?.role, session?.userLabel]
+  )
+  const sessionBootstrapProfile = useMemo(
+    () => buildNotasRapidasSessionProfile(session),
+    [notasRapidasScopeKey, sessionRoleKey]
+  )
   const [fill, setFill] = useState({
     materia: "",
     tipo: "",
@@ -102,9 +189,7 @@ export default function CargarNotasRapidas() {
         setLoading(true)
         setError("")
 
-        const meRes = await authFetch("/auth/whoami/")
-        const meData = await meRes.json().catch(() => ({}))
-        if (!meRes.ok) throw new Error(meData?.detail || `HTTP ${meRes.status}`)
+        const meData = sessionBootstrapProfile || (await getSessionProfile())
 
         const groups = Array.isArray(meData?.groups) ? meData.groups : []
         const isProfesor = groups.includes("Profesores")
@@ -114,9 +199,15 @@ export default function CargarNotasRapidas() {
           return
         }
 
-        const initRes = await authFetch("/calificaciones/nueva-nota/datos/")
-        const initData = await initRes.json().catch(() => ({}))
-        if (!initRes.ok) throw new Error(initData?.detail || `HTTP ${initRes.status}`)
+        const initData = await loadNotasRapidasResource(
+          `notas-rapidas-init:${notasRapidasScopeKey}`,
+          async () => {
+            const initRes = await authFetch("/calificaciones/nueva-nota/datos/")
+            const data = await initRes.json().catch(() => ({}))
+            if (!initRes.ok) throw new Error(data?.detail || `HTTP ${initRes.status}`)
+            return data
+          }
+        )
 
         if (!alive) return
 
@@ -138,10 +229,11 @@ export default function CargarNotasRapidas() {
             incluir: true,
           }))
           .filter((r) => r.id != null)
-        const cursosData = Array.isArray(initData?.cursos)
-          ? initData.cursos.map((c) => String(c?.id ?? c)).filter(Boolean)
-          : []
-        const cursoInicial = String(initData?.curso_inicial || cursosData[0] || "")
+        const cursosData = normalizeCourseList(initData?.cursos || [])
+        const cursoInicial = getCourseValue(
+          initData?.school_course_id_inicial ?? cursosData[0] ?? "",
+          cursosData
+        )
         setRows(mapped)
         setCursos(cursosData)
         setCursoSel(cursoInicial)
@@ -157,7 +249,7 @@ export default function CargarNotasRapidas() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [notasRapidasScopeKey, sessionBootstrapProfile])
 
   useEffect(() => {
     let alive = true
@@ -167,11 +259,28 @@ export default function CargarNotasRapidas() {
         setInitialCursoLoaded("")
         return
       }
+      if (schoolCourseIdSel == null) {
+        if (!alive) return
+        setRows([])
+        setError("No se pudo resolver el curso seleccionado.")
+        return
+      }
       try {
         setError("")
-        const res = await authFetch(`/calificaciones/nueva-nota/datos/?curso=${encodeURIComponent(cursoSel)}`)
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`)
+        const data = await loadNotasRapidasResource(
+          `notas-rapidas-curso:${notasRapidasScopeKey}:${schoolCourseIdSel}`,
+          async () => {
+            const query = new URLSearchParams({
+              school_course_id: String(schoolCourseIdSel),
+            }).toString()
+            const res = await authFetch(
+              `/calificaciones/nueva-nota/datos/${query ? `?${query}` : ""}`
+            )
+            const payload = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+            return payload
+          }
+        )
 
         const alumnos = Array.isArray(data?.alumnos) ? data.alumnos : []
         const mapped = alumnos
@@ -199,7 +308,7 @@ export default function CargarNotasRapidas() {
     return () => {
       alive = false
     }
-  }, [cursoSel, cuatris, initialCursoLoaded])
+  }, [cursoSel, cuatris, initialCursoLoaded, notasRapidasScopeKey, schoolCourseIdSel])
 
   const seleccionadas = useMemo(() => rows.filter((r) => r.incluir), [rows])
   const allSelected = rows.length > 0 && rows.every((r) => r.incluir)
@@ -320,8 +429,8 @@ export default function CargarNotasRapidas() {
             >
               {cursos.length === 0 ? <option value="">Sin cursos</option> : null}
               {cursos.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+                <option key={getCourseValue(c)} value={getCourseValue(c)}>
+                  {getCourseLabel(c)}
                 </option>
               ))}
             </select>

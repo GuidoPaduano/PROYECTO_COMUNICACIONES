@@ -1,9 +1,17 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { useAuthGuard, authFetch, API_BASE } from "../_lib/auth"
+import {
+  useAuthGuard,
+  authFetch,
+  getCachedSessionProfileData,
+  getSessionProfile,
+  useSessionContext,
+} from "../_lib/auth"
 import { useRouter } from "next/navigation"
+import { getCourseDisplayName } from "../_lib/courses"
 import { notifyInboxChanged } from "../_lib/inbox" // ⬅️ EVENT bus para badges
 import { NotificationBell } from "@/components/notification-bell"
 import { useUnreadCount } from "../_lib/useUnreadCount"
@@ -29,7 +37,6 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import SuccessMessage from "@/components/ui/success-message"
-import ComposeComunicadoFamilia from "./_compose-comunicado-familia"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,7 +51,14 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 
-const LOGO_SRC = "/imagenes/tecnova(1).png"
+const ComposeComunicadoFamilia = dynamic(() => import("./_compose-comunicado-familia"), {
+  loading: () => null,
+})
+
+const LOGO_SRC = "/imagenes/Logo%20Color.png"
+const MENSAJES_RESOURCE_MAX_AGE_MS = 10000
+const mensajesResourceCache = new Map()
+const mensajesResourcePromises = new Map()
 
 /* ======================== Utils ======================== */
 function fmtFecha(input) {
@@ -112,81 +126,63 @@ async function fetchJSON(url, opts) {
   return { ok: res.ok, status: res.status, text }
 }
 
-/* ====== Parser HTML tolerante ====== */
-function parseMensajesHTML(html) {
+function buildMeFromSession(session) {
+  if (!session || typeof session !== "object") return null
+  return {
+    full_name: String(session.userLabel || "").trim(),
+    username: String(session.username || "").trim(),
+    groups: Array.isArray(session.groups) ? session.groups : [],
+    is_superuser: !!session.isSuperuser,
+  }
+}
+
+function invalidateMensajesResource(cacheKey = "") {
+  const key = String(cacheKey || "").trim()
+  if (!key) {
+    mensajesResourceCache.clear()
+    mensajesResourcePromises.clear()
+    return
+  }
+  mensajesResourceCache.delete(key)
+  mensajesResourcePromises.delete(key)
+}
+
+async function loadMensajesResource(cacheKey, loader, { force = false, maxAgeMs = MENSAJES_RESOURCE_MAX_AGE_MS } = {}) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (!force) {
+    const cached = mensajesResourceCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data
+    }
+  } else {
+    invalidateMensajesResource(key)
+  }
+
+  if (!force && mensajesResourcePromises.has(key)) {
+    return await mensajesResourcePromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    mensajesResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  mensajesResourcePromises.set(key, promise)
+
   try {
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(html, "text/html")
-
-    const nodes = [
-      ...doc.querySelectorAll(
-        "ul li, .mensaje, .message, .list-group-item, article, .card, tr"
-      ),
-    ]
-
-    const mensajes = []
-
-    for (const el of nodes) {
-      const text = (el.textContent || "").replace(/\s+/g, " ").trim()
-      if (!text) continue
-
-      const strong = el.querySelector(
-        "strong, h1, h2, h3, h4, h5, h6, .asunto, .subject"
-      )
-      let asunto = strong ? (strong.textContent || "").trim() : ""
-
-      let emisor = ""
-      const emisorNode =
-        el.querySelector(".emisor, .from, [data-emisor]") ||
-        Array.from(el.querySelectorAll("small, .text-muted, .meta, span, div")).find(
-          (n) => /(^|\s)(de|remitente)\s*:/i.test(n.textContent || "")
-        )
-      if (emisorNode) {
-        const m = (emisorNode.textContent || "").match(
-          /(?:de|remitente)\s*:\s*(.+)$/i
-        )
-        if (m) emisor = m[1].trim()
-      }
-      if (!emisor && strong && strong.nextSibling) {
-        const tail = String(strong.nextSibling.textContent || "")
-        const mm = tail.match(/-\s*de\s+(.+)/i)
-        if (mm) emisor = mm[1].trim()
-      }
-
-      let fecha = ""
-      const time = el.querySelector("time[datetime]") || el.querySelector("time")
-      if (time) {
-        fecha = time.getAttribute("datetime") || time.textContent || ""
-      } else {
-        const datePattern =
-          /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}\-\d{1,2}\-\d{1,2})\b/
-        const m = text.match(datePattern)
-        if (m) fecha = m[1]
-      }
-
-      let contenido = text
-      if (asunto) {
-        const idx = contenido.toLowerCase().indexOf(asunto.toLowerCase())
-        if (idx >= 0) contenido = contenido.slice(idx + asunto.length).trim()
-      }
-      contenido = contenido.replace(/^(de|remitente)\s*:\s*.*?(\s|$)/i, "").trim()
-
-      if (!asunto && contenido.length < 3) continue
-      mensajes.push({ asunto: asunto || "Sin asunto", emisor, contenido, fecha })
+    return await promise
+  } finally {
+    if (mensajesResourcePromises.get(key) === promise) {
+      mensajesResourcePromises.delete(key)
     }
-
-    const dedup = []
-    const seen = new Set()
-    for (const m of mensajes) {
-      const key = [m.asunto, m.emisor, m.fecha, m.contenido.slice(0, 60)].join("||")
-      if (!seen.has(key)) {
-        seen.add(key)
-        dedup.push(m)
-      }
-    }
-    return dedup
-  } catch {
-    return []
   }
 }
 
@@ -210,8 +206,14 @@ function esNoLeido(m, myId) {
 export default function MensajesPage() {
   useAuthGuard()
   const router = useRouter()
+  const session = useSessionContext()
+  const cachedProfile = useMemo(() => getCachedSessionProfileData(), [])
+  const sessionBootstrapProfile = useMemo(
+    () => cachedProfile || buildMeFromSession(session),
+    [cachedProfile, session]
+  )
 
-  const [me, setMe] = useState(null)
+  const [me, setMe] = useState(() => sessionBootstrapProfile)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [buscar, setBuscar] = useState("")
@@ -250,70 +252,72 @@ export default function MensajesPage() {
   const [destinatariosDoc, setDestinatariosDoc] = useState([])
   const [alumnoDestType, setAlumnoDestType] = useState("")
   const myId = me?.id ?? me?.user?.id
+  const mensajesScopeKey = useMemo(
+    () => `${session?.username || me?.username || "anon"}:${session?.school?.id || "default"}`,
+    [me?.username, session?.school?.id, session?.username]
+  )
+  const inboxCacheKey = useMemo(
+    () => `mensajes-inbox:${mensajesScopeKey}`,
+    [mensajesScopeKey]
+  )
 
   const unreadCount = useUnreadCount()
 
-  // ===== Loader único (mensajes + whoami) =====
+  useEffect(() => {
+    const sessionMe = sessionBootstrapProfile
+    if (sessionMe) {
+      setMe((prev) => ({ ...(prev || {}), ...sessionMe }))
+    }
+
+    const hasFullProfile = !!(sessionMe?.id ?? sessionMe?.user?.id)
+    if (hasFullProfile) {
+      return undefined
+    }
+
+    let alive = true
+    ;(async () => {
+      try {
+        const profile = await getSessionProfile()
+        if (alive && profile) setMe(profile)
+      } catch {
+        // ignore, the page can still work with session context
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [sessionBootstrapProfile])
+
+  // ===== Loader de mensajes =====
   useEffect(() => {
     let alive = true
     ;(async () => {
       try {
-        setLoading(true)
+        if (reloadTick === 0 && mensajes.length === 0) {
+          setLoading(true)
+        }
         setError("")
 
-        // whoami
-        try {
-          const r = await fetchJSON("/auth/whoami/")
-          if (alive && r.ok) setMe(r.data)
-        } catch {}
-
-        const candidates = ["/mensajes/recibidos/", "/mensajes/listar/"]
-
         let list = null
-        const tries = []
-        for (const u of candidates) {
-          try {
-            const r = await fetchJSON(u)
-            tries.push({ url: u, status: r.status, ok: r.ok })
-            if (!r.ok) continue
-            const arr = Array.isArray(r.data)
-              ? r.data
-              : Array.isArray(r.data?.results)
-              ? r.data.results
-              : Array.isArray(r.data?.mensajes)
-              ? r.data.mensajes
-              : null
-            if (arr) {
-              list = arr
-              break
-            }
-          } catch {
-            tries.push({ url: u, status: "ERR", ok: false })
-          }
-        }
-
-        if (!list) {
-          const ORIGIN = (API_BASE || "").replace(/\/?api\/?$/, "")
-          try {
-            const r = await fetch(`${ORIGIN}/ver_mensajes/`, {
-              credentials: "include",
-              headers: { Accept: "text/html" },
-            })
-            tries.push({
-              url: `${ORIGIN}/ver_mensajes/`,
-              status: r.status,
-              ok: r.ok,
-            })
-            if (r.ok) {
-              const html = await r.text()
-              list = parseMensajesHTML(html)
-            } else {
-              list = []
-            }
-          } catch {
-            tries.push({ url: `${ORIGIN}/ver_mensajes/`, status: "ERR", ok: false })
-            list = []
-          }
+        let tries = []
+        try {
+          const inbox = await loadMensajesResource(
+            inboxCacheKey,
+            async () => {
+              const url = "/api/mensajes/recibidos/"
+              const r = await fetchJSON(url)
+              return {
+                list: r.ok && Array.isArray(r.data) ? r.data : [],
+                traces: [{ url, status: r.status, ok: r.ok }],
+              }
+            },
+            { force: reloadTick > 0 }
+          )
+          list = Array.isArray(inbox?.list) ? inbox.list : null
+          tries = Array.isArray(inbox?.traces) ? inbox.traces : []
+        } catch {
+          tries = [{ url: "/api/mensajes/recibidos/", status: "ERR", ok: false }]
         }
 
         if (alive) {
@@ -330,14 +334,17 @@ export default function MensajesPage() {
     return () => {
       alive = false
     }
-  }, [reloadTick])
+  }, [inboxCacheKey, mensajes.length, reloadTick])
 
   // escuchar el evento global para refrescar cuando otro view cambie el inbox
   useEffect(() => {
-    const handler = () => setReloadTick((t) => t + 1)
+    const handler = () => {
+      invalidateMensajesResource(inboxCacheKey)
+      setReloadTick((t) => t + 1)
+    }
     window.addEventListener("inbox-changed", handler)
     return () => window.removeEventListener("inbox-changed", handler)
-  }, [])
+  }, [inboxCacheKey])
 
   const list = useMemo(() => {
     let arr = Array.isArray(mensajes) ? mensajes.slice() : []
@@ -360,7 +367,7 @@ export default function MensajesPage() {
 
   async function marcarTodoLeido() {
     try {
-      const r = await authFetch("/mensajes/marcar_todos_leidos/", { method: "POST" })
+      const r = await authFetch("/api/mensajes/marcar_todos_leidos/", { method: "POST" })
       if (r.ok) {
         setMensajes((prev) =>
           prev.map((x) => ({
@@ -369,6 +376,7 @@ export default function MensajesPage() {
             leido_en: x.leido_en || new Date().toISOString(),
           }))
         )
+        invalidateMensajesResource(inboxCacheKey)
         notifyInboxChanged()
         setReloadTick((t) => t + 1)
       }
@@ -395,10 +403,10 @@ export default function MensajesPage() {
     setDeleteError("")
 
     try {
-      let r = await authFetch(`/mensajes/${deleteTarget.id}/eliminar/`, { method: "DELETE" })
+      let r = await authFetch(`/api/mensajes/${deleteTarget.id}/eliminar/`, { method: "DELETE" })
 
       if (!r.ok) {
-        r = await authFetch(`/mensajes/${deleteTarget.id}/eliminar/`, { method: "POST" })
+        r = await authFetch(`/api/mensajes/${deleteTarget.id}/eliminar/`, { method: "POST" })
       }
 
       if (!r.ok) {
@@ -416,6 +424,7 @@ export default function MensajesPage() {
       setDeleteOpen(false)
       setDeleteTarget(null)
 
+      invalidateMensajesResource(inboxCacheKey)
       notifyInboxChanged()
     } catch (e) {
       setDeleteError(e?.message || "Error al eliminar el mensaje.")
@@ -444,7 +453,7 @@ export default function MensajesPage() {
         (hasLeidoEn && (m.leido_en === null || m.leido_en === undefined))
       if (hasFlags && isMine && isUnread && m?.id) {
         ;(async () => {
-          const r = await fetchJSON(`/mensajes/${m.id}/marcar_leido/`, { method: "POST" })
+          const r = await fetchJSON(`/api/mensajes/${m.id}/marcar_leido/`, { method: "POST" })
           if (r.ok) {
             setMensajes((prev) =>
               prev.map((x) =>
@@ -453,6 +462,7 @@ export default function MensajesPage() {
                   : x
               )
             )
+            invalidateMensajesResource(inboxCacheKey)
             notifyInboxChanged()
           }
         })()
@@ -470,21 +480,13 @@ export default function MensajesPage() {
     if (!msgSel.id) return
     setVerHiloLoading(true)
 
-    const candidates = [
-      `/mensajes/conversacion/${msgSel.id}/`,
-      `/mensajes/conversacion/${msgSel.id}`,
-    ]
-
     let tid = null
-    for (const url of candidates) {
-      try {
-        const r = await fetchJSON(url)
-        if (r.ok && r.data?.thread_id) {
-          tid = r.data.thread_id
-          break
-        }
-      } catch {}
-    }
+    try {
+      const r = await fetchJSON(`/api/mensajes/conversacion/${msgSel.id}/`)
+      if (r.ok && r.data?.thread_id) {
+        tid = r.data.thread_id
+      }
+    } catch {}
     setVerHiloLoading(false)
     if (tid) {
       setOpen(false)
@@ -533,7 +535,7 @@ export default function MensajesPage() {
       threadId = null
     for (const attempt of tries) {
       try {
-        const r = await fetchJSON("/mensajes/responder/", {
+        const r = await fetchJSON("/api/mensajes/responder/", {
           method: "POST",
           headers: attempt.headers,
           body: attempt.body,
@@ -551,6 +553,7 @@ export default function MensajesPage() {
 
     if (ok) {
       setReplyOk("✅ Respuesta enviada.")
+      invalidateMensajesResource(inboxCacheKey)
       notifyInboxChanged()
       setTimeout(() => {
         setOpen(false)
@@ -577,8 +580,6 @@ export default function MensajesPage() {
 
   const groups = Array.isArray(me?.groups)
     ? me.groups
-    : Array.isArray(me?.grupos)
-    ? me.grupos
     : []
   const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
   const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
@@ -596,8 +597,12 @@ export default function MensajesPage() {
     !error &&
     (Array.isArray(list) ? list.length : 0) === 0
 
-  const cursoChip = (msgSel?.curso_asociado || msgSel?.curso || "").toString().trim()
-  const cursoSugeridoAlumno = me?.alumno?.curso || me?.curso || me?.user?.alumno?.curso || ""
+  const cursoChip = getCourseDisplayName(msgSel)
+  const cursoSugeridoAlumnoId = useMemo(() => {
+    const schoolCourseId = me?.alumno?.school_course_id ?? null
+    if (schoolCourseId != null) return Number(schoolCourseId)
+    return null
+  }, [me])
 
   useEffect(() => {
     if (!openAlumnoMsg) return
@@ -606,20 +611,19 @@ export default function MensajesPage() {
     setAlumnoMsgErr("")
     ;(async () => {
       try {
-        const base = "/mensajes/destinatarios_docentes/"
-        const withCurso = cursoSugeridoAlumno
-          ? `${base}?curso=${encodeURIComponent(cursoSugeridoAlumno)}`
-          : base
-        const fallbacks = [withCurso, base, "/api/mensajes/destinatarios_docentes/"]
+        const base = "/api/mensajes/destinatarios_docentes/"
+        const courseQuery =
+          cursoSugeridoAlumnoId != null
+            ? `school_course_id=${encodeURIComponent(String(cursoSugeridoAlumnoId))}`
+            : ""
+        const url = courseQuery ? `${base}?${courseQuery}` : base
         let data = null
-        for (const url of fallbacks) {
-          try {
-            const r = await authFetch(url, { headers: { Accept: "application/json" } })
-            if (!r.ok) continue
+        try {
+          const r = await authFetch(url, { headers: { Accept: "application/json" } })
+          if (r.ok) {
             data = await r.json().catch(() => ({}))
-            break
-          } catch {}
-        }
+          }
+        } catch {}
 
         let list = []
         if (Array.isArray(data?.profesores) || Array.isArray(data?.preceptores)) {
@@ -664,7 +668,7 @@ export default function MensajesPage() {
     return () => {
       alive = false
     }
-  }, [openAlumnoMsg, cursoSugeridoAlumno, alumnoDestType, destSel])
+  }, [openAlumnoMsg, cursoSugeridoAlumnoId, alumnoDestType, destSel])
 
   return (
     <div className="space-y-6">
@@ -743,21 +747,29 @@ export default function MensajesPage() {
                       }
                     }}
                     className={[
-                      "w-full text-left py-3 -mx-2 px-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
-                      esNoLeido(m, myId)
-                        ? "bg-[#eaf1ff] hover:bg-[#eaf1ff]/90"
-                        : "hover:bg-gray-50",
+                      "w-full text-left py-3 -mx-2 px-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)]",
+                      esNoLeido(m, myId) ? "" : "hover:bg-[#f6f9ff]",
                     ].join(" ")}
+                    style={
+                      {
+                        backgroundColor: esNoLeido(m, myId)
+                          ? "#dce7f8"
+                          : "#ffffff",
+                      }
+                    }
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-semibold flex-shrink-0">
+                      <div className="w-10 h-10 rounded-full school-primary-soft-icon flex items-center justify-center font-semibold flex-shrink-0">
                         {initials(m.emisor)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-baseline justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             {esNoLeido(m, myId) && (
-                              <span className="inline-block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                              <span
+                                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: "var(--school-accent)" }}
+                              />
                             )}
                             <div
                               className={`truncate ${
@@ -824,7 +836,7 @@ export default function MensajesPage() {
                   setAlumnoDestType("profesor")
                   setTimeout(() => setOpenAlumnoMsg(true), 0)
                 }}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">Profesores</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje a un profesor</div>
@@ -836,7 +848,7 @@ export default function MensajesPage() {
                   setAlumnoDestType("preceptor")
                   setTimeout(() => setOpenAlumnoMsg(true), 0)
                 }}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">Preceptores</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje a un preceptor</div>
@@ -851,7 +863,7 @@ export default function MensajesPage() {
                   setComposerMode("alumno")
                   setTimeout(() => setNewMsgOpen(true), 0)
                 }}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A un alumno</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje individual a un alumno</div>
@@ -863,7 +875,7 @@ export default function MensajesPage() {
                   setComposerMode("curso_alumnos")
                   setTimeout(() => setNewMsgOpen(true), 0)
                 }}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A un curso</div>
                 <div className="text-xs text-slate-500 mt-1">Mensaje grupal a un curso</div>
@@ -875,7 +887,7 @@ export default function MensajesPage() {
                   setComposerMode("familia")
                   setTimeout(() => setNewMsgOpen(true), 0)
                 }}
-                className="border rounded-xl p-4 text-left hover:border-blue-300 hover:bg-blue-50/60 transition"
+                className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A la familia</div>
                 <div className="text-xs text-slate-500 mt-1">Comunicado para padres o tutores</div>
@@ -889,13 +901,15 @@ export default function MensajesPage() {
         </DialogContent>
       </Dialog>
 
-      <ComposeComunicadoFamilia
-        open={newMsgOpen}
-        onOpenChange={setNewMsgOpen}
-        cursosEndpoint={cursosEndpoint}
-        defaultMode={composerMode}
-        showModeSelect={false}
-      />
+      {newMsgOpen ? (
+        <ComposeComunicadoFamilia
+          open={newMsgOpen}
+          onOpenChange={setNewMsgOpen}
+          cursosEndpoint={cursosEndpoint}
+          defaultMode={composerMode}
+          showModeSelect={false}
+        />
+      ) : null}
 
       {/* ====== Modal alumno -> docentes/preceptores ====== */}
       <Dialog open={openAlumnoMsg} onOpenChange={setOpenAlumnoMsg}>
@@ -975,19 +989,17 @@ export default function MensajesPage() {
                 setAlumnoMsgErr("")
                 setAlumnoMsgOk("")
 
-                const cursoSugerido =
-                  me?.alumno?.curso || me?.curso || me?.user?.alumno?.curso || ""
                 const payload = {
                   receptor_id: Number(destSel),
                   asunto: asuntoAlu.trim(),
                   contenido: contenidoAlu.trim(),
-                  ...(cursoSugerido ? { curso: cursoSugerido } : {}),
+                  ...(cursoSugeridoAlumnoId != null
+                    ? { school_course_id: cursoSugeridoAlumnoId }
+                    : {}),
                 }
 
                 const tries = [
-                  "/mensajes/alumno/enviar/",
                   "/api/mensajes/alumno/enviar/",
-                  "/mensajes/enviar/",
                   "/api/mensajes/enviar/",
                 ]
 
@@ -1041,9 +1053,9 @@ export default function MensajesPage() {
               {collapseRePrefix(msgSel?.asunto) || "Mensaje"}
             </DialogTitle>
 
-            <DialogDescription className="mt-3">
+            <DialogDescription asChild className="mt-3">
               <div className="flex flex-wrap items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-50 border flex items-center justify-center font-semibold text-blue-800">
+                <div className="w-10 h-10 rounded-full border school-primary-soft-icon flex items-center justify-center font-semibold">
                   {initials(msgSel?.emisor)}
                 </div>
 
@@ -1212,15 +1224,21 @@ export default function MensajesPage() {
 
 /* ======================== Topbar ======================== */
 function Topbar({ userLabel, unreadCount }) {
+  const session = useSessionContext()
+  const school = session?.school
+  const logoUrl = school?.logo_url || LOGO_SRC
+  const schoolName = school?.short_name || school?.name || "Colegio"
+  const headerStyle = school?.primary_color ? { backgroundColor: school.primary_color } : undefined
+
   return (
-    <div className="bg-blue-600 text-white px-6 py-4">
+    <div className="text-white px-6 py-4" style={headerStyle}>
       <div className="flex items-center justify-between max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="inline-flex">
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
               <img
-                src={LOGO_SRC}
-                alt="Escuela Tecnova"
+                src={logoUrl}
+                alt={schoolName}
                 className="h-full w-full object-contain"
               />
             </div>
@@ -1230,7 +1248,7 @@ function Topbar({ userLabel, unreadCount }) {
 
         <div className="flex items-center gap-4">
           <Link href="/dashboard">
-            <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+            <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
               <ChevronLeft className="h-4 w-4" />
               Volver al panel
             </Button>
@@ -1242,7 +1260,7 @@ function Topbar({ userLabel, unreadCount }) {
           {/* Mail con badge */}
           <div className="relative">
             <Link href="/mensajes">
-              <Button variant="ghost" size="icon" className="text-white hover:bg-blue-700">
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/15">
                 <Mail className="h-5 w-5" />
               </Button>
             </Link>
@@ -1255,7 +1273,7 @@ function Topbar({ userLabel, unreadCount }) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+              <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
                 <User className="h-4 w-4" />
                 {userLabel}
                 <ChevronDown className="h-4 w-4" />

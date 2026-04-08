@@ -8,14 +8,16 @@ from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
-from .models import Alumno, Nota
-from .serializers import NotaPublicSerializer
 from .contexto import resolve_alumno_for_user
+from .course_access import course_ref_matches, get_assignment_course_refs
+from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
+from .models import Alumno, Nota
+from .schools import get_request_school, scope_queryset_to_school
+from .serializers import NotaPublicSerializer
+from .user_groups import get_user_group_names
 
 try:
-    # Si existen los modelos reales de preceptor/profesor → cursos
     from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
 except Exception:
     PreceptorCurso = None
@@ -30,103 +32,99 @@ def _has_model_field(model, name: str) -> bool:
         return False
 
 
-def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
-    """
-    Permite acceso a un preceptor SOLO si el curso del alumno está asignado a ese preceptor.
+def _alumno_base_qs(*, school=None):
+    return scope_queryset_to_school(
+        Alumno.objects.select_related("school", "school_course"),
+        school,
+    )
 
-    - Requiere que exista el modelo PreceptorCurso (si no existe, se deniega para evitar abrir acceso).
-    - Intenta varias convenciones de nombre de FK al user para ser robusto.
-    """
-    if PreceptorCurso is None:
-        return False
 
-    # Si Alumno no tuviera "curso", no podemos chequear nada => denegamos.
-    curso_alumno = getattr(alumno, "curso", None)
-    if not curso_alumno:
-        return False
+def _nota_course_refs_for_user(user, *, school=None, role: str = ""):
+    school_id = getattr(school, "id", None) or 0
+    cache_attr = "_cached_nota_course_refs_by_scope"
+    cache_key = (str(role or "").strip().lower(), school_id)
+    cached = getattr(user, cache_attr, None)
+    if isinstance(cached, dict) and cache_key in cached:
+        return list(cached[cache_key])
 
-    # Intentos comunes de nombre de campo en PreceptorCurso
-    possible_user_fields = ["preceptor", "usuario", "user", "remitente", "docente"]
-    possible_curso_fields = ["curso", "curso_id", "curso_codigo", "curso_nombre"]
+    refs = []
+    model = None
+    user_field = ""
+    if cache_key[0] == "preceptor":
+        model = PreceptorCurso
+        user_field = "preceptor"
+    elif cache_key[0] == "profesor":
+        model = ProfesorCurso
+        user_field = "profesor"
 
-    # Primero: intentamos el caso más probable: preceptor + curso
+    if model is not None and user_field:
+        try:
+            qs = scope_queryset_to_school(model.objects.filter(**{user_field: user}), school)
+            refs = get_assignment_course_refs(qs)
+        except Exception:
+            refs = []
+
     try:
-        return PreceptorCurso.objects.filter(preceptor=user, curso=curso_alumno).exists()
+        if not isinstance(cached, dict):
+            cached = {}
+        cached[cache_key] = tuple(refs)
+        setattr(user, cache_attr, cached)
     except Exception:
         pass
 
-    # Segundo: intentamos combinaciones posibles de nombres de campo
-    for uf in possible_user_fields:
-        for cf in possible_curso_fields:
-            try:
-                kwargs = {uf: user, cf: curso_alumno}
-                if PreceptorCurso.objects.filter(**kwargs).exists():
-                    return True
-            except Exception:
-                continue
-
-    return False
+    return refs
 
 
-def _profesor_cursos_asignados(user) -> list[str]:
-    if ProfesorCurso is None:
-        return []
+def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
+    if PreceptorCurso is None:
+        return False
+
     try:
-        return list(
-            ProfesorCurso.objects.filter(profesor=user)
-            .values_list("curso", flat=True)
-            .distinct()
-        )
+        school_ref = getattr(alumno, "school", None)
+        refs = _nota_course_refs_for_user(user, school=school_ref, role="preceptor")
+        return course_ref_matches(refs, obj=alumno)
     except Exception:
-        return []
+        return False
 
 
 def _profesor_can_access_alumno(user, alumno: Alumno) -> bool:
-    curso_alumno = getattr(alumno, "curso", None)
-    if not curso_alumno:
+    if ProfesorCurso is None:
         return False
 
-    asignados = _profesor_cursos_asignados(user)
-    if not asignados:
-        return True
-    return curso_alumno in set(asignados)
+    try:
+        school_ref = getattr(alumno, "school", None)
+        refs = _nota_course_refs_for_user(user, school=school_ref, role="profesor")
+        return course_ref_matches(refs, obj=alumno)
+    except Exception:
+        return False
 
 
 def _authorize_alumno(request, alumno: Alumno) -> bool:
-    """
-    Autorización básica:
-    - superuser
-    - Profesores
-    - Preceptores (SOLO si el alumno es de un curso asignado)
-    - Padre del alumno
-    - El propio alumno vinculado (Alumno.usuario)
-    """
     user = request.user
 
     if getattr(user, "is_superuser", False):
         return True
 
-    if user.groups.filter(name__in=["Directivos", "Directivo"]).exists():
+    group_names = set(get_user_group_names(user))
+
+    if group_names.intersection({"Directivos", "Directivo"}):
         return True
 
-    if user.groups.filter(name="Profesores").exists():
+    if "Profesores" in group_names:
         return _profesor_can_access_alumno(user, alumno)
 
-    # Preceptores con restricción por curso
-    if user.groups.filter(name="Preceptores").exists():
+    if "Preceptores" in group_names:
         return _preceptor_can_access_alumno(user, alumno)
 
     if getattr(alumno, "padre_id", None) == user.id:
         return True
 
-    # Alumno propio: 1) vínculo explícito Alumno.usuario (si existe)
-    #               2) fallback robusto (username==legajo, etc.)
     if getattr(alumno, "usuario_id", None) == user.id:
         return True
 
     try:
-        r = resolve_alumno_for_user(user)
-        if r.alumno and r.alumno.id == alumno.id:
+        resolved = resolve_alumno_for_user(user, school=getattr(alumno, "school", None))
+        if resolved.alumno and resolved.alumno.id == alumno.id:
             return True
     except Exception:
         pass
@@ -135,9 +133,8 @@ def _authorize_alumno(request, alumno: Alumno) -> bool:
 
 
 def _notas_response(alumno: Alumno):
-    qs = Nota.objects.filter(alumno=alumno)
+    qs = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), getattr(alumno, "school", None))
 
-    # Orden consistente: por cuatrimestre y, si existe, por fecha
     if _has_model_field(Nota, "fecha"):
         qs = qs.order_by("cuatrimestre", "fecha", "materia")
     else:
@@ -160,37 +157,24 @@ def _authorize_padre_or_admin(request, alumno: Alumno) -> bool:
 
 
 def _get_alumno_from_query_params(request) -> Optional[Alumno]:
-    """
-    Soporta estas variantes:
-    - ?alumno=<pk>              (compat con tu frontend/logs)
-    - ?alumno=<id_alumno>       (si no es dígito, se toma como legajo/código)
-    - ?alumno_id=<pk>
-    - ?id_alumno=<código>
-
-    Devuelve Alumno o None si faltan params.
-    Lanza DoesNotExist si no existe (lo manejamos afuera).
-    """
     alumno_param = (request.GET.get("alumno") or "").strip()
     alumno_id = (request.GET.get("alumno_id") or "").strip()
     id_alumno = (request.GET.get("id_alumno") or "").strip()
+    active_school = get_request_school(request)
+    alumno_qs = _alumno_base_qs(school=active_school)
 
-    # Prioridad: alumno (nuevo compat)
     if alumno_param:
         if alumno_param.isdigit():
-            return Alumno.objects.get(pk=int(alumno_param))
-        # si no es dígito, lo tratamos como legajo/código
-        return Alumno.objects.get(id_alumno=str(alumno_param))
+            return alumno_qs.get(pk=int(alumno_param))
+        return alumno_qs.get(id_alumno=str(alumno_param))
 
-    # Legacy: id_alumno
     if id_alumno:
-        return Alumno.objects.get(id_alumno=str(id_alumno))
+        return alumno_qs.get(id_alumno=str(id_alumno))
 
-    # Legacy: alumno_id
     if alumno_id:
         if alumno_id.isdigit():
-            return Alumno.objects.get(pk=int(alumno_id))
-        # si vino algo raro, intentamos como id_alumno por las dudas
-        return Alumno.objects.get(id_alumno=str(alumno_id))
+            return alumno_qs.get(pk=int(alumno_id))
+        return alumno_qs.get(id_alumno=str(alumno_id))
 
     return None
 
@@ -199,21 +183,10 @@ def _get_alumno_from_query_params(request) -> Optional[Alumno]:
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notas_listar(request):
-    """
-    ✅ Compat:
-    GET /api/notas/?id_alumno=00001
-    GET /api/notas/?alumno_id=<pk>
-    ✅ NUEVO (por tus logs/frontend):
-    GET /api/notas/?alumno=<pk>
-    GET /api/notas/?alumno=<id_alumno>
-    """
     try:
         alumno = _get_alumno_from_query_params(request)
         if alumno is None:
-            return Response(
-                {"detail": "Falta alumno, alumno_id o id_alumno"},
-                status=400,
-            )
+            return Response({"detail": "Falta alumno, alumno_id o id_alumno"}, status=400)
     except Alumno.DoesNotExist:
         return Response({"detail": "Alumno no encontrado"}, status=404)
 
@@ -227,12 +200,9 @@ def notas_listar(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notas_por_codigo(request, id_alumno: str):
-    """
-    ✅ Compat legacy:
-    GET /api/notas/alumno_codigo/<id_alumno>/
-    """
+    active_school = get_request_school(request)
     try:
-        alumno = Alumno.objects.get(id_alumno=str(id_alumno))
+        alumno = _alumno_base_qs(school=active_school).get(id_alumno=str(id_alumno))
     except Alumno.DoesNotExist:
         return Response({"detail": "Alumno no encontrado"}, status=404)
 
@@ -246,8 +216,12 @@ def notas_por_codigo(request, id_alumno: str):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def firmar_nota(request, pk: int):
+    active_school = get_request_school(request)
     try:
-        nota = Nota.objects.select_related("alumno").get(pk=pk)
+        nota = scope_queryset_to_school(
+            Nota.objects.select_related("alumno"),
+            active_school,
+        ).get(pk=pk)
     except Nota.DoesNotExist:
         return Response({"detail": "Nota no encontrada"}, status=404)
 

@@ -22,8 +22,7 @@ type MensajeLike = {
   remitente?: string
   fecha_envio?: string
   fecha?: string
-  curso?: string
-  curso_asociado?: string
+  school_course_name?: string
 }
 
 type Props = {
@@ -84,7 +83,8 @@ export default function MensajeDialog({
   const contenido = mensaje?.contenido || mensaje?.body || "—"
   const emisor = mensaje?.emisor || mensaje?.remitente || "—"
   const fecha = mensaje?.fecha || mensaje?.fecha_envio || ""
-  const curso = mensaje?.curso || mensaje?.curso_asociado || ""
+  const curso =
+    mensaje?.school_course_name || ""
 
   const initials = initialsFromName(emisor)
   const prettyFecha = formatDate(fecha)
@@ -98,7 +98,7 @@ export default function MensajeDialog({
             {asunto}
           </DialogTitle>
 
-          <DialogDescription className="mt-3">
+          <DialogDescription asChild className="mt-3">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-white border shadow-sm flex items-center justify-center text-sm font-semibold text-gray-800">
                 {initials}

@@ -11,22 +11,73 @@ import {
   GraduationCap,
   Home,
   LogOut,
-  MessageSquare,
-  PanelsTopLeft,
   Menu,
+  MessageSquare,
+  NotebookText,
+  PanelsTopLeft,
   Shield,
   User,
-  Users,
-  NotebookText,
   CheckSquare,
 } from "lucide-react"
 
 import { NotificationBell } from "@/components/notification-bell"
 import { cn } from "@/_lib/utils"
-import { getPreviewRole } from "@/app/_lib/auth"
+import {
+  DEFAULT_SCHOOL_ACCENT_COLOR,
+  DEFAULT_SCHOOL_LOGO_URL,
+  DEFAULT_SCHOOL_PRIMARY_COLOR,
+  getPreviewRole,
+  logout,
+  selectSessionSchool,
+} from "@/app/_lib/auth"
 import { useUnreadMessages } from "@/app/_lib/useUnreadMessages"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
-const LOGO_SRC = "/imagenes/tecnova(1).png"
+const TECNOVA_SIDEBAR_LOGO_URL = "/imagenes/tecnova(1).png"
+
+function normalizeHexColor(value, fallback) {
+  const raw = String(value || "").trim()
+  return /^#[0-9a-fA-F]{6}$/.test(raw) ? raw.toLowerCase() : fallback
+}
+
+function resolveSidebarLogoUrl(school) {
+  const rawLogo = String(school?.logo_url || "").trim()
+  const schoolName = String(school?.name || school?.short_name || school?.slug || "").toLowerCase()
+  const normalizedLogo = rawLogo.toLowerCase()
+  const looksLikeGenericAlumnixLogo =
+    normalizedLogo.includes("alumnix") ||
+    normalizedLogo === String(DEFAULT_SCHOOL_LOGO_URL).toLowerCase()
+  const isTecnova = schoolName.includes("itnova") || schoolName.includes("tecnova")
+
+  if (rawLogo && !looksLikeGenericAlumnixLogo) return rawLogo
+  if (isTecnova) return TECNOVA_SIDEBAR_LOGO_URL
+  return DEFAULT_SCHOOL_LOGO_URL
+}
+
+function hexToRgba(hexColor, alpha) {
+  const normalized = normalizeHexColor(hexColor, DEFAULT_SCHOOL_PRIMARY_COLOR).replace("#", "")
+  const red = Number.parseInt(normalized.slice(0, 2), 16)
+  const green = Number.parseInt(normalized.slice(2, 4), 16)
+  const blue = Number.parseInt(normalized.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+function darkenHexColor(hexColor, factor = 0.14) {
+  const normalized = normalizeHexColor(hexColor, DEFAULT_SCHOOL_PRIMARY_COLOR).replace("#", "")
+  const clamp = (value) => Math.max(0, Math.min(255, value))
+  const scale = 1 - Math.max(0, Math.min(0.95, factor))
+  const red = clamp(Math.round(Number.parseInt(normalized.slice(0, 2), 16) * scale))
+  const green = clamp(Math.round(Number.parseInt(normalized.slice(2, 4), 16) * scale))
+  const blue = clamp(Math.round(Number.parseInt(normalized.slice(4, 6), 16) * scale))
+  return `#${[red, green, blue].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`
+}
+
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Inicio", icon: Home, public: true },
   {
@@ -92,13 +143,15 @@ const NAV_ITEMS = [
 export function AppShell({
   title = "",
   subtitle = "",
-  icon = <PanelsTopLeft className="w-5 h-5 text-indigo-500" />,
+  icon = <PanelsTopLeft className="w-5 h-5" />,
   actions = null,
   headerContent = null,
   userLabel = "",
   roles = [],
   rolesReady = false,
   isSuper = false,
+  school = null,
+  availableSchools = [],
   hideHeader = false,
   unreadMessages,
   hideSidebar = false,
@@ -108,10 +161,12 @@ export function AppShell({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [switchingSchool, setSwitchingSchool] = useState(false)
 
   useEffect(() => {
     setSidebarOpen(false)
   }, [pathname])
+
   const fromParam = searchParams.get("from")
   const hideHeaderFromParams =
     pathname?.startsWith("/alumnos") &&
@@ -120,7 +175,7 @@ export function AppShell({
   const adminOnlyMode = useMemo(() => isSuper && !getPreviewRole(), [isSuper])
   const roleSet = useMemo(() => {
     if (!Array.isArray(roles)) return new Set()
-    return new Set(roles.map((r) => String(r || "").toLowerCase()).filter(Boolean))
+    return new Set(roles.map((role) => String(role || "").toLowerCase()).filter(Boolean))
   }, [roles])
   const roleLabel = useMemo(() => {
     if (roleSet.has("padres")) return "Padre"
@@ -130,6 +185,46 @@ export function AppShell({
     if (roleSet.has("alumnos")) return "Alumno"
     return isSuper ? "Administrador" : ""
   }, [roleSet, isSuper])
+  const schoolName = useMemo(() => {
+    const name = String(school?.name || "").trim()
+    return name || ""
+  }, [school])
+  const schoolShortName = useMemo(() => {
+    const value = String(school?.short_name || "").trim()
+    return value || schoolName
+  }, [school, schoolName])
+  const schoolLogo = useMemo(() => {
+    return resolveSidebarLogoUrl(school)
+  }, [school])
+  const brandStyle = useMemo(() => {
+    const primary = normalizeHexColor(school?.primary_color, DEFAULT_SCHOOL_PRIMARY_COLOR)
+    const accent = normalizeHexColor(school?.accent_color, DEFAULT_SCHOOL_ACCENT_COLOR)
+    return {
+      "--school-primary": primary,
+      "--school-primary-hover": darkenHexColor(primary, 0.14),
+      "--school-primary-soft": hexToRgba(primary, 0.12),
+      "--school-primary-soft-strong": hexToRgba(primary, 0.2),
+      "--school-primary-border": hexToRgba(primary, 0.24),
+      "--school-accent": accent,
+      "--school-accent-soft": hexToRgba(accent, 0.14),
+      "--school-accent-soft-strong": hexToRgba(accent, 0.2),
+    }
+  }, [school])
+  const showSchoolSwitcher = useMemo(
+    () => !!isSuper && Array.isArray(availableSchools) && availableSchools.length > 1,
+    [availableSchools, isSuper]
+  )
+  const selectedSchoolValue = useMemo(() => {
+    if (!school) return ""
+    if (school.slug) return `slug:${school.slug}`
+    if (school.id != null) return `id:${school.id}`
+    return ""
+  }, [school])
+  const sidebarEyebrow = adminOnlyMode ? "Colegio activo" : "Escuela"
+  const sidebarTitle = schoolShortName || schoolName || "Comunicaciones"
+  const sidebarSubtitle =
+    adminOnlyMode && schoolName && schoolShortName !== schoolName ? schoolName : ""
+  const showSidebarSlug = adminOnlyMode && school?.slug
   const hideHeaderForPadrePerfil =
     rolesReady && pathname?.startsWith("/perfil") && roleSet.has("padres")
   const hideHeaderForAlumnoDetail =
@@ -161,10 +256,19 @@ export function AppShell({
   }, [pathname, fromParam])
 
   const handleLogout = () => {
-    try {
-      localStorage.clear()
-    } catch {}
-    window.location.href = "/login"
+    logout()
+  }
+
+  const handleSchoolChange = (value) => {
+    if (!value || value === selectedSchoolValue || switchingSchool) return
+    const nextContext = selectSessionSchool(value)
+    if (!nextContext) return
+
+    setSwitchingSchool(true)
+    if (typeof window !== "undefined") {
+      const href = `${window.location.pathname || ""}${window.location.search || ""}${window.location.hash || ""}`
+      window.location.assign(href || "/admin")
+    }
   }
 
   const messageBadge =
@@ -180,24 +284,38 @@ export function AppShell({
         hideSidebar && "app-shell--no-sidebar",
         sidebarOpen && "app-shell--sidebar-open"
       )}
+      style={brandStyle}
     >
       {!hideSidebar && (
         <aside className={cn("app-sidebar", sidebarOpen && "app-sidebar--open")}>
           <div className="sidebar-top">
             <Link href={adminOnlyMode ? "/admin" : "/dashboard"} className="sidebar-brand" prefetch>
               <div className="sidebar-logo">
-                <img src={LOGO_SRC} alt="Escuela Tecnova" className="h-full w-full object-contain" />
+                <img
+                  src={schoolLogo}
+                  alt={schoolName ? `Logo de ${schoolName}` : "Logo del colegio"}
+                  className="h-full w-full object-contain"
+                  onError={(event) => {
+                    if (event.currentTarget.dataset.fallbackApplied) return
+                    event.currentTarget.dataset.fallbackApplied = "1"
+                    event.currentTarget.src = DEFAULT_SCHOOL_LOGO_URL
+                  }}
+                />
               </div>
               <div>
-                <p className="text-xs text-slate-300 leading-tight">Escuela</p>
-                <p className="text-sm font-semibold text-white leading-tight">Tecnova</p>
+                <p className="text-xs text-slate-300 leading-tight">{sidebarEyebrow}</p>
+                <p className="text-sm font-semibold text-white leading-tight">{sidebarTitle}</p>
+                {sidebarSubtitle ? (
+                  <p className="text-[11px] text-slate-400 leading-tight">{sidebarSubtitle}</p>
+                ) : null}
+                {showSidebarSlug ? (
+                  <p className="text-[11px] text-slate-400 leading-tight">{school.slug}</p>
+                ) : null}
               </div>
             </Link>
-            {!adminOnlyMode ? (
-              <div className="sidebar-bell">
-                <NotificationBell />
-              </div>
-            ) : null}
+            <div className="sidebar-bell">
+              <NotificationBell />
+            </div>
           </div>
 
           <nav className="sidebar-nav">
@@ -213,9 +331,9 @@ export function AppShell({
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.label}</span>
-                  {item.href === "/mensajes" && !adminOnlyMode && messageBadge > 0 && (
+                  {item.href === "/mensajes" && !adminOnlyMode && messageBadge > 0 ? (
                     <span className="sidebar-pill">{messageBadge > 99 ? "99+" : messageBadge}</span>
-                  )}
+                  ) : null}
                 </Link>
               )
             })}
@@ -225,10 +343,15 @@ export function AppShell({
             <div className="sidebar-user">
               <div className="sidebar-avatar">{(userLabel || "User").slice(0, 2)}</div>
               <div>
-                <p className="text-sm font-semibold text-white leading-tight">{userLabel || "Sesion"}</p>
+                <p className="text-sm font-semibold text-white leading-tight">
+                  {userLabel || "Sesion"}
+                </p>
                 <p className="text-xs text-slate-300 leading-tight">
                   {roleLabel || "Conectado"}
                 </p>
+                {adminOnlyMode && schoolName ? (
+                  <p className="text-[11px] text-slate-400 leading-tight">{schoolName}</p>
+                ) : null}
               </div>
             </div>
             <button type="button" className="sidebar-logout" onClick={handleLogout}>
@@ -246,12 +369,17 @@ export function AppShell({
               <button
                 type="button"
                 className="app-icon-button"
-                onClick={() => setSidebarOpen((v) => !v)}
+                onClick={() => setSidebarOpen((value) => !value)}
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <div className="text-sm text-slate-600">
-                {userLabel ? `Hola, ${userLabel}` : "Menú"}
+              <div className="text-right">
+                <div className="text-sm text-slate-600">
+                  {schoolName || (userLabel ? `Hola, ${userLabel}` : "Menu")}
+                </div>
+                {schoolName && userLabel ? (
+                  <div className="text-xs text-slate-500">{userLabel}</div>
+                ) : null}
               </div>
             </div>
           )}
@@ -266,7 +394,36 @@ export function AppShell({
                   </div>
                 </div>
 
-                <div className="app-header-actions">{actions}</div>
+                <div className="app-header-actions flex flex-wrap items-center gap-3">
+                  {showSchoolSwitcher ? (
+                    <div className="min-w-[220px]">
+                      <Select
+                        value={selectedSchoolValue}
+                        onValueChange={handleSchoolChange}
+                        disabled={switchingSchool}
+                      >
+                        <SelectTrigger className="bg-white" size="sm" aria-label="Cambiar colegio activo">
+                          <SelectValue placeholder="Elegir colegio" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableSchools.map((item) => {
+                            const value = item?.slug ? `slug:${item.slug}` : `id:${item.id}`
+                            return (
+                              <SelectItem key={value} value={value}>
+                                {item.name}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : adminOnlyMode && schoolName ? (
+                    <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                      {schoolName}
+                    </span>
+                  ) : null}
+                  {actions}
+                </div>
               </div>
 
               {headerContent}
@@ -279,6 +436,3 @@ export function AppShell({
     </div>
   )
 }
-
-
-

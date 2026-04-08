@@ -1,7 +1,7 @@
 # calificaciones/management/commands/import_preceptor_cursos_from_groups.py
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from calificaciones.models import Alumno
+from calificaciones.models import Alumno, School
 from calificaciones.models_preceptores import PreceptorCurso
 
 User = get_user_model()
@@ -12,12 +12,26 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         codigos_validos = set(c for (c, _) in Alumno.CURSOS)
         creados, ya_estaban = 0, 0
+        schools = list(School.objects.filter(is_active=True).order_by("id")[:2])
+        target_school = schools[0] if len(schools) == 1 else None
+
+        if target_school is None:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Se omitio la importacion: hace falta indicar el colegio en un entorno con multiples colegios."
+                )
+            )
+            return
 
         for u in User.objects.all():
             grupos = set(u.groups.values_list("name", flat=True))
             cursos = grupos & codigos_validos
             for c in cursos:
-                obj, created = PreceptorCurso.objects.get_or_create(preceptor=u, curso=c)
+                obj, created = PreceptorCurso.objects.get_or_create(
+                    preceptor=u,
+                    school=target_school,
+                    curso=c,
+                )
                 if created:
                     creados += 1
                 else:

@@ -24,9 +24,19 @@ from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
+from .course_access import (
+    build_course_ref,
+    build_course_membership_q,
+    course_ref_matches,
+    get_assignment_course_refs,
+)
+from .contexto import resolve_alumno_for_user
 from .models import Alumno, Asistencia, Notificacion
-from .utils_cursos import filtrar_cursos_validos
+from .models import resolve_school_course_for_value
+from .utils_cursos import get_course_label, get_school_course_choices, resolve_course_reference
 from .alerts_inasistencias import evaluar_alertas_inasistencia_por_alumnos, evaluar_alerta_inasistencia
+from .schools import get_request_school, scope_queryset_to_school
+from .user_groups import get_user_group_names, user_in_groups
 
 try:
     # Si existen los modelos reales de preceptor/profesor → cursos
@@ -36,26 +46,34 @@ except Exception:
     ProfesorCurso = None
 
 
+LEGACY_COURSE_DEPRECATED_DETAIL = "El parámetro 'curso' está deprecado en este endpoint. Usa school_course_id."
+
+
 # =========================================================
 # Roles / permisos
 # =========================================================
 def _user_in_group(user, *names: str) -> bool:
     """True si el usuario pertenece a alguno de los grupos indicados."""
-    try:
-        wanted = {str(n).strip() for n in names if str(n).strip()}
-        if not wanted:
-            return False
-        user_groups = {g.name.strip() for g in user.groups.all()}
-        return bool(wanted.intersection(user_groups))
-    except Exception:
-        return False
+    return user_in_groups(user, *names)
+
+
+def _is_directivo_user(user) -> bool:
+    return _user_in_group(user, "Directivos", "Directivo")
+
+
+def _is_preceptor_user(user) -> bool:
+    return _user_in_group(user, "Preceptores", "Preceptor")
+
+
+def _is_profesor_user(user) -> bool:
+    return _user_in_group(user, "Profesores", "Profesor")
 
 
 def _can_justify(user) -> bool:
-    """Preceptores (y superuser/staff) pueden justificar."""
-    if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+    """Preceptores, directivos y superuser pueden justificar."""
+    if getattr(user, "is_superuser", False) or _is_directivo_user(user):
         return True
-    return _user_in_group(user, "Preceptores", "Preceptor")
+    return _is_preceptor_user(user)
 
 
 def _can_sign_asistencia(user, alumno: Alumno) -> bool:
@@ -67,7 +85,9 @@ def _can_sign_asistencia(user, alumno: Alumno) -> bool:
 def _can_edit_asistencia_detalle(user, alumno: Alumno) -> bool:
     if getattr(user, "is_superuser", False):
         return True
-    return _can_sign_asistencia(user, alumno)
+    if _is_directivo_user(user):
+        return True
+    return _is_preceptor_user(user)
 
 
 # =========================================================
@@ -79,6 +99,39 @@ def _has_model_field(model, name: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _alumno_base_qs(school=None):
+    return scope_queryset_to_school(
+        Alumno.objects.select_related("school", "school_course", "padre", "usuario"),
+        school,
+    )
+
+
+def _asistencia_base_qs(school=None):
+    return scope_queryset_to_school(
+        Asistencia.objects.select_related("alumno", "alumno__school_course"),
+        school,
+    )
+
+
+def _alumnos_por_curso_qs(curso: str, *, school=None, school_course=None):
+    curso = str(curso or "").strip()
+    if not curso:
+        return Alumno.objects.none()
+
+    resolved_school_course = school_course
+    if resolved_school_course is None and school is not None:
+        resolved_school_course = resolve_school_course_for_value(school=school, curso=curso)
+    course_q = build_course_membership_q(
+        school_course_id=getattr(resolved_school_course, "id", None),
+        course_code=curso,
+        school_course_field="school_course",
+        code_field="curso",
+    )
+    if course_q is None:
+        return Alumno.objects.none()
+    return _alumno_base_qs(school).filter(course_q)
 
 
 def _first_scalar(v: Any) -> Any:
@@ -170,11 +223,13 @@ def _resolver_destinatarios_notif(alumno: Alumno, legajo_user_map=None):
             pass
 
     _add(getattr(alumno, "padre", None))
-    _add(getattr(alumno, "usuario", None))
+    alumno_usuario = getattr(alumno, "usuario", None)
+    _add(alumno_usuario)
 
     try:
         legajo = (getattr(alumno, "id_alumno", "") or "").strip()
-        if legajo:
+        alumno_username = str(getattr(alumno_usuario, "username", "") or "").strip().lower()
+        if legajo and alumno_username != legajo.lower():
             if legajo_user_map is not None:
                 _add(legajo_user_map.get(legajo))
             else:
@@ -186,13 +241,13 @@ def _resolver_destinatarios_notif(alumno: Alumno, legajo_user_map=None):
     return destinatarios
 
 
-def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia: str, actor=None):
+def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia: str, actor=None, school=None):
     if not alumno_ids:
         return 0
     try:
-        qs = Alumno.objects.filter(id__in=alumno_ids).select_related("padre", "usuario")
+        qs = _alumno_base_qs(school).filter(id__in=alumno_ids)
     except Exception:
-        qs = Alumno.objects.filter(id__in=alumno_ids)
+        qs = scope_queryset_to_school(Alumno.objects.filter(id__in=alumno_ids), school)
 
     created = 0
     notifs = []
@@ -227,10 +282,11 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
         if not alumno_nombre:
             alumno_nombre = getattr(a, "nombre", "") or str(getattr(a, "id_alumno", "")) or "Alumno"
 
+        course_name = _school_course_name_for(alumno=a)
         titulo = f"Inasistencia registrada: {alumno_nombre}"
         desc_parts = [f"Alumno: {alumno_nombre}"]
-        if getattr(a, "curso", ""):
-            desc_parts.append(f"Curso: {a.curso}")
+        if course_name:
+            desc_parts.append(f"Curso: {course_name}")
         if tipo_label:
             desc_parts.append(f"Tipo: {tipo_label}")
         if fecha_str:
@@ -242,6 +298,7 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
         for dest in destinatarios:
             notifs.append(
                 Notificacion(
+                    school=getattr(a, "school", None) or school,
                     destinatario=dest,
                     tipo="inasistencia",
                     titulo=titulo,
@@ -251,7 +308,8 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
                     meta={
                         "alumno_id": getattr(a, "id", None),
                         "alumno_legajo": getattr(a, "id_alumno", None),
-                        "curso": getattr(a, "curso", ""),
+                        "school_course_id": getattr(a, "school_course_id", None),
+                        "school_course_name": course_name,
                         "fecha": fecha_str,
                         "tipo_asistencia": tipo_asistencia,
                     },
@@ -429,80 +487,133 @@ def _extract_items(payload: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def _cursos_choices() -> List[tuple[str, str]]:
-    base = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
-    return list(base)
+def _cursos_choices(school=None) -> List[tuple[str, str]]:
+    return list(get_school_course_choices(school=school))
 
 
 def _tipo_choices() -> List[tuple[str, str]]:
     return list(getattr(Asistencia, "TIPO_ASISTENCIA", []))
 
 
-def _curso_label(curso: str) -> str:
-    return dict(_cursos_choices()).get(curso, curso)
+def _curso_label(curso: str, school=None) -> str:
+    return get_course_label(curso, school=school)
 
 
 def _tipo_label(tipo_asistencia: str) -> str:
     return dict(_tipo_choices()).get(tipo_asistencia, tipo_asistencia)
 
 
-def obtener_curso_del_preceptor(usuario) -> Optional[str]:
-    """Fallback dev simple (si no existe PreceptorCurso)."""
-    cursos_por_usuario = {
-        "preceptor1": "1A",
-        "preceptor2": "3B",
-        "preceptor3": "5NAT",
+def _school_course_name_for(*, alumno: Alumno | None = None, school_course=None, curso: str = "", school=None) -> Optional[str]:
+    resolved_school_course = school_course or getattr(alumno, "school_course", None)
+    name = getattr(resolved_school_course, "name", None) or getattr(resolved_school_course, "code", None)
+    if name:
+        return str(name)
+    course_code = str(getattr(alumno, "curso", None) or curso or "").strip()
+    if course_code:
+        return _curso_label(course_code, school=school) or course_code
+    return None
+
+
+def _course_payload(*, alumno: Alumno | None = None, school_course=None, curso: str = "", school=None) -> Dict[str, Any]:
+    course_code = str(
+        getattr(school_course, "code", None)
+        or getattr(alumno, "curso", None)
+        or curso
+        or ""
+    ).strip()
+    course_id = getattr(school_course, "id", None)
+    if course_id is None:
+        course_id = getattr(alumno, "school_course_id", None)
+    return {
+        "curso": course_code or None,
+        "school_course_id": course_id,
+        "school_course_name": _school_course_name_for(
+            alumno=alumno,
+            school_course=school_course,
+            curso=course_code,
+            school=school,
+        ),
     }
-    return cursos_por_usuario.get(getattr(usuario, "username", ""), None)
 
 
-def _cursos_de_usuario(user) -> List[str]:
+def _public_course_payload(*, alumno: Alumno | None = None, school_course=None, curso: str = "", school=None) -> Dict[str, Any]:
+    return {
+        key: value
+        for key, value in _course_payload(
+            alumno=alumno,
+            school_course=school_course,
+            curso=curso,
+            school=school,
+        ).items()
+        if key != "curso"
+    }
+
+
+def _serialize_alumno_brief(alumno: Alumno, *, school=None) -> Dict[str, Any]:
+    item = {
+        "id": alumno.id,
+        "id_alumno": alumno.id_alumno,
+        "nombre": alumno.nombre,
+    }
+    item.update(_public_course_payload(alumno=alumno, school=school))
+    return item
+
+
+def _serialize_asistencia_item(obj: Asistencia, *, alumno: Alumno | None = None, curso: str = "", school=None) -> Dict[str, Any]:
+    alumno_obj = alumno or getattr(obj, "alumno", None)
+    item = {
+        "id": obj.id,
+        "alumno_id": getattr(alumno_obj, "id", None),
+        "id_alumno": getattr(alumno_obj, "id_alumno", None),
+        "fecha": str(obj.fecha),
+        "tipo_asistencia": obj.tipo_asistencia,
+        "tipo_label": _tipo_label(obj.tipo_asistencia),
+        "presente": bool(obj.presente),
+        "tarde": bool(getattr(obj, "tarde", False)),
+        "justificada": bool(getattr(obj, "justificada", False)),
+        "firmada": bool(getattr(obj, "firmada", False)),
+        "firmada_en": obj.firmada_en.isoformat() if getattr(obj, "firmada_en", None) else None,
+        "falta_valor": 0.0
+        if bool(getattr(obj, "justificada", False))
+        else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0)),
+        "observacion": getattr(obj, "observacion", "") or "",
+    }
+    item.update(
+        {
+            k: v
+            for k, v in _public_course_payload(alumno=alumno_obj, curso=curso, school=school).items()
+        }
+    )
+    return item
+
+
+def _cursos_de_usuario(user, school=None) -> List[str]:
     """Cursos permitidos para el usuario."""
-    todos = [c[0] for c in _cursos_choices()]
+    todos = [c[0] for c in _cursos_choices(school=school)]
 
-    if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+    if getattr(user, "is_superuser", False):
         return todos
 
-    try:
-        grupos = {g.name.strip() for g in user.groups.all()}
-        if "Directivos" in grupos or "Directivo" in grupos:
-            return todos
-    except Exception:
-        pass
+    if _is_directivo_user(user):
+        return todos
+
+    refs = _course_refs_de_usuario(user, school=school)
+    if refs:
+        asignados: List[str] = []
+        seen = set()
+        for curso in todos:
+            normalized = str(curso or "").strip().upper()
+            if not normalized or normalized in seen:
+                continue
+            if course_ref_matches(refs, school=school, course_code=normalized):
+                seen.add(normalized)
+                asignados.append(curso)
+        return asignados
 
     asignados: List[str] = []
-
-    if PreceptorCurso is not None:
-        try:
-            asignados = list(
-                PreceptorCurso.objects.filter(preceptor=user)
-                .values_list("curso", flat=True)
-                .distinct()
-            )
-        except Exception:
-            asignados = []
-
-    if ProfesorCurso is not None:
-        try:
-            asignados_prof = list(
-                ProfesorCurso.objects.filter(profesor=user)
-                .values_list("curso", flat=True)
-                .distinct()
-            )
-            asignados = list(set(asignados) | set(asignados_prof))
-        except Exception:
-            pass
-
-    if not asignados:
-        c = obtener_curso_del_preceptor(user)
-        if c:
-            asignados = [c]
-
     if not asignados:
         try:
-            grupos = {g.name.strip() for g in user.groups.all()}
-            if "Profesores" in grupos or "Profesor" in grupos:
-                return todos
+            grupos = set(get_user_group_names(user))
             asignados = [c for c in todos if c in grupos]
         except Exception:
             asignados = []
@@ -511,19 +622,120 @@ def _cursos_de_usuario(user) -> List[str]:
     return sorted([c for c in asignados if c in validos])
 
 
+def _course_refs_de_usuario(user, school=None):
+    if getattr(user, "is_superuser", False) or _is_directivo_user(user):
+        return []
+
+    school_id = getattr(school, "id", None) or 0
+    cached_refs_by_school = getattr(user, "_cached_course_refs_by_school", None)
+    if isinstance(cached_refs_by_school, dict) and school_id in cached_refs_by_school:
+        return list(cached_refs_by_school[school_id])
+
+    refs = []
+    groups = set(get_user_group_names(user))
+    has_explicit_groups = bool(groups)
+    include_preceptor = (not has_explicit_groups) or ("Preceptores" in groups) or ("Preceptor" in groups)
+    include_profesor = (not has_explicit_groups) or ("Profesores" in groups) or ("Profesor" in groups)
+
+    if include_preceptor and PreceptorCurso is not None:
+        try:
+            refs.extend(
+                get_assignment_course_refs(
+                    scope_queryset_to_school(PreceptorCurso.objects.filter(preceptor=user), school)
+                )
+            )
+        except Exception:
+            pass
+
+    if include_profesor and ProfesorCurso is not None:
+        try:
+            refs.extend(
+                get_assignment_course_refs(
+                    scope_queryset_to_school(ProfesorCurso.objects.filter(profesor=user), school)
+                )
+            )
+        except Exception:
+            pass
+
+    try:
+        if not isinstance(cached_refs_by_school, dict):
+            cached_refs_by_school = {}
+        cached_refs_by_school[school_id] = tuple(refs)
+        setattr(user, "_cached_course_refs_by_school", cached_refs_by_school)
+    except Exception:
+        pass
+
+    return refs
+
+
+def _can_manage_course_attendance(user, curso: str = "", *, school=None, school_course=None) -> bool:
+    curso = str(curso or "").strip()
+    if not curso and school_course is None:
+        return False
+
+    if getattr(user, "is_superuser", False):
+        return True
+    if _is_directivo_user(user):
+        return True
+    if not (_is_preceptor_user(user) or _is_profesor_user(user)):
+        return False
+
+    refs = _course_refs_de_usuario(user, school=school)
+    if refs:
+        return course_ref_matches(
+            refs,
+            school=school,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso,
+        )
+
+    permitidos = _cursos_de_usuario(user, school=school)
+    course_code_refs = [
+        build_course_ref(school=school, course_code=permitido)
+        for permitido in permitidos
+        if str(permitido or "").strip()
+    ]
+    return course_ref_matches(
+        course_code_refs,
+        school=school,
+        school_course_id=getattr(school_course, "id", None),
+        course_code=curso,
+    )
+
+
+def _can_view_alumno_asistencia(user, alumno: Alumno) -> bool:
+    if user is None or alumno is None:
+        return False
+
+    if getattr(user, "is_superuser", False) or _is_directivo_user(user):
+        return True
+
+    if getattr(alumno, "padre_id", None) == getattr(user, "id", None):
+        return True
+    if getattr(alumno, "usuario_id", None) == getattr(user, "id", None):
+        return True
+
+    try:
+        resolution = resolve_alumno_for_user(user, school=getattr(alumno, "school", None))
+        if resolution.alumno is not None and getattr(resolution.alumno, "id", None) == getattr(alumno, "id", None):
+            return True
+    except Exception:
+        pass
+
+    return _can_manage_course_attendance(
+        user,
+        getattr(alumno, "curso", None),
+        school=getattr(alumno, "school", None),
+        school_course=getattr(alumno, "school_course", None),
+    )
+
+
 def _ok_response(payload: Dict[str, Any], status: int = 200) -> Response:
-    """✅ Siempre devolvemos ok + success + message para compat con front."""
-    if "ok" not in payload:
-        payload["ok"] = True
-    if "success" not in payload:
-        payload["success"] = bool(payload.get("ok"))
-    if "message" not in payload:
-        payload["message"] = "Asistencia guardada ✅" if payload.get("ok") else "Error"
     return Response(payload, status=status)
 
 
 def _err(detail: str, status: int = 400, extra: Optional[Dict[str, Any]] = None) -> Response:
-    payload = {"ok": False, "success": False, "detail": detail}
+    payload = {"detail": detail}
     if extra:
         payload.update(extra)
     return Response(payload, status=status)
@@ -534,6 +746,7 @@ def _bulk_upsert_asistencias(
     fecha,
     tipo_asistencia: str,
     estado_by_alumno_id: Dict[int, Dict[str, bool]],
+    school=None,
 ) -> Dict[str, Any]:
     """
     ✅ Upsert masivo (bulk) para evitar timeouts.
@@ -547,13 +760,20 @@ def _bulk_upsert_asistencias(
         return {"guardadas": 0, "errores": 0}
 
     existentes = list(
-        Asistencia.objects.filter(
-            alumno_id__in=alumno_ids,
-            fecha=fecha,
-            tipo_asistencia=tipo_asistencia,
+        scope_queryset_to_school(
+            Asistencia.objects.filter(
+                alumno_id__in=alumno_ids,
+                fecha=fecha,
+                tipo_asistencia=tipo_asistencia,
+            ),
+            school,
         )
     )
     by_aid = {a.alumno_id: a for a in existentes}
+    alumnos = {
+        alumno.id: alumno
+        for alumno in _alumno_base_qs(school).filter(id__in=alumno_ids)
+    }
 
     to_update: List[Asistencia] = []
     to_create: List[Asistencia] = []
@@ -567,6 +787,8 @@ def _bulk_upsert_asistencias(
         if not presente:
             tarde = False
 
+        alumno = alumnos.get(aid)
+        resolved_school = getattr(alumno, "school", None) or school
         obj = by_aid.get(aid)
         if obj is not None:
             changed = False
@@ -581,6 +803,10 @@ def _bulk_upsert_asistencias(
             if presente and (not tarde) and bool(getattr(obj, "justificada", False)):
                 setattr(obj, "justificada", False)
                 changed = True
+            resolved_school_id = getattr(resolved_school, "id", None)
+            if resolved_school_id is not None and getattr(obj, "school_id", None) != resolved_school_id:
+                obj.school = resolved_school
+                changed = True
             if changed:
                 to_update.append(obj)
                 afectados.append(aid)
@@ -589,6 +815,7 @@ def _bulk_upsert_asistencias(
         else:
             to_create.append(
                 Asistencia(
+                    school=resolved_school,
                     alumno_id=aid,
                     fecha=fecha,
                     tipo_asistencia=tipo_asistencia,
@@ -602,17 +829,24 @@ def _bulk_upsert_asistencias(
 
     with transaction.atomic():
         if to_update:
-            Asistencia.objects.bulk_update(to_update, ["presente", "tarde"])
+            Asistencia.objects.bulk_update(to_update, ["presente", "tarde", "justificada", "school"])
         if to_create:
             try:
                 Asistencia.objects.bulk_create(to_create, batch_size=500)
             except Exception:
                 for obj in to_create:
+                    alumno = alumnos.get(obj.alumno_id)
+                    resolved_school = getattr(alumno, "school", None) or school
                     Asistencia.objects.update_or_create(
                         alumno_id=obj.alumno_id,
                         fecha=obj.fecha,
                         tipo_asistencia=obj.tipo_asistencia,
-                        defaults={"presente": bool(obj.presente), "tarde": bool(getattr(obj, "tarde", False)), "justificada": False},
+                        defaults={
+                            "school": resolved_school,
+                            "presente": bool(obj.presente),
+                            "tarde": bool(getattr(obj, "tarde", False)),
+                            "justificada": False,
+                        },
                     )
 
     return {"guardadas": len(alumno_ids), "errores": 0, "ausentes": ausentes, "afectados": sorted(set(afectados))}
@@ -625,8 +859,19 @@ def _bulk_upsert_asistencias(
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def preceptor_cursos(request):
-    cursos = _cursos_de_usuario(request.user)
-    data = [{"curso": c, "nombre": _curso_label(c)} for c in cursos]
+    active_school = get_request_school(request)
+    cursos = _cursos_de_usuario(request.user, school=active_school)
+    data = []
+    for c in cursos:
+        school_course = resolve_school_course_for_value(school=active_school, curso=c) if active_school is not None else None
+        data.append(
+            {
+                "curso": c,
+                "code": c,
+                "nombre": _curso_label(c, school=active_school),
+                "school_course_id": getattr(school_course, "id", None),
+            }
+        )
     return _ok_response({"cursos": data})
 
 
@@ -651,6 +896,7 @@ def tipos_asistencia(request):
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def registrar_asistencias(request):
+    active_school = get_request_school(request)
     payload = _coerce_json(request)
 
     # ✅ NUEVO: por defecto NO devolvemos items (para que sea rápido y no pese)
@@ -659,15 +905,20 @@ def registrar_asistencias(request):
         return_items = False
 
     # -----------------------------------------------------
-    # Formato C: mapping id->bool
-    #   {curso, fecha, tipo_asistencia|tipo, asistencias:{ "418": true, ... }}
+    # Formato C: mapping id->estado
+    #   {school_course_id, fecha, tipo_asistencia|tipo, asistencias:{ "418": true, ... }}
     # -----------------------------------------------------
     if isinstance(payload, dict) and ("asistencias" in payload or "asistenciasPayload" in payload):
         raw_map = payload.get("asistencias", payload.get("asistenciasPayload"))
         raw_map = _try_parse_json(raw_map)
 
         if isinstance(raw_map, dict):
-            curso = str(_first_scalar(payload.get("curso") or "") or "").strip()
+            school_course_ref, curso, course_error = resolve_course_reference(
+                school=active_school,
+                raw_course=_first_scalar(payload.get("curso") or ""),
+                raw_school_course_id=_first_scalar(payload.get("school_course_id") or ""),
+                required=True,
+            )
             tipo_asistencia = str(
                 _first_scalar(payload.get("tipo_asistencia") or payload.get("tipo") or payload.get("materia") or "") or ""
             ).strip()
@@ -675,13 +926,14 @@ def registrar_asistencias(request):
             fecha_raw = _first_scalar(payload.get("fecha") or payload.get("date"))
             fecha = parse_date(str(fecha_raw)) if fecha_raw else date_cls.today()
 
-            if not curso:
-                return _err("Falta curso", 400)
+            if course_error:
+                return _err(course_error, 400)
             if not tipo_asistencia:
                 return _err("Falta tipo_asistencia/tipo", 400)
+            if active_school is not None and school_course_ref is None:
+                return _err("No existe ese curso en el colegio activo.", 400)
 
-            permitidos = _cursos_de_usuario(request.user)
-            if permitidos and (curso not in permitidos):
+            if not _can_manage_course_attendance(request.user, curso, school=active_school, school_course=school_course_ref):
                 return _err("No tenés permisos para ese curso.", 403)
 
             # ✅ NUEVO: resolvemos alumnos en BULK (evita N queries)
@@ -697,7 +949,7 @@ def registrar_asistencias(request):
                 else:
                     legajos.append(k)
 
-            alumnos_qs = Alumno.objects.filter(curso=curso).filter(
+            alumnos_qs = _alumnos_por_curso_qs(curso, school=active_school).filter(
                 Q(pk__in=id_ints) | Q(id_alumno__in=legajos)
             )
 
@@ -737,7 +989,13 @@ def registrar_asistencias(request):
 
             # ✅ NUEVO: upsert masivo
             try:
-                res = _bulk_upsert_asistencias(alumno_ids, fecha, tipo_asistencia, estado_by_id)
+                res = _bulk_upsert_asistencias(
+                    alumno_ids,
+                    fecha,
+                    tipo_asistencia,
+                    estado_by_id,
+                    school=active_school,
+                )
             except Exception:
                 return _err("Error guardando asistencias (bulk).", 500)
 
@@ -747,6 +1005,7 @@ def registrar_asistencias(request):
                     fecha=fecha,
                     tipo_asistencia=tipo_asistencia,
                     actor=getattr(request, "user", None),
+                    school=active_school,
                 )
             except Exception:
                 pass
@@ -762,44 +1021,43 @@ def registrar_asistencias(request):
 
             items_out: List[Dict[str, Any]] = []
             if return_items and alumno_ids:
-                qs = Asistencia.objects.filter(
-                    alumno_id__in=alumno_ids,
-                    fecha=fecha,
-                    tipo_asistencia=tipo_asistencia,
-                ).select_related("alumno")
+                qs = scope_queryset_to_school(
+                    Asistencia.objects.filter(
+                        alumno_id__in=alumno_ids,
+                        fecha=fecha,
+                        tipo_asistencia=tipo_asistencia,
+                    ),
+                    active_school,
+                ).select_related("alumno", "alumno__school_course")
                 for obj in qs:
-                    items_out.append({
-                        "id": obj.id,
-                        "alumno_id": obj.alumno_id,
-                        "id_alumno": getattr(obj.alumno, "id_alumno", None),
-                        "fecha": str(obj.fecha),
-                        "curso": getattr(obj.alumno, "curso", curso),
-                        "tipo_asistencia": obj.tipo_asistencia,
-                        "tipo_label": _tipo_label(obj.tipo_asistencia),
-                        "presente": bool(obj.presente),
-                        "tarde": bool(getattr(obj, "tarde", False)),
+                    items_out.append(_serialize_asistencia_item(obj, curso=curso, school=active_school))
                         # ✅ NUEVO: equivalente de falta (Ausente=1, Tarde=0.5, Presente=0)
-                        "falta_valor": 0.0 if bool(getattr(obj, "justificada", False)) else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0)),
-                        "observacion": getattr(obj, "observacion", "") or "",
-                    })
 
-            return _ok_response({
-                "curso": curso,
+            response_payload = {
                 "fecha": str(fecha),
                 "tipo_asistencia": tipo_asistencia,
                 "guardadas": res.get("guardadas", 0),
                 "errores": int(errores) + int(res.get("errores", 0)),
                 "items": items_out if return_items else [],
-            })
+            }
+            response_payload.update(
+                _public_course_payload(school_course=school_course_ref, curso=curso, school=active_school)
+            )
+            return _ok_response(response_payload)
 
     # -----------------------------------------------------
-    # Formato A: presentes por curso (lista de IDs)
-    #   {curso, fecha, tipo_asistencia|tipo, presentes:[ids]}
+    # Formato A: presentes/tardes por curso (lista de IDs)
+    #   {school_course_id, fecha, tipo_asistencia|tipo, presentes:[ids]}
     # -----------------------------------------------------
     if isinstance(payload, dict) and (
         "presentes" in payload or "presentes_ids" in payload or "presentesId" in payload
     ):
-        curso = str(_first_scalar(payload.get("curso") or "") or "").strip()
+        school_course_ref, curso, course_error = resolve_course_reference(
+            school=active_school,
+            raw_course=_first_scalar(payload.get("curso") or ""),
+            raw_school_course_id=_first_scalar(payload.get("school_course_id") or ""),
+            required=True,
+        )
         tipo_asistencia = str(
             _first_scalar(payload.get("tipo_asistencia") or payload.get("tipo") or payload.get("materia") or "") or ""
         ).strip()
@@ -816,25 +1074,29 @@ def registrar_asistencias(request):
         if not isinstance(tardes, list):
             tardes = []
 
-        if not curso:
-            return _err("Falta curso", 400)
+        if course_error:
+            return _err(course_error, 400)
         if not tipo_asistencia:
             return _err("Falta tipo_asistencia/tipo", 400)
+        if active_school is not None and school_course_ref is None:
+            return _err("No existe ese curso en el colegio activo.", 400)
 
-        permitidos = _cursos_de_usuario(request.user)
-        if permitidos and (curso not in permitidos):
+        if not _can_manage_course_attendance(request.user, curso, school=active_school, school_course=school_course_ref):
             return _err("No tenés permisos para ese curso.", 403)
 
-        alumno_ids = list(Alumno.objects.filter(curso=curso).values_list("id", flat=True))
+        alumno_ids = list(_alumnos_por_curso_qs(curso, school=active_school).values_list("id", flat=True))
         if not alumno_ids:
-            return _ok_response({
-                "curso": curso,
+            response_payload = {
                 "fecha": str(fecha),
                 "tipo_asistencia": tipo_asistencia,
                 "guardadas": 0,
                 "errores": 0,
                 "items": [],
-            })
+            }
+            response_payload.update(
+                _public_course_payload(school_course=school_course_ref, curso=curso, school=active_school)
+            )
+            return _ok_response(response_payload)
 
         presentes_set = set()
         for x in presentes:
@@ -860,7 +1122,13 @@ def registrar_asistencias(request):
         }
 
         try:
-            res = _bulk_upsert_asistencias(alumno_ids, fecha, tipo_asistencia, estado_by_id)
+            res = _bulk_upsert_asistencias(
+                alumno_ids,
+                fecha,
+                tipo_asistencia,
+                estado_by_id,
+                school=active_school,
+            )
         except Exception:
             return _err("Error guardando asistencias (bulk).", 500)
 
@@ -870,6 +1138,7 @@ def registrar_asistencias(request):
                 fecha=fecha,
                 tipo_asistencia=tipo_asistencia,
                 actor=getattr(request, "user", None),
+                school=active_school,
             )
         except Exception:
             pass
@@ -885,38 +1154,31 @@ def registrar_asistencias(request):
 
         items_out: List[Dict[str, Any]] = []
         if return_items:
-            qs = Asistencia.objects.filter(
-                alumno_id__in=alumno_ids,
-                fecha=fecha,
-                tipo_asistencia=tipo_asistencia,
-            ).select_related("alumno")
+            qs = scope_queryset_to_school(
+                Asistencia.objects.filter(
+                    alumno_id__in=alumno_ids,
+                    fecha=fecha,
+                    tipo_asistencia=tipo_asistencia,
+                ),
+                active_school,
+            ).select_related("alumno", "alumno__school_course")
             for obj in qs:
-                items_out.append({
-                    "id": obj.id,
-                    "alumno_id": obj.alumno_id,
-                    "id_alumno": getattr(obj.alumno, "id_alumno", None),
-                    "fecha": str(obj.fecha),
-                    "curso": getattr(obj.alumno, "curso", curso),
-                    "tipo_asistencia": obj.tipo_asistencia,
-                    "tipo_label": _tipo_label(obj.tipo_asistencia),
-                    "presente": bool(obj.presente),
-                    "tarde": bool(getattr(obj, "tarde", False)),
-                    "justificada": bool(getattr(obj, "justificada", False)),
-                        "falta_valor": 0.0 if bool(getattr(obj, "justificada", False)) else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0)),
-                    "observacion": getattr(obj, "observacion", "") or "",
-                })
+                items_out.append(_serialize_asistencia_item(obj, curso=curso, school=active_school))
 
-        return _ok_response({
-            "curso": curso,
+        response_payload = {
             "fecha": str(fecha),
             "tipo_asistencia": tipo_asistencia,
             "guardadas": res.get("guardadas", 0),
             "errores": res.get("errores", 0),
             "items": items_out if return_items else [],
-        })
+        }
+        response_payload.update(
+            _public_course_payload(school_course=school_course_ref, curso=curso, school=active_school)
+        )
+        return _ok_response(response_payload)
 
     # -----------------------------------------------------
-    # Formato B: items (legacy)
+    # Formato B: items
     # -----------------------------------------------------
     items = _extract_items(payload)
     if not items:
@@ -929,7 +1191,16 @@ def registrar_asistencias(request):
         fg = _first_scalar(payload.get("fecha") or payload.get("date"))
         fecha_global = parse_date(str(fg)) if fg else None
         tipo_global = str(_first_scalar(payload.get("tipo_asistencia") or payload.get("tipo") or payload.get("materia") or "") or "").strip() or None
-        curso_global = str(_first_scalar(payload.get("curso") or "") or "").strip() or None
+        global_school_course_ref, curso_global, global_course_error = resolve_course_reference(
+            school=active_school,
+            raw_course=_first_scalar(payload.get("curso") or ""),
+            raw_school_course_id=_first_scalar(payload.get("school_course_id") or ""),
+            required=False,
+        )
+        if global_course_error:
+            return _err(global_course_error, 400)
+        if active_school is not None and curso_global and global_school_course_ref is None:
+            return _err("No existe ese curso en el colegio activo.", 400)
 
     guardadas = 0
     errores = 0
@@ -948,9 +1219,9 @@ def registrar_asistencias(request):
 
         try:
             if alumno_id:
-                alumno = Alumno.objects.get(pk=int(alumno_id))
+                alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(pk=int(alumno_id))
             elif legajo:
-                alumno = Alumno.objects.get(id_alumno=str(legajo))
+                alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(id_alumno=str(legajo))
             else:
                 errores += 1
                 continue
@@ -958,9 +1229,35 @@ def registrar_asistencias(request):
             errores += 1
             continue
 
-        curso_item = (it.get("curso") or curso_global or alumno.curso or "").strip()
-        permitidos = _cursos_de_usuario(request.user)
-        if permitidos and curso_item and (curso_item not in permitidos):
+        item_raw_course = _first_scalar(it.get("curso") or "")
+        item_raw_school_course_id = _first_scalar(it.get("school_course_id") or payload.get("school_course_id") or "")
+
+        item_school_course_ref = global_school_course_ref
+        curso_item = curso_global or ""
+        item_course_error = None
+
+        if item_raw_course or item_raw_school_course_id:
+            item_school_course_ref, curso_item, item_course_error = resolve_course_reference(
+                school=active_school,
+                raw_course=item_raw_course,
+                raw_school_course_id=item_raw_school_course_id,
+                required=False,
+            )
+
+        if item_course_error == LEGACY_COURSE_DEPRECATED_DETAIL:
+            return _err(item_course_error, 400)
+        if item_course_error:
+            errores += 1
+            continue
+        if item_school_course_ref is None and not curso_item:
+            item_school_course_ref = getattr(alumno, "school_course", None)
+            curso_item = (alumno.curso or "").strip()
+        if not _can_manage_course_attendance(
+            request.user,
+            curso_item,
+            school=active_school,
+            school_course=item_school_course_ref or getattr(alumno, "school_course", None),
+        ):
             errores += 1
             continue
 
@@ -983,15 +1280,15 @@ def registrar_asistencias(request):
             presente = bool(it.get("presente", True))
 
         try:
-            prev = Asistencia.objects.filter(
+            prev = scope_queryset_to_school(Asistencia.objects.filter(
                 alumno=alumno, fecha=fecha, tipo_asistencia=tipo_asistencia
-            ).first()
-            obj, _created = Asistencia.objects.update_or_create(
+            ), active_school).first()
+            obj, _created = scope_queryset_to_school(Asistencia.objects.all(), active_school).update_or_create(
                 alumno=alumno,
                 fecha=fecha,
                 tipo_asistencia=tipo_asistencia,
                 # ✅ NUEVO: persiste también "tarde" (si no es presente, se fuerza False arriba)
-                defaults={"presente": bool(presente), "tarde": bool(tarde)},
+                defaults={"school": getattr(alumno, "school", None) or active_school, "presente": bool(presente), "tarde": bool(tarde)},
             )
             key_tipo = str(tipo_asistencia or "clases")
             if key_tipo not in afectados_ids_por_tipo:
@@ -1005,24 +1302,12 @@ def registrar_asistencias(request):
                         fecha=fecha,
                         tipo_asistencia=tipo_asistencia,
                         actor=getattr(request, "user", None),
+                        school=active_school,
                     )
                 except Exception:
                     pass
             if return_items:
-                items_out.append({
-                    "id": obj.id,
-                    "alumno_id": alumno.id,
-                    "id_alumno": alumno.id_alumno,
-                    "fecha": str(obj.fecha),
-                    "curso": alumno.curso,
-                    "tipo_asistencia": obj.tipo_asistencia,
-                    "tipo_label": _tipo_label(obj.tipo_asistencia),
-                    "presente": bool(obj.presente),
-                    "tarde": bool(getattr(obj, "tarde", False)),
-                    "justificada": bool(getattr(obj, "justificada", False)),
-                        "falta_valor": 0.0 if bool(getattr(obj, "justificada", False)) else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0)),
-                    "observacion": getattr(obj, "observacion", "") or "",
-                })
+                items_out.append(_serialize_asistencia_item(obj, alumno=alumno, school=active_school))
         except Exception:
             errores += 1
 
@@ -1063,16 +1348,22 @@ def justificar_asistencia(request, pk: int):
         return _err("No tenés permisos para justificar asistencias.", status=403)
 
     # GET: devolvemos estado actual (útil para debug y para clientes que quieran refrescar)
+    active_school = get_request_school(request)
+
     if request.method == "GET":
         try:
-            obj = Asistencia.objects.select_related("alumno").get(pk=pk)
+            obj = _asistencia_base_qs(active_school).get(pk=pk)
         except Asistencia.DoesNotExist:
             return _err("Asistencia no encontrada.", status=404)
 
         # Permisos por curso
         curso = getattr(obj.alumno, "curso", None)
-        permitidos = _cursos_de_usuario(request.user)
-        if curso and permitidos and (curso not in permitidos):
+        if not _can_manage_course_attendance(
+            request.user,
+            curso,
+            school=active_school,
+            school_course=getattr(obj.alumno, "school_course", None),
+        ):
             return _err("No tenés permisos para ese curso.", status=403)
 
         falta_valor = 0.0 if bool(getattr(obj, "justificada", False)) else (
@@ -1104,14 +1395,18 @@ def justificar_asistencia(request, pk: int):
         b = None
 
     try:
-        obj = Asistencia.objects.select_related("alumno").get(pk=pk)
+        obj = _asistencia_base_qs(active_school).get(pk=pk)
     except Asistencia.DoesNotExist:
         return _err("Asistencia no encontrada.", status=404)
 
     # Permisos por curso
     curso = getattr(obj.alumno, "curso", None)
-    permitidos = _cursos_de_usuario(request.user)
-    if curso and permitidos and (curso not in permitidos):
+    if not _can_manage_course_attendance(
+        request.user,
+        curso,
+        school=active_school,
+        school_course=getattr(obj.alumno, "school_course", None),
+    ):
         return _err("No tenés permisos para ese curso.", status=403)
 
     # Solo tiene sentido justificar si es Ausente o Tarde
@@ -1155,8 +1450,9 @@ def justificar_asistencia(request, pk: int):
 @permission_classes([IsAuthenticated])
 @parser_classes([JSONParser, FormParser, MultiPartParser])
 def firmar_asistencia(request, pk: int):
+    active_school = get_request_school(request)
     try:
-        obj = Asistencia.objects.select_related("alumno").get(pk=pk)
+        obj = _asistencia_base_qs(active_school).get(pk=pk)
     except Asistencia.DoesNotExist:
         return _err("Asistencia no encontrada.", status=404)
 
@@ -1224,8 +1520,9 @@ def editar_detalle_asistencia(request, pk: int):
     Respuesta:
       { id, observacion, detalle, ... }
     """
+    active_school = get_request_school(request)
     try:
-        obj = Asistencia.objects.select_related("alumno").get(pk=pk)
+        obj = _asistencia_base_qs(active_school).get(pk=pk)
     except Asistencia.DoesNotExist:
         return _err("Asistencia no encontrada.", status=404)
 
@@ -1234,8 +1531,12 @@ def editar_detalle_asistencia(request, pk: int):
 
     # Permisos por curso (mismo criterio que justificar)
     curso = getattr(obj.alumno, "curso", None)
-    permitidos = _cursos_de_usuario(request.user)
-    if curso and permitidos and (curso not in permitidos):
+    if not _can_manage_course_attendance(
+        request.user,
+        curso,
+        school=active_school,
+        school_course=getattr(obj.alumno, "school_course", None),
+    ):
         return _err("No tenés permisos para ese curso.", status=403)
 
     if request.method == "GET":
@@ -1296,47 +1597,36 @@ def asistencias_por_alumno(request, alumno_id=None):
     - /api/asistencias/?alumno=<id> / ?alumno_id=<id>
     - /api/asistencias/?id_alumno=<legajo>
     """
+    active_school = get_request_school(request)
     aid = alumno_id or request.GET.get("alumno") or request.GET.get("alumno_id")
     codigo = request.GET.get("id_alumno") or request.GET.get("legajo")
 
     alumno = None
     if aid:
         try:
-            alumno = Alumno.objects.get(pk=int(aid))
+            alumno = _alumno_base_qs(active_school).get(pk=int(aid))
         except Exception:
             alumno = None
     if alumno is None and codigo:
         try:
-            alumno = Alumno.objects.get(id_alumno=str(codigo))
+            alumno = _alumno_base_qs(active_school).get(id_alumno=str(codigo))
         except Exception:
             alumno = None
 
     if alumno is None:
         return Response({"detail": "Alumno no encontrado"}, status=404)
 
-    qs = Asistencia.objects.filter(alumno=alumno).order_by("-fecha", "-id")
+    if not _can_view_alumno_asistencia(request.user, alumno):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    qs = _asistencia_base_qs(active_school).filter(alumno=alumno).order_by("-fecha", "-id")
 
     results = []
     for a in qs:
-        results.append({
-            "id": a.id,
-            "alumno_id": alumno.id,
-            "id_alumno": alumno.id_alumno,
-            "fecha": str(a.fecha),
-            "curso": alumno.curso,
-            "tipo_asistencia": a.tipo_asistencia,
-            "tipo_label": _tipo_label(a.tipo_asistencia),
-            "presente": bool(a.presente),
-            "tarde": bool(getattr(a, "tarde", False)),
-            "justificada": bool(getattr(a, "justificada", False)),
-            "firmada": bool(getattr(a, "firmada", False)),
-            "firmada_en": a.firmada_en.isoformat() if getattr(a, "firmada_en", None) else None,
-            "falta_valor": 0.0 if bool(getattr(a, "justificada", False)) else (1.0 if (not bool(a.presente)) else (0.5 if bool(getattr(a, "tarde", False)) else 0.0)),
-            "observacion": getattr(a, "observacion", "") or "",
-        })
+        results.append(_serialize_asistencia_item(a, alumno=alumno, school=active_school))
 
     return Response({
-        "alumno": {"id": alumno.id, "id_alumno": alumno.id_alumno, "nombre": alumno.nombre, "curso": alumno.curso},
+        "alumno": _serialize_alumno_brief(alumno, school=active_school),
         "results": results,
         "count": len(results),
     })
@@ -1346,8 +1636,9 @@ def asistencias_por_alumno(request, alumno_id=None):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def asistencias_por_codigo(request, id_alumno):
+    active_school = get_request_school(request)
     try:
-        alumno = Alumno.objects.get(id_alumno=str(id_alumno))
+        alumno = _alumno_base_qs(active_school).get(id_alumno=str(id_alumno))
     except Exception:
         return Response({"detail": "Alumno no encontrado"}, status=404)
     return asistencias_por_alumno(request, alumno_id=alumno.id)
@@ -1357,46 +1648,55 @@ def asistencias_por_codigo(request, id_alumno):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def asistencias_por_curso_y_fecha(request):
-    """GET /api/asistencias/curso/?curso=1A&fecha=YYYY-MM-DD&tipo=informatica"""
-    curso = (request.GET.get("curso") or "").strip()
+    """
+    GET /api/asistencias/curso/?school_course_id=14&fecha=YYYY-MM-DD&tipo=informatica
+    Requiere school_course_id para seleccionar curso.
+    """
+    active_school = get_request_school(request)
+    school_course_ref, curso, course_error = resolve_course_reference(
+        school=active_school,
+        raw_course=request.GET.get("curso"),
+        raw_school_course_id=request.GET.get("school_course_id"),
+        required=True,
+    )
     fecha = parse_date(str(request.GET.get("fecha") or "")) if request.GET.get("fecha") else None
     tipo = (request.GET.get("tipo") or request.GET.get("tipo_asistencia") or request.GET.get("materia") or "").strip()
 
+    if course_error:
+        return Response({"detail": course_error}, status=400)
+    if active_school is not None and school_course_ref is None:
+        return Response({"detail": "No existe ese curso en el colegio activo."}, status=400)
     if not curso or not fecha:
         return Response({"detail": "Faltan curso y/o fecha"}, status=400)
 
-    permitidos = _cursos_de_usuario(request.user)
-    if permitidos and (curso not in permitidos):
+    if not _can_manage_course_attendance(
+        request.user,
+        curso,
+        school=active_school,
+        school_course=school_course_ref,
+    ):
         return Response({"detail": "No tenés permisos para ese curso."}, status=403)
 
-    alumnos = Alumno.objects.filter(curso=curso).order_by("nombre")
-    qs = Asistencia.objects.filter(alumno__in=alumnos, fecha=fecha)
+    alumnos = _alumnos_por_curso_qs(
+        curso,
+        school=active_school,
+        school_course=school_course_ref,
+    )
+    qs = scope_queryset_to_school(Asistencia.objects.filter(alumno__in=alumnos, fecha=fecha), active_school)
     if tipo:
         qs = qs.filter(tipo_asistencia=tipo)
 
     items = []
-    for a in qs.select_related("alumno"):
-        items.append({
-            "id": a.id,
-            "alumno_id": a.alumno_id,
-            "id_alumno": getattr(a.alumno, "id_alumno", None),
-            "fecha": str(a.fecha),
-            "curso": getattr(a.alumno, "curso", curso),
-            "tipo_asistencia": a.tipo_asistencia,
-            "tipo_label": _tipo_label(a.tipo_asistencia),
-            "presente": bool(a.presente),
-            "tarde": bool(getattr(a, "tarde", False)),
-            "justificada": bool(getattr(a, "justificada", False)),
-            "firmada": bool(getattr(a, "firmada", False)),
-            "firmada_en": a.firmada_en.isoformat() if getattr(a, "firmada_en", None) else None,
-            "falta_valor": 0.0 if bool(getattr(a, "justificada", False)) else (1.0 if (not bool(a.presente)) else (0.5 if bool(getattr(a, "tarde", False)) else 0.0)),
-            "observacion": getattr(a, "observacion", "") or "",
-        })
+    for a in qs.select_related("alumno", "alumno__school_course"):
+        items.append(_serialize_asistencia_item(a, curso=curso, school=active_school))
 
-    return Response({
-        "curso": curso,
-        "curso_label": _curso_label(curso),
+    response_payload = {
+        "curso_label": _curso_label(curso, school=active_school),
         "fecha": str(fecha),
         "tipo_asistencia": tipo or None,
         "items": items,
-    })
+    }
+    response_payload.update(
+        _public_course_payload(school_course=school_course_ref, curso=curso, school=active_school)
+    )
+    return Response(response_payload)

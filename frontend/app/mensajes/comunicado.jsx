@@ -1,11 +1,15 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import { useState } from "react"
 import { useAuthGuard } from "../_lib/auth"
 import { Megaphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import ComposeComunicadoFamilia from "./_compose-comunicado-familia"
+
+const ComposeComunicadoFamilia = dynamic(() => import("./_compose-comunicado-familia"), {
+  loading: () => null,
+})
 
 export default function ComunicadoFamiliasPage() {
   useAuthGuard()
@@ -16,7 +20,7 @@ export default function ComunicadoFamiliasPage() {
       <Card>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2 text-slate-900 font-semibold">
-            <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-xl flex items-center justify-center school-primary-soft-icon">
               <Megaphone className="h-5 w-5" />
             </div>
             <div>
@@ -30,7 +34,7 @@ export default function ComunicadoFamiliasPage() {
         </CardContent>
       </Card>
 
-      <ComposeComunicadoFamilia open={open} onOpenChange={setOpen} />
+      {open ? <ComposeComunicadoFamilia open={open} onOpenChange={setOpen} /> : null}
     </div>
   )
 }

@@ -12,7 +12,16 @@ from rest_framework.response import Response
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .contexto import resolve_alumno_for_user
-from .models import Alumno, Nota
+from .course_access import (
+    build_course_membership_q,
+    course_ref_matches,
+    filter_course_options_by_refs,
+    get_assignment_course_refs,
+)
+from .models import Alumno, Nota, resolve_school_course_for_value
+from .schools import get_request_school, scope_queryset_to_school
+from .user_groups import get_user_group_names, user_in_groups
+from .utils_cursos import get_course_label, get_school_course_by_id, get_school_course_choices, resolve_course_reference
 
 try:
     from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
@@ -21,6 +30,27 @@ except Exception:
     ProfesorCurso = None
 
 ESTADOS = ("TEA", "TEP", "TED")
+
+
+def _active_school_id(school) -> str:
+    sid = getattr(school, "id", None)
+    return str(sid) if sid is not None else "none"
+
+
+def _available_course_codes(school=None) -> list[str]:
+    return [str(code) for code, _name in get_school_course_choices(school=school)]
+
+
+def _course_codes_for_refs(refs, *, school=None) -> list[str]:
+    options = [
+        {"code": str(code), "id": str(code)}
+        for code, _name in get_school_course_choices(school=school)
+    ]
+    return [
+        str(option.get("code") or "")
+        for option in filter_course_options_by_refs(options, refs)
+        if str(option.get("code") or "")
+    ]
 
 
 def _round2(value) -> float:
@@ -37,27 +67,30 @@ def _safe_pct(part: int, total: int) -> float:
 
 
 def _user_groups(user) -> set[str]:
-    try:
-        return {str(g).strip() for g in user.groups.values_list("name", flat=True)}
-    except Exception:
-        return set()
+    return set(get_user_group_names(user))
 
 
 def _role_label(user) -> str:
     if getattr(user, "is_superuser", False):
         return "Superuser"
-    groups = _user_groups(user)
-    if "Padres" in groups:
+    if user_in_groups(user, "Padres"):
         return "Padres"
-    if "Alumnos" in groups or "Alumno" in groups:
+    if user_in_groups(user, "Alumnos", "Alumno"):
         return "Alumnos"
-    if "Profesores" in groups:
+    if user_in_groups(user, "Profesores"):
         return "Profesores"
-    if "Directivos" in groups or "Directivo" in groups:
+    if user_in_groups(user, "Directivos", "Directivo"):
         return "Directivos"
-    if "Preceptores" in groups or "Preceptor" in groups:
+    if user_in_groups(user, "Preceptores", "Preceptor"):
         return "Preceptores"
     return "SinRol"
+
+
+def _mis_estadisticas_cache_key(*, user_id, role, school_id, alumno_param, cuatrimestre) -> str:
+    return (
+        f"reportes:v2:mis_estadisticas:u{user_id}:r{role}:s{school_id or 'none'}:"
+        f"a{alumno_param or 'default'}:q{cuatrimestre or 'all'}"
+    )
 
 
 def _serialize_alumno(a: Alumno) -> dict:
@@ -65,21 +98,98 @@ def _serialize_alumno(a: Alumno) -> dict:
         "id": a.id,
         "id_alumno": getattr(a, "id_alumno", None),
         "nombre": getattr(a, "nombre", ""),
-        "curso": getattr(a, "curso", ""),
+        "school_course_id": getattr(a, "school_course_id", None),
+        "school_course_name": getattr(getattr(a, "school_course", None), "name", None)
+        or getattr(getattr(a, "school_course", None), "code", None)
+        or getattr(a, "curso", ""),
     }
 
 
-def _normalize_curso(curso: str) -> str:
+def _course_payload(*, school=None, course_code="", school_course=None) -> dict:
+    resolved_school_course = school_course
+    resolved_code = _normalize_curso(
+        getattr(resolved_school_course, "code", None) or course_code,
+        school=school,
+    )
+    course_name = (
+        getattr(resolved_school_course, "name", None)
+        or getattr(resolved_school_course, "code", None)
+        or get_course_label(resolved_code, school=school)
+        or resolved_code
+        or None
+    )
+    return {
+        "curso": resolved_code,
+        "school_course_id": getattr(resolved_school_course, "id", None),
+        "school_course_name": course_name,
+    }
+
+
+def _public_course_payload(*, school=None, course_code="", school_course=None) -> dict:
+    return {
+        key: value
+        for key, value in _course_payload(
+            school=school,
+            course_code=course_code,
+            school_course=school_course,
+        ).items()
+        if key != "curso"
+    }
+
+
+def _normalize_curso(curso: str, school=None) -> str:
     raw = (curso or "").strip()
     if not raw:
         return ""
 
     try:
-        mapping = {str(k).upper(): str(k) for k, _ in getattr(Alumno, "CURSOS", [])}
+        mapping = {str(k).upper(): str(k) for k, _ in get_school_course_choices(school=school)}
     except Exception:
         mapping = {}
 
     return mapping.get(raw.upper(), raw)
+
+
+def _resolve_path_course_selection(
+    raw_value,
+    *,
+    school=None,
+):
+    raw = (raw_value or "").strip()
+    if not raw:
+        return None, "", "Falta el campo requerido: school_course_id o curso."
+
+    school_course = get_school_course_by_id(raw, school=school, include_inactive=True)
+    if school_course is not None:
+        return school_course, _normalize_curso(getattr(school_course, "code", ""), school=school), None
+
+    school_course, course_code, error = resolve_course_reference(
+        school=school,
+        raw_course=raw,
+        required=True,
+        include_inactive=True,
+        deprecated_course_error="El código legacy de curso en la ruta está deprecado. Usa school_course_id.",
+    )
+    return school_course, _normalize_curso(course_code, school=school), error
+
+
+def _filter_notas_por_curso(qs, curso: str, *, school=None, school_course=None):
+    curso_norm = _normalize_curso(curso, school=school)
+    if not curso_norm:
+        return qs.none()
+
+    resolved_school_course = school_course
+    if resolved_school_course is None and school is not None:
+        resolved_school_course = resolve_school_course_for_value(school=school, curso=curso_norm)
+    course_q = build_course_membership_q(
+        school_course_id=getattr(resolved_school_course, "id", None),
+        course_code=curso_norm,
+        school_course_field="alumno__school_course",
+        code_field="alumno__curso",
+    )
+    if course_q is None:
+        return qs.none()
+    return qs.filter(course_q)
 
 
 def _normalize_cuatrimestre(raw: str) -> Optional[int]:
@@ -95,84 +205,103 @@ def _normalize_cuatrimestre(raw: str) -> Optional[int]:
     return val
 
 
-def _resolve_profesor_cursos(user) -> list[str]:
+def _resolve_profesor_cursos(user, school=None) -> list[str]:
     if getattr(user, "is_superuser", False):
-        return sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
+        return sorted(set(_available_course_codes(school)))
 
-    cache_key = f"reportes:v2:cursos_profesor:u{getattr(user, 'id', 'x')}"
+    cache_key = f"reportes:v2:cursos_profesor:u{getattr(user, 'id', 'x')}:s{_active_school_id(school)}"
     cached = cache.get(cache_key)
     if cached is not None:
         return list(cached)
 
     if ProfesorCurso is not None:
         try:
-            cursos = list(
-                ProfesorCurso.objects.filter(profesor=user)
-                .values_list("curso", flat=True)
-                .distinct()
-            )
-            if cursos:
-                out = sorted(set(str(c) for c in cursos))
-                cache.set(cache_key, out, 180)
-                return out
+            refs = _resolve_profesor_course_refs(user, school=school)
+            out = _course_codes_for_refs(refs, school=school)
+            cache.set(cache_key, out, 180)
+            return out
         except Exception:
-            pass
+            cache.set(cache_key, [], 60)
+            return []
 
-    valid = {str(c[0]) for c in getattr(Alumno, "CURSOS", [])}
+    valid = set(_available_course_codes(school))
     from_groups = sorted(valid.intersection(_user_groups(user)))
     if from_groups:
         cache.set(cache_key, from_groups, 180)
         return from_groups
-
-    # Fallback legacy: si no hay asignacion explicita, usar cursos existentes.
-    try:
-        from_db = sorted(
-            {
-                str(c)
-                for c in Alumno.objects.exclude(curso__isnull=True)
-                .exclude(curso__exact="")
-                .values_list("curso", flat=True)
-                .distinct()
-            }
-        )
-        if from_db:
-            cache.set(cache_key, from_db, 180)
-            return from_db
-    except Exception:
-        pass
 
     out = sorted(valid)
     cache.set(cache_key, out, 180)
     return out
 
 
-def _resolve_preceptor_cursos(user) -> list[str]:
+def _resolve_preceptor_cursos(user, school=None) -> list[str]:
     if getattr(user, "is_superuser", False):
-        return sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
+        return sorted(set(_available_course_codes(school)))
 
-    cache_key = f"reportes:v2:cursos_preceptor:u{getattr(user, 'id', 'x')}"
+    cache_key = f"reportes:v2:cursos_preceptor:u{getattr(user, 'id', 'x')}:s{_active_school_id(school)}"
     cached = cache.get(cache_key)
     if cached is not None:
         return list(cached)
 
     if PreceptorCurso is not None:
         try:
-            cursos = list(
-                PreceptorCurso.objects.filter(preceptor=user)
-                .values_list("curso", flat=True)
-                .distinct()
-            )
-            if cursos:
-                out = sorted(set(str(c) for c in cursos))
-                cache.set(cache_key, out, 180)
-                return out
+            refs = _resolve_preceptor_course_refs(user, school=school)
+            out = _course_codes_for_refs(refs, school=school)
+            cache.set(cache_key, out, 180)
+            return out
         except Exception:
-            pass
+            cache.set(cache_key, [], 60)
+            return []
 
-    valid = {str(c[0]) for c in getattr(Alumno, "CURSOS", [])}
+    valid = set(_available_course_codes(school))
     from_groups = sorted(valid.intersection(_user_groups(user)))
     cache.set(cache_key, from_groups, 180)
     return from_groups
+
+
+def _resolve_profesor_course_refs(user, school=None):
+    if getattr(user, "is_superuser", False) or ProfesorCurso is None:
+        return []
+    school_id = getattr(school, "id", None) or 0
+    cached = getattr(user, "_cached_reportes_profesor_refs_by_school", None)
+    if isinstance(cached, dict) and school_id in cached:
+        return list(cached[school_id])
+    try:
+        qs = scope_queryset_to_school(ProfesorCurso.objects.filter(profesor=user), school)
+        refs = get_assignment_course_refs(qs)
+        try:
+            if not isinstance(cached, dict):
+                cached = {}
+            cached[school_id] = tuple(refs)
+            setattr(user, "_cached_reportes_profesor_refs_by_school", cached)
+        except Exception:
+            pass
+        return refs
+    except Exception:
+        return []
+
+
+def _resolve_preceptor_course_refs(user, school=None):
+    if getattr(user, "is_superuser", False) or PreceptorCurso is None:
+        return []
+    school_id = getattr(school, "id", None) or 0
+    cached = getattr(user, "_cached_reportes_preceptor_refs_by_school", None)
+    if isinstance(cached, dict) and school_id in cached:
+        return list(cached[school_id])
+    try:
+        qs = scope_queryset_to_school(PreceptorCurso.objects.filter(preceptor=user), school)
+        refs = get_assignment_course_refs(qs)
+        try:
+            if not isinstance(cached, dict):
+                cached = {}
+            cached[school_id] = tuple(refs)
+            setattr(user, "_cached_reportes_preceptor_refs_by_school", cached)
+        except Exception:
+            pass
+        return refs
+    except Exception:
+        return []
 
 
 def _resolve_materia(raw: str) -> Optional[str]:
@@ -329,27 +458,50 @@ def reportes_mis_estadisticas(request):
     user = request.user
     role = _role_label(user)
     cuatrimestre = _normalize_cuatrimestre(request.GET.get("cuatrimestre"))
+    active_school = get_request_school(request)
+    alumno_param = (request.GET.get("alumno_id") or "").strip()
 
     if role not in ("Padres", "Alumnos", "Superuser"):
         return Response({"detail": "No autorizado para este reporte."}, status=403)
+
+    cache_key = _mis_estadisticas_cache_key(
+        user_id=getattr(user, "id", None),
+        role=role,
+        school_id=getattr(active_school, "id", None),
+        alumno_param=alumno_param,
+        cuatrimestre=cuatrimestre,
+    )
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
 
     alumnos = []
     selected = None
 
     if role == "Superuser":
-        alumno_id = (request.GET.get("alumno_id") or "").strip()
-        if not alumno_id:
+        if not alumno_param:
             return Response({"detail": "Para superusuario envia ?alumno_id=<id o legajo>."}, status=400)
-        if alumno_id.isdigit():
-            selected = Alumno.objects.filter(id=int(alumno_id)).first()
+        alumnos_qs = scope_queryset_to_school(
+            Alumno.objects.select_related("school_course"),
+            active_school,
+        )
+        if alumno_param.isdigit():
+            selected = alumnos_qs.filter(id=int(alumno_param)).first()
         else:
-            selected = Alumno.objects.filter(id_alumno__iexact=alumno_id).first()
+            selected = alumnos_qs.filter(id_alumno__iexact=alumno_param).first()
         if not selected:
             return Response({"detail": "Alumno no encontrado."}, status=404)
         alumnos = [selected]
 
     elif role == "Padres":
-        alumnos_qs = Alumno.objects.filter(padre=user).order_by("curso", "nombre")
+        alumnos_qs = (
+            scope_queryset_to_school(
+                Alumno.objects.select_related("school_course"),
+                active_school,
+            )
+            .filter(padre=user)
+            .order_by("curso", "nombre")
+        )
         alumnos = list(alumnos_qs)
         if not alumnos:
             payload = {
@@ -366,9 +518,9 @@ def reportes_mis_estadisticas(request):
                 "evolucion_mensual_notas": [],
                 "materia_mas_floja": None,
             }
+            cache.set(cache_key, payload, 120)
             return Response(payload)
 
-        alumno_param = (request.GET.get("alumno_id") or "").strip()
         if not alumno_param:
             selected = alumnos[0]
         elif alumno_param.isdigit():
@@ -380,13 +532,13 @@ def reportes_mis_estadisticas(request):
             return Response({"detail": "No autorizado para ese alumno."}, status=403)
 
     else:  # Alumnos
-        resolution = resolve_alumno_for_user(user)
+        resolution = resolve_alumno_for_user(user, school=active_school)
         selected = resolution.alumno
         if not selected:
             return Response({"detail": "No se pudo resolver el alumno asociado al usuario."}, status=404)
         alumnos = [selected]
 
-    notas_qs = Nota.objects.filter(alumno=selected)
+    notas_qs = scope_queryset_to_school(Nota.objects.filter(alumno=selected), active_school)
     notas_qs = _apply_cuatrimestre_filter(notas_qs, cuatrimestre)
 
     notas_payload = _build_notas_payload(notas_qs)
@@ -399,6 +551,7 @@ def reportes_mis_estadisticas(request):
         "filtros": {"cuatrimestre": cuatrimestre},
         **notas_payload,
     }
+    cache.set(cache_key, payload, 120)
     return Response(payload)
 
 
@@ -408,34 +561,54 @@ def reportes_mis_estadisticas(request):
 def reportes_por_curso(request, curso: str):
     user = request.user
     role = _role_label(user)
-    curso_norm = _normalize_curso(curso)
+    active_school = get_request_school(request)
+    school_course, curso_norm, course_error = _resolve_path_course_selection(
+        curso,
+        school=active_school,
+    )
     cuatrimestre = _normalize_cuatrimestre(request.GET.get("cuatrimestre"))
+
+    if course_error:
+        return Response({"detail": course_error}, status=400)
 
     if role not in ("Profesores", "Preceptores", "Directivos", "Superuser"):
         return Response({"detail": "No autorizado para este reporte."}, status=403)
 
     if role == "Profesores":
-        cursos_habilitados = _resolve_profesor_cursos(user)
+        cursos_habilitados = _resolve_profesor_cursos(user, school=active_school)
+        course_refs = _resolve_profesor_course_refs(user, school=active_school)
     elif role == "Directivos":
-        cursos_habilitados = sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
+        cursos_habilitados = sorted(set(_available_course_codes(active_school)))
+        course_refs = []
     elif role == "Preceptores":
-        cursos_habilitados = _resolve_preceptor_cursos(user)
+        cursos_habilitados = _resolve_preceptor_cursos(user, school=active_school)
+        course_refs = _resolve_preceptor_course_refs(user, school=active_school)
     else:
-        cursos_habilitados = sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
+        cursos_habilitados = sorted(set(_available_course_codes(active_school)))
+        course_refs = []
 
     # Permiso estricto: si no hay cursos asignados, se deniega.
     if not cursos_habilitados:
         return Response({"detail": "No tenes cursos asignados."}, status=403)
 
-    if curso_norm not in set(cursos_habilitados):
+    if course_refs and not course_ref_matches(
+        course_refs,
+        school_course_id=getattr(school_course, "id", None),
+        course_code=curso_norm,
+    ):
         return Response({"detail": "No autorizado para ese curso."}, status=403)
 
-    cache_key = f"reportes:v2:curso:u{user.id}:r{role}:c{curso_norm}:q{cuatrimestre or 'all'}"
+    cache_key = f"reportes:v2:curso:u{user.id}:r{role}:s{_active_school_id(active_school)}:c{curso_norm}:q{cuatrimestre or 'all'}"
     cached = cache.get(cache_key)
     if cached is not None:
         return Response(cached)
 
-    notas_qs = Nota.objects.filter(alumno__curso=curso_norm)
+    notas_qs = _filter_notas_por_curso(
+        scope_queryset_to_school(Nota.objects.all(), active_school),
+        curso_norm,
+        school=active_school,
+        school_course=school_course,
+    )
     notas_qs = _apply_cuatrimestre_filter(notas_qs, cuatrimestre)
 
     notas_payload = _build_notas_payload(notas_qs)
@@ -443,7 +616,7 @@ def reportes_por_curso(request, curso: str):
     payload = {
         "scope": "curso",
         "rol": role,
-        "curso": curso_norm,
+        **_public_course_payload(school=active_school, course_code=curso_norm, school_course=school_course),
         "filtros": {"cuatrimestre": cuatrimestre},
         "permisos": {"cursos_habilitados": cursos_habilitados},
         **notas_payload,
@@ -459,8 +632,15 @@ def reportes_por_curso(request, curso: str):
 def reportes_materia_curso(request, id_materia: str, curso: str):
     user = request.user
     role = _role_label(user)
-    curso_norm = _normalize_curso(curso)
+    active_school = get_request_school(request)
+    school_course, curso_norm, course_error = _resolve_path_course_selection(
+        curso,
+        school=active_school,
+    )
     cuatrimestre = _normalize_cuatrimestre(request.GET.get("cuatrimestre"))
+
+    if course_error:
+        return Response({"detail": course_error}, status=400)
 
     if role not in ("Profesores", "Superuser"):
         return Response({"detail": "Solo profesores pueden acceder a este reporte."}, status=403)
@@ -470,22 +650,32 @@ def reportes_materia_curso(request, id_materia: str, curso: str):
         return Response({"detail": "Materia invalida."}, status=404)
 
     if role != "Superuser":
-        cursos_habilitados = _resolve_profesor_cursos(user)
+        cursos_habilitados = _resolve_profesor_cursos(user, school=active_school)
+        course_refs = _resolve_profesor_course_refs(user, school=active_school)
         if not cursos_habilitados:
             return Response({"detail": "No tenes cursos asignados."}, status=403)
-        if curso_norm not in set(cursos_habilitados):
+        if course_refs and not course_ref_matches(
+            course_refs,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso_norm,
+        ):
             return Response({"detail": "No autorizado para ese curso."}, status=403)
     else:
-        cursos_habilitados = sorted({str(c[0]) for c in getattr(Alumno, "CURSOS", [])})
+        cursos_habilitados = sorted(set(_available_course_codes(active_school)))
 
     cache_key = (
-        f"reportes:v2:materia_curso:u{user.id}:r{role}:c{curso_norm}:m{materia}:q{cuatrimestre or 'all'}"
+        f"reportes:v2:materia_curso:u{user.id}:r{role}:s{_active_school_id(active_school)}:c{curso_norm}:m{materia}:q{cuatrimestre or 'all'}"
     )
     cached = cache.get(cache_key)
     if cached is not None:
         return Response(cached)
 
-    notas_qs = Nota.objects.filter(alumno__curso=curso_norm, materia=materia)
+    notas_qs = _filter_notas_por_curso(
+        scope_queryset_to_school(Nota.objects.all(), active_school),
+        curso_norm,
+        school=active_school,
+        school_course=school_course,
+    ).filter(materia=materia)
     notas_qs = _apply_cuatrimestre_filter(notas_qs, cuatrimestre)
 
     notas_payload = _build_notas_payload(notas_qs)
@@ -493,7 +683,7 @@ def reportes_materia_curso(request, id_materia: str, curso: str):
     payload = {
         "scope": "materia_curso",
         "rol": role,
-        "curso": curso_norm,
+        **_public_course_payload(school=active_school, course_code=curso_norm, school_course=school_course),
         "materia": {"id": id_materia, "nombre": materia},
         "filtros": {"cuatrimestre": cuatrimestre},
         "permisos": {"cursos_habilitados": cursos_habilitados},

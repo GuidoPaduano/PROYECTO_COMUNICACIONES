@@ -13,16 +13,16 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const baseClasses =
   "inline-flex items-center justify-center rounded-lg font-medium transition " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)] focus-visible:ring-offset-2 " +
   "disabled:opacity-50 disabled:pointer-events-none"
 
 const variantClasses: Record<Variant, string> = {
-  primary: "bg-[#0c1b3f] text-white hover:bg-[#0a1736]",
-  secondary: "bg-[#0c1b3f]/10 text-[#0c1b3f] hover:bg-[#0c1b3f]/15",
-  outline: "border border-[#0c1b3f] bg-white text-[#0c1b3f] hover:bg-[#0c1b3f] hover:text-white",
-  ghost: "bg-transparent text-[#0c1b3f] hover:bg-[#0c1b3f]/10",
+  primary: "btn-school-primary",
+  secondary: "btn-school-secondary",
+  outline: "btn-school-outline",
+  ghost: "btn-school-ghost",
   destructive: "bg-red-600 text-white hover:bg-red-700",
-  blueOutline: "border border-[#0c1b3f] bg-white text-[#0c1b3f] hover:bg-[#0c1b3f] hover:text-white",
+  blueOutline: "btn-school-outline",
 }
 
 const sizeClasses: Record<Size, string> = {

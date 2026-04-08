@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from django.core.cache import cache
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from django.db.models import Count, Max, Q
 
+from .course_access import build_course_membership_q_for_refs, get_assignment_course_refs
 from .models import AlertaAcademica, AlertaInasistencia, Asistencia
 from .alerts import reconciliar_alertas_academicas
+from .schools import get_request_school, scope_queryset_to_school
+from .user_groups import user_in_groups
 
 try:
     from .models_preceptores import PreceptorCurso  # type: ignore
@@ -15,13 +19,13 @@ except Exception:
     PreceptorCurso = None
 
 
+def _active_school_id(school) -> str:
+    sid = getattr(school, "id", None)
+    return str(sid) if sid is not None else "none"
+
+
 def _is_preceptor(user) -> bool:
-    try:
-        if user.groups.filter(name__in=["Preceptores", "Preceptor", "Directivos", "Directivo"]).exists():
-            return True
-    except Exception:
-        pass
-    return False
+    return user_in_groups(user, "Preceptores", "Preceptor", "Directivos", "Directivo")
 
 
 def _parse_limit(request, default=20, max_limit=100):
@@ -33,13 +37,68 @@ def _parse_limit(request, default=20, max_limit=100):
 
 
 def _serialize_alumno(a):
+    school_course = getattr(a, "school_course", None)
     return {
         "id": getattr(a, "id", None),
         "id_alumno": getattr(a, "id_alumno", None),
         "nombre": getattr(a, "nombre", ""),
         "apellido": getattr(a, "apellido", ""),
-        "curso": getattr(a, "curso", ""),
+        "school_course_id": getattr(a, "school_course_id", None),
+        "school_course_name": getattr(school_course, "name", None)
+        or getattr(school_course, "code", None)
+        or getattr(a, "curso", ""),
     }
+
+
+def _assignment_alert_filter(*, refs, school_course_field: str, course_code_field: str, school_field: str | None = None):
+    return build_course_membership_q_for_refs(
+        refs,
+        school_course_field=school_course_field,
+        code_field=course_code_field,
+        school_field=school_field,
+    )
+
+
+def _resolve_preceptor_course_refs(user, school=None):
+    if getattr(user, "is_superuser", False) or PreceptorCurso is None:
+        return []
+
+    school_id = getattr(school, "id", None) or 0
+    attr_name = "_cached_alertas_preceptor_refs_by_school"
+    cached_attr = getattr(user, attr_name, None)
+    if isinstance(cached_attr, dict) and school_id in cached_attr:
+        return list(cached_attr[school_id])
+
+    cache_key = f"alertas:v1:preceptor_refs:u{getattr(user, 'id', 'x')}:s{_active_school_id(school)}"
+    cached_refs = cache.get(cache_key)
+    if cached_refs is not None:
+        try:
+            if not isinstance(cached_attr, dict):
+                cached_attr = {}
+            cached_attr[school_id] = tuple(cached_refs)
+            setattr(user, attr_name, cached_attr)
+        except Exception:
+            pass
+        return list(cached_refs)
+
+    try:
+        assignments_qs = scope_queryset_to_school(PreceptorCurso.objects.filter(preceptor=user), school)
+        refs = get_assignment_course_refs(assignments_qs)
+    except Exception:
+        refs = []
+
+    try:
+        cache.set(cache_key, tuple(refs), 180)
+    except Exception:
+        pass
+    try:
+        if not isinstance(cached_attr, dict):
+            cached_attr = {}
+        cached_attr[school_id] = tuple(refs)
+        setattr(user, attr_name, cached_attr)
+    except Exception:
+        pass
+    return refs
 
 
 @api_view(["GET"])
@@ -47,27 +106,32 @@ def _serialize_alumno(a):
 @permission_classes([IsAuthenticated])
 def preceptor_alertas_academicas(request):
     user = request.user
+    active_school = get_request_school(request)
     if not getattr(user, "is_superuser", False) and not _is_preceptor(user):
         return Response({"detail": "No autorizado."}, status=403)
 
     if getattr(user, "is_superuser", False):
-        cursos = None
+        course_refs = None
     else:
         if PreceptorCurso is None:
             return Response({"results": [], "count": 0}, status=200)
-        cursos = list(
-            PreceptorCurso.objects.filter(preceptor=user)
-            .values_list("curso", flat=True)
-            .distinct()
-        )
-        if not cursos:
+        course_refs = _resolve_preceptor_course_refs(user, school=active_school)
+        if not course_refs:
             return Response({"results": [], "count": 0}, status=200)
 
     limit = _parse_limit(request)
-    reconciliar_alertas_academicas(cursos=cursos)
-    base_qs = AlertaAcademica.objects.filter(estado="activa")
-    if cursos is not None:
-        base_qs = base_qs.filter(alumno__curso__in=cursos)
+    reconciliar_alertas_academicas(course_refs=course_refs)
+    base_qs = scope_queryset_to_school(AlertaAcademica.objects.filter(estado="activa"), active_school)
+    if course_refs is not None:
+        course_q = _assignment_alert_filter(
+            refs=course_refs,
+            school_course_field="alumno__school_course",
+            course_code_field="alumno__curso",
+            school_field="alumno__school",
+        )
+        if course_q is None:
+            return Response({"results": [], "count": 0}, status=200)
+        base_qs = base_qs.filter(course_q)
 
     top_alumno_ids = list(
         base_qs.values("alumno_id")
@@ -80,7 +144,7 @@ def preceptor_alertas_academicas(request):
 
     qs = (
         base_qs.filter(alumno_id__in=top_alumno_ids)
-        .select_related("alumno")
+        .select_related("alumno", "alumno__school_course")
         .order_by("-creada_en", "-id")
     )
 
@@ -115,26 +179,30 @@ def preceptor_alertas_academicas(request):
 @permission_classes([IsAuthenticated])
 def preceptor_alertas_inasistencias(request):
     user = request.user
+    active_school = get_request_school(request)
     if not getattr(user, "is_superuser", False) and not _is_preceptor(user):
         return Response({"detail": "No autorizado."}, status=403)
 
     if getattr(user, "is_superuser", False):
-        cursos = None
+        course_refs = None
     else:
         if PreceptorCurso is None:
             return Response({"results": [], "count": 0}, status=200)
-        cursos = list(
-            PreceptorCurso.objects.filter(preceptor=user)
-            .values_list("curso", flat=True)
-            .distinct()
-        )
-        if not cursos:
+        course_refs = _resolve_preceptor_course_refs(user, school=active_school)
+        if not course_refs:
             return Response({"results": [], "count": 0}, status=200)
 
     limit = _parse_limit(request)
-    base_qs = AlertaInasistencia.objects.filter(estado="activa")
-    if cursos is not None:
-        base_qs = base_qs.filter(curso__in=cursos)
+    base_qs = scope_queryset_to_school(AlertaInasistencia.objects.filter(estado="activa"), active_school)
+    if course_refs is not None:
+        course_q = _assignment_alert_filter(
+            refs=course_refs,
+            school_course_field="school_course",
+            course_code_field="curso",
+        )
+        if course_q is None:
+            return Response({"results": [], "count": 0}, status=200)
+        base_qs = base_qs.filter(course_q)
 
     top_alumno_ids = list(
         base_qs.values("alumno_id")
@@ -147,7 +215,7 @@ def preceptor_alertas_inasistencias(request):
 
     qs = (
         base_qs.filter(alumno_id__in=top_alumno_ids)
-        .select_related("alumno")
+        .select_related("alumno", "alumno__school_course")
         .order_by("-creada_en", "-id")
     )
 
@@ -157,9 +225,12 @@ def preceptor_alertas_inasistencias(request):
     totales_por_alumno = {}
     if alumno_ids:
         rows = (
-            Asistencia.objects.filter(
+            scope_queryset_to_school(
+                Asistencia.objects.filter(
                 alumno_id__in=alumno_ids,
                 tipo_asistencia="clases",
+                ),
+                active_school,
             )
             .values("alumno_id")
             .annotate(total=Count("id", filter=Q(presente=False)))

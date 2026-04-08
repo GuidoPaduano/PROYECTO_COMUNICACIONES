@@ -6,10 +6,10 @@
     <form method="post">
         {% csrf_token %}
         <label>Curso:</label>
-        <select name="curso" required>
+        <select name="school_course_id" required>
             <option value="">-- Seleccionar curso --</option>
-            {% for cod, nombre in cursos %}
-                <option value="{{ cod }}">{{ nombre }}</option>
+            {% for curso in cursos %}
+                <option value="{{ curso.school_course_id }}" {% if curso_seleccionado_id == curso.school_course_id %}selected{% endif %}>{{ curso.nombre }}</option>
             {% endfor %}
         </select><br>
 

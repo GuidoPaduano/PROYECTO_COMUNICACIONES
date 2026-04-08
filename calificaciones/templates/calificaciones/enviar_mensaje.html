@@ -5,23 +5,24 @@
 
     <form method="get">
         <label>Curso:</label>
-        <select name="curso" onchange="this.form.submit()">
+        <select name="school_course_id" onchange="this.form.submit()">
             <option value="">-- Seleccionar curso --</option>
-            {% for cod, nombre in cursos %}
-                <option value="{{ cod }}" {% if curso_seleccionado == cod %}selected{% endif %}>
-                    {{ nombre }}
+            {% for curso in cursos %}
+                <option value="{{ curso.school_course_id }}" {% if curso_seleccionado_id == curso.school_course_id %}selected{% endif %}>
+                    {{ curso.nombre }}
                 </option>
             {% endfor %}
         </select>
     </form>
 
-    {% if curso_seleccionado %}
+    {% if curso_seleccionado_id %}
         <form method="post">
             {% csrf_token %}
+            <input type="hidden" name="school_course_id" value="{{ curso_seleccionado_id }}">
             <label>Alumno:</label>
             <select name="alumno" required>
                 {% for alumno in alumnos %}
-                    <option value="{{ alumno.id_alumno }}">{{ alumno.nombre }}</option>
+                    <option value="{{ alumno.id }}">{{ alumno.nombre }}</option>
                 {% endfor %}
             </select><br>
             <label>Asunto:</label><br>

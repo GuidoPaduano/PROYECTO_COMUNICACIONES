@@ -2,15 +2,15 @@
 
 {% block content %}
 <div class="container mt-4">
-  <h2>Pasar asistencia{% if curso_nombre %} - {{ curso_nombre }}{% endif %}</h2>
+  <h2>Pasar asistencia{% if school_course_name %} - {{ school_course_name }}{% endif %}</h2>
 
   {% if request.user.is_superuser %}
     <form method="get" class="mb-4">
       <div class="mb-3">
         <label for="curso" class="form-label">Seleccioná un curso</label>
-        <select name="curso" id="curso" class="form-select" onchange="this.form.submit()">
+        <select name="school_course_id" id="curso" class="form-select" onchange="this.form.submit()">
           {% for curso_obj in cursos %}
-            <option value="{{ curso_obj.id }}" {% if curso_id == curso_obj.id %}selected{% endif %}>{{ curso_obj.nombre }}</option>
+            <option value="{{ curso_obj.school_course_id|default:curso_obj.id }}" {% if curso_id == curso_obj.school_course_id or curso_id == curso_obj.id %}selected{% endif %}>{{ curso_obj.nombre }}</option>
           {% endfor %}
         </select>
       </div>
@@ -20,6 +20,9 @@
   {% if alumnos %}
     <form id="asistencia-form" method="post">
       {% csrf_token %}
+      {% if curso_id %}
+        <input type="hidden" name="school_course_id" value="{{ curso_id }}">
+      {% endif %}
       <table class="table table-bordered">
         <thead>
           <tr>
@@ -79,20 +82,17 @@ document.addEventListener('DOMContentLoaded', function () {
         body: new FormData(form)
       })
       .then(response => {
-        if (!response.ok) throw new Error('Error en la red');
+        if (!response.ok) throw response;
         return response.json();
       })
-      .then(data => {
-        if (data.success) {
-          const modal = new bootstrap.Modal(document.getElementById('modalExito'));
-          modal.show();
-        } else {
-          alert('No se pudo guardar la asistencia.');
-        }
+      .then(() => {
+        const modal = new bootstrap.Modal(document.getElementById('modalExito'));
+        modal.show();
       })
-      .catch(error => {
+      .catch(async error => {
+        const data = error?.json ? await error.json() : null;
         console.error('Error:', error);
-        alert('Error al enviar la asistencia.');
+        alert(data?.detail || 'Error al enviar la asistencia.');
       });
     });
   }

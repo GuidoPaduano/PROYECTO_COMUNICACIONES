@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 from django.views.decorators.csrf import csrf_exempt
-from django.db import models
-from django.utils import timezone
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -26,20 +24,6 @@ def _parse_limit(request, default=5, max_limit=12):
         lim = default
     lim = max(1, min(lim, max_limit))
     return lim
-
-
-def _serialize_notif(n: Notificacion):
-    return {
-        "id": n.id,
-        "tipo": n.tipo,
-        "titulo": n.titulo,
-        "descripcion": n.descripcion or "",
-        "url": n.url or "",
-        "creada_en": n.creada_en.isoformat() if getattr(n, "creada_en", None) else None,
-        "leida": bool(n.leida),
-        "meta": n.meta or {},
-    }
-
 
 @csrf_exempt
 @api_view(["GET"])
@@ -90,7 +74,7 @@ def notificaciones_recientes(request):
 def notificaciones_marcar_leida(request, notif_id: int):
     user = request.user
     updated = Notificacion.objects.filter(destinatario=user, id=notif_id, leida=False).update(leida=True)
-    return Response({"success": True, "updated": int(updated)}, status=200)
+    return Response({"updated": int(updated)}, status=200)
 
 
 @csrf_exempt
@@ -100,4 +84,4 @@ def notificaciones_marcar_leida(request, notif_id: int):
 def notificaciones_marcar_todas_leidas(request):
     user = request.user
     updated = Notificacion.objects.filter(destinatario=user, leida=False).update(leida=True)
-    return Response({"success": True, "updated": int(updated)}, status=200)
+    return Response({"updated": int(updated)}, status=200)

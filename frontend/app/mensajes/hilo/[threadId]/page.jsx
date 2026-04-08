@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useRef, useState } from "react"
-import { useAuthGuard, authFetch } from "../../../_lib/auth"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useAuthGuard, authFetch, getCachedSessionProfileData, getSessionProfile, useSessionContext } from "../../../_lib/auth"
 import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, Send, RefreshCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -60,11 +60,104 @@ function notifyInboxChanged() {
   } catch {}
 }
 
+function getThreadConversationUrl(threadIdParam) {
+  return isUUID(threadIdParam)
+    ? `/api/mensajes/conversacion/thread/${threadIdParam}/`
+    : /^\d+$/.test(String(threadIdParam || ""))
+    ? `/api/mensajes/conversacion/${threadIdParam}/`
+    : null
+}
+
+const HILO_RESOURCE_MAX_AGE_MS = 10000
+const hiloResourceCache = new Map()
+const hiloResourcePromises = new Map()
+
+function buildHiloSessionProfile(session) {
+  const groups = Array.isArray(session?.groups) ? session.groups : []
+  const username = String(session?.username || "").trim()
+  const fullName = String(session?.userLabel || "").trim()
+  const hasRoleData = groups.length > 0 || !!session?.isSuperuser || !!username || !!fullName
+  if (!hasRoleData) return null
+  return {
+    username,
+    full_name: fullName,
+    groups,
+    rol: String(session?.role || "").trim(),
+    is_superuser: !!session?.isSuperuser,
+    school: session?.school || null,
+  }
+}
+
+function invalidateHiloResource(cacheKey = "") {
+  const key = String(cacheKey || "").trim()
+  if (!key) return
+  hiloResourceCache.delete(key)
+  hiloResourcePromises.delete(key)
+}
+
+function getHiloResourceKey(scopeKey, threadIdParam) {
+  const conversationUrl = getThreadConversationUrl(threadIdParam)
+  return conversationUrl ? `mensajes-thread:${scopeKey}:${conversationUrl}` : ""
+}
+
+async function loadHiloResource(
+  cacheKey,
+  loader,
+  { force = false, maxAgeMs = HILO_RESOURCE_MAX_AGE_MS } = {}
+) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (force) {
+    invalidateHiloResource(key)
+  }
+
+  const cached = hiloResourceCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  if (hiloResourcePromises.has(key)) {
+    return await hiloResourcePromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    hiloResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  hiloResourcePromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (hiloResourcePromises.get(key) === promise) {
+      hiloResourcePromises.delete(key)
+    }
+  }
+}
+
 export default function HiloMensajesPage() {
   useAuthGuard()
   const router = useRouter()
+  const session = useSessionContext()
   const params = useParams()
   const threadIdParam = Array.isArray(params?.threadId) ? params.threadId[0] : params?.threadId
+  const cachedProfile = useMemo(() => getCachedSessionProfileData(), [])
+  const hiloScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
+  const sessionBootstrapProfile = useMemo(
+    () => cachedProfile || buildHiloSessionProfile(session),
+    [cachedProfile, session?.groups, session?.isSuperuser, session?.role, session?.school, session?.userLabel, session?.username]
+  )
 
   const [me, setMe] = useState(null)
   const [mensajes, setMensajes] = useState([])
@@ -93,31 +186,24 @@ export default function HiloMensajesPage() {
         setLoading(true)
         setError("")
 
-        const who = await fetchJSON("/auth/whoami/")
-        if (alive && who.ok) setMe(who.data)
+        const who =
+          sessionBootstrapProfile && (sessionBootstrapProfile.id || sessionBootstrapProfile.user?.id)
+            ? sessionBootstrapProfile
+            : await getSessionProfile()
+        if (alive) setMe(who)
 
         // Cargar por thread_id (UUID) o por mensaje_id (numérico)
+        const conversationUrl = getThreadConversationUrl(threadIdParam)
+        const hiloCacheKey = getHiloResourceKey(hiloScopeKey, threadIdParam)
+
         let got = null
-        if (isUUID(threadIdParam)) {
-          for (const url of [
-            `/api/mensajes/conversacion/thread/${threadIdParam}/`,
-            `/mensajes/conversacion/thread/${threadIdParam}/`,
-            `/api/mensajes/conversacion/thread/${threadIdParam}`,
-            `/mensajes/conversacion/thread/${threadIdParam}`,
-          ]) {
-            const r = await fetchJSON(url)
-            if (r.ok && Array.isArray(r.data?.mensajes)) { got = r; break }
-          }
-        } else if (/^\d+$/.test(String(threadIdParam || ""))) {
-          for (const url of [
-            `/api/mensajes/conversacion/${threadIdParam}/`,
-            `/mensajes/conversacion/${threadIdParam}/`,
-            `/api/mensajes/conversacion/${threadIdParam}`,
-            `/mensajes/conversacion/${threadIdParam}`,
-          ]) {
-            const r = await fetchJSON(url)
-            if (r.ok && Array.isArray(r.data?.mensajes)) { got = r; break }
-          }
+        if (conversationUrl) {
+          const r = await loadHiloResource(
+            hiloCacheKey,
+            async () => await fetchJSON(conversationUrl),
+            { force: refreshTs > 0 }
+          )
+          if (r.ok && Array.isArray(r.data?.mensajes)) got = r
         }
 
         if (!got?.ok) {
@@ -126,7 +212,7 @@ export default function HiloMensajesPage() {
         }
 
         const msgs = Array.isArray(got.data?.mensajes) ? got.data.mensajes : []
-        const myId = who?.data?.id ?? who?.data?.user?.id
+        const myId = who?.id ?? who?.user?.id
 
         // Elegir por defecto: último que YO recibí
         const recvd = msgs.filter(m => m.receptor_id && myId && m.receptor_id === myId)
@@ -138,39 +224,29 @@ export default function HiloMensajesPage() {
           setReplyAsunto(base?.asunto ? `Re: ${stripRePrefix(base.asunto)}` : "Re:")
         }
 
-        // Auto-marcado: SOLO si el backend expone flags y SOLO una vez por hilo.
-        if (!didAutoMarkRef.current && myId && msgs.length) {
-          const toMark = msgs.filter(m => {
-            const hasLeido = Object.prototype.hasOwnProperty.call(m, "leido")
-            const hasLeidoEn = Object.prototype.hasOwnProperty.call(m, "leido_en")
-            const hasFlags = hasLeido || hasLeidoEn
-            if (!hasFlags) return false
-            const isMine = m.receptor_id === myId
-            const isUnread =
-              (hasLeido && m.leido === false) ||
-              (hasLeidoEn && (m.leido_en === null || m.leido_en === undefined))
-            return isMine && isUnread
-          })
+        // Auto-marcado: SOLO del mensaje puntual que se abre como base del hilo.
+        if (!didAutoMarkRef.current && myId && base?.id) {
+          const hasLeido = Object.prototype.hasOwnProperty.call(base, "leido")
+          const hasLeidoEn = Object.prototype.hasOwnProperty.call(base, "leido_en")
+          const hasFlags = hasLeido || hasLeidoEn
+          const isMine = base.receptor_id === myId
+          const isUnread =
+            (hasLeido && base.leido === false) ||
+            (hasLeidoEn && (base.leido_en === null || base.leido_en === undefined))
 
-          if (toMark.length) {
+          if (hasFlags && isMine && isUnread) {
             didAutoMarkRef.current = true
-            const ids = toMark.map(c => c.id).filter(Boolean)
+            const targetId = base.id
 
-            // Marcamos en backend (best-effort) y actualizamos UI local sin refrescar
-            Promise.allSettled(
-              ids.map((id) =>
-                fetchJSON(`/mensajes/${id}/marcar_leido/`, { method: "POST" })
-                  .then(r => (r.ok ? r : fetchJSON(`/api/mensajes/${id}/marcar_leido/`, { method: "POST" })))
-              )
-            ).finally(() => {
+            fetchJSON(`/api/mensajes/${targetId}/marcar_leido/`, { method: "POST" }).finally(() => {
               setMensajes(prev =>
                 prev.map(m =>
-                  ids.includes(m.id)
+                  m.id === targetId
                     ? { ...m, leido: true, leido_en: m.leido_en || new Date().toISOString() }
                     : m
                 )
               )
-              // Avisar al dashboard para refrescar el badge
+              invalidateHiloResource(hiloCacheKey)
               notifyInboxChanged()
             })
           }
@@ -182,7 +258,7 @@ export default function HiloMensajesPage() {
       }
     })()
     return () => { alive = false }
-  }, [threadIdParam, refreshTs])
+  }, [hiloScopeKey, refreshTs, sessionBootstrapProfile, threadIdParam])
 
   // autoscroll al final
   useEffect(() => {
@@ -202,35 +278,24 @@ export default function HiloMensajesPage() {
     setSending(true)
     setSendMsg("")
     const payload = { mensaje_id: replyToId, asunto: replyAsunto || "Re:", contenido: replyText.trim() }
-    const formPayload = new FormData()
-    formPayload.append("mensaje_id", String(payload.mensaje_id))
-    formPayload.append("asunto", payload.asunto)
-    formPayload.append("contenido", payload.contenido)
-
-    let ok = false, lastErr = ""
-    for (const attempt of [
-      {
-        body: JSON.stringify(payload),
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-      },
-      {
-        body: formPayload,
-        headers: { Accept: "application/json" },
-      },
-    ]) {
-      const r = await fetchJSON("/mensajes/responder/", {
-        method: "POST",
-        headers: attempt.headers,
-        body: attempt.body,
-      })
-      if (r.ok) { ok = true; break }
-      lastErr = r?.data?.detail || r?.text || `HTTP ${r?.status}`
-    }
+    const r = await fetchJSON("/api/mensajes/responder/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    })
+    const ok = r.ok
+    const lastErr = r?.data?.detail || r?.text || `HTTP ${r?.status}`
     setSending(false)
     if (ok) {
       setReplyText("")
       setSendMsg("✅ Enviado. Actualizando hilo…")
       // (enviar respuesta no reduce tus no-leídos, pero invalidamos para que otros badges se sincronicen)
+      invalidateHiloResource(
+        getHiloResourceKey(
+          `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+          threadIdParam
+        )
+      )
       notifyInboxChanged()
       setTimeout(() => setRefreshTs(ts => ts + 1), 400) // refresco solo tras enviar
     } else {
@@ -248,7 +313,19 @@ export default function HiloMensajesPage() {
             <ArrowLeft className="h-4 w-4" /> Volver
           </Button>
           <div className="text-sm text-gray-600">Hilo</div>
-          <Button variant="ghost" className="ml-auto gap-2" onClick={() => setRefreshTs(ts => ts + 1)}>
+          <Button
+            variant="ghost"
+            className="ml-auto gap-2"
+            onClick={() => {
+              invalidateHiloResource(
+                getHiloResourceKey(
+                  `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+                  threadIdParam
+                )
+              )
+              setRefreshTs(ts => ts + 1)
+            }}
+          >
             <RefreshCcw className="h-4 w-4" /> Actualizar
           </Button>
         </div>
@@ -271,9 +348,19 @@ export default function HiloMensajesPage() {
                     <div key={m.id} className={"flex " + (mine ? "justify-end" : "justify-start")}>
                       <div
                         className={
-                          (mine ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900")
+                          (mine ? "" : "bg-gray-100 text-gray-900")
                           + " max-w-[80%] rounded-2xl px-4 py-2 shadow-sm border "
-                          + (isReplyTarget ? (mine ? "border-white/70" : "border-blue-300") : "border-transparent")
+                          + (isReplyTarget ? (mine ? "border-white/70" : "") : "border-transparent")
+                        }
+                        style={
+                          mine
+                            ? {
+                                backgroundColor: "var(--school-primary)",
+                                color: "#ffffff",
+                              }
+                            : isReplyTarget
+                              ? { borderColor: "var(--school-primary-border)" }
+                              : undefined
                         }
                       >
                         <div className="text-xs opacity-80 mb-1 flex items-center justify-between gap-3">

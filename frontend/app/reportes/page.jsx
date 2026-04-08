@@ -3,10 +3,32 @@
 import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react"
 
-import { authFetch, useAuthGuard } from "../_lib/auth"
+import { authFetch, getSessionProfile, useAuthGuard, useSessionContext } from "../_lib/auth"
+import {
+  getCourseDisplayName,
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  loadCourseCatalog,
+} from "../_lib/courses"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+function buildReportesSessionProfile(session) {
+  const groups = Array.isArray(session?.groups) ? session.groups : []
+  const username = String(session?.username || "").trim()
+  const fullName = String(session?.userLabel || "").trim()
+  const hasRoleData = groups.length > 0 || !!session?.isSuperuser || !!username || !!fullName
+  if (!hasRoleData) return null
+  return {
+    username,
+    full_name: fullName,
+    groups,
+    is_superuser: !!session?.isSuperuser,
+    rol: String(session?.role || "").trim(),
+    school: session?.school || null,
+  }
+}
 
 function normalizeRole(me) {
   const groups = Array.isArray(me?.groups) ? me.groups : []
@@ -17,33 +39,6 @@ function normalizeRole(me) {
   if (groups.includes("Directivos") || groups.includes("Directivo")) return "Directivos"
   if (groups.includes("Preceptores") || groups.includes("Preceptor")) return "Preceptores"
   return "SinRol"
-}
-
-function normalizeCursoItem(item) {
-  if (!item) return null
-  if (typeof item === "string") return { id: item, label: item }
-  const id = item?.id || item?.curso || item?.value
-  if (!id) return null
-  return { id: String(id), label: String(item?.nombre || item?.label || id) }
-}
-
-function dedupeCursos(items) {
-  const out = []
-  const seen = new Set()
-  for (const it of items || []) {
-    const parsed = normalizeCursoItem(it)
-    if (!parsed || seen.has(parsed.id)) continue
-    seen.add(parsed.id)
-    out.push(parsed)
-  }
-  return out
-}
-
-function parseCursosPayload(payload) {
-  if (Array.isArray(payload)) return dedupeCursos(payload)
-  if (Array.isArray(payload?.cursos)) return dedupeCursos(payload.cursos)
-  if (Array.isArray(payload?.results)) return dedupeCursos(payload.results)
-  return []
 }
 
 function fmtPct(value) {
@@ -151,8 +146,49 @@ function EvolucionMensual({ rows }) {
   )
 }
 
+const REPORTES_RESOURCE_MAX_AGE_MS = 30000
+const REPORTES_DYNAMIC_RESOURCE_MAX_AGE_MS = 15000
+const reportesResourceCache = new Map()
+const reportesResourcePromises = new Map()
+
+async function loadReportesResource(cacheKey, loader, maxAgeMs = REPORTES_RESOURCE_MAX_AGE_MS) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  const cached = reportesResourceCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  if (reportesResourcePromises.has(key)) {
+    return await reportesResourcePromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    reportesResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  reportesResourcePromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (reportesResourcePromises.get(key) === promise) {
+      reportesResourcePromises.delete(key)
+    }
+  }
+}
+
 export default function ReportesPage() {
   useAuthGuard()
+  const session = useSessionContext()
 
   const [profileLoading, setProfileLoading] = useState(true)
   const [reportLoading, setReportLoading] = useState(false)
@@ -173,6 +209,23 @@ export default function ReportesPage() {
   const isPreceptor = role === "Preceptores"
   const isSuper = role === "Superuser"
   const usaCurso = isProfesor || isPreceptor || isDirectivo || isSuper
+  const cursoSelSchoolCourseId = useMemo(
+    () => (cursoSel ? getCourseSchoolCourseId(cursoSel, cursos) : null),
+    [cursoSel, cursos]
+  )
+  const reportesScopeKey = useMemo(
+    () =>
+      `${session?.username || "anon"}:${session?.school?.id || "default"}:${role || "base"}`,
+    [role, session?.school?.id, session?.username]
+  )
+  const sessionBootstrapProfile = useMemo(
+    () => buildReportesSessionProfile(session),
+    [session?.groups, session?.isSuperuser, session?.role, session?.school, session?.userLabel, session?.username]
+  )
+  const courseCatalogCacheKey = useMemo(
+    () => `reportes-cursos:${reportesScopeKey}`,
+    [reportesScopeKey]
+  )
 
   useEffect(() => {
     let alive = true
@@ -180,9 +233,7 @@ export default function ReportesPage() {
       try {
         setProfileLoading(true)
         setError("")
-        const meRes = await authFetch("/auth/whoami/")
-        const me = await meRes.json().catch(() => ({}))
-        if (!meRes.ok) throw new Error(me?.detail || `HTTP ${meRes.status}`)
+        const me = sessionBootstrapProfile || (await getSessionProfile())
         if (!alive) return
         setRole(normalizeRole(me))
       } catch (e) {
@@ -195,43 +246,80 @@ export default function ReportesPage() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [sessionBootstrapProfile])
 
   useEffect(() => {
     if (!usaCurso) return
     let alive = true
     ;(async () => {
       try {
-        const urls = isPreceptor
-          ? ["/preceptor/cursos/"]
+        const urls = isProfesor || isPreceptor
+          ? ["/cursos/mis-cursos/", "/preceptor/cursos/"]
           : ["/notas/catalogos/", "/alumnos/cursos/"]
-
-        let found = []
-        for (const url of urls) {
-          const res = await authFetch(url)
-          if (!res.ok) continue
-          const payload = await res.json().catch(() => ({}))
-          found = parseCursosPayload(payload)
-          if (found.length) break
-        }
+        const found = await loadCourseCatalog({
+          fetcher: authFetch,
+          urls,
+          cacheKey: courseCatalogCacheKey,
+        })
 
         if (!alive) return
         setCursos(found)
-        if (found.length && !cursoSel) setCursoSel(found[0].id)
+        if (found.length && !cursoSel) {
+          setCursoSel(found[0].value)
+        } else if (!found.length) {
+          setCursoSel("")
+        }
       } catch {
         if (!alive) return
         setCursos([])
+        setCursoSel("")
       }
     })()
     return () => {
       alive = false
     }
-  }, [usaCurso, isPreceptor, cursoSel])
+  }, [usaCurso, isProfesor, isPreceptor, courseCatalogCacheKey, cursoSel])
+
+  useEffect(() => {
+    if (profileLoading || !isPadre) return
+    let alive = true
+    ;(async () => {
+      try {
+        const hijos = await loadReportesResource(
+          `reportes-hijos:${reportesScopeKey}`,
+          async () => {
+            const res = await authFetch("/padres/mis-hijos/")
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`)
+            return Array.isArray(data?.results) ? data.results : []
+          }
+        )
+        if (!alive) return
+        setAlumnos(hijos)
+
+        const current = String(alumnoSel || "")
+        const hasCurrent = hijos.some((a) => String(a?.id || a?.id_alumno || "") === current)
+        if (hasCurrent) return
+
+        const next = String(hijos[0]?.id || hijos[0]?.id_alumno || "")
+        if (next) setAlumnoSel(next)
+      } catch (e) {
+        if (!alive) return
+        setAlumnos([])
+        setError(e?.message || "No se pudieron cargar los hijos asociados.")
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [profileLoading, isPadre, alumnoSel, reportesScopeKey])
 
   useEffect(() => {
     if (profileLoading) return
     if (!(isPadre || isAlumno || isProfesor || isPreceptor || isDirectivo || isSuper)) return
     if (usaCurso && !cursoSel) return
+    if (usaCurso && cursoSelSchoolCourseId == null) return
+    if (isPadre && !alumnoSel) return
 
     let alive = true
     ;(async () => {
@@ -241,30 +329,29 @@ export default function ReportesPage() {
 
         const params = new URLSearchParams()
         if (cuatrimestre !== "all") params.set("cuatrimestre", cuatrimestre)
-        if (isPadre && alumnoSel) params.set("alumno_id", alumnoSel)
+        if (isPadre) params.set("alumno_id", alumnoSel)
 
         const qs = params.toString()
         const path = isPadre || isAlumno
           ? `/reportes/mis-estadisticas/${qs ? `?${qs}` : ""}`
-          : `/reportes/curso/${encodeURIComponent(cursoSel)}/${qs ? `?${qs}` : ""}`
-
-        const res = await authFetch(path)
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`)
+          : `/reportes/curso/${encodeURIComponent(String(cursoSelSchoolCourseId))}/${qs ? `?${qs}` : ""}`
+        const data = await loadReportesResource(
+          `reportes-data:${reportesScopeKey}:${path}`,
+          async () => {
+            const res = await authFetch(path)
+            const payload = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+            return payload
+          },
+          REPORTES_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
         if (!alive) return
 
         setReport(data)
 
         if (isPadre) {
           const hijos = Array.isArray(data?.alumnos) ? data.alumnos : []
-          setAlumnos(hijos)
-          const activo = data?.alumno_activo
-          const active = String(activo?.id || activo?.id_alumno || "")
-          if (active && active !== String(alumnoSel || "")) {
-            setAlumnoSel(active)
-          } else if (!alumnoSel && hijos.length > 0) {
-            setAlumnoSel(String(hijos[0]?.id || hijos[0]?.id_alumno || ""))
-          }
+          if (hijos.length) setAlumnos(hijos)
         }
       } catch (e) {
         if (!alive) return
@@ -278,7 +365,7 @@ export default function ReportesPage() {
     return () => {
       alive = false
     }
-  }, [profileLoading, isPadre, isAlumno, isProfesor, isPreceptor, isDirectivo, isSuper, usaCurso, cursoSel, alumnoSel, cuatrimestre])
+  }, [profileLoading, isPadre, isAlumno, isProfesor, isPreceptor, isDirectivo, isSuper, usaCurso, cursoSel, cursoSelSchoolCourseId, alumnoSel, cuatrimestre])
 
   const resumen = report?.resumen_notas || { total_evaluaciones: 0, conteos_por_estado: { TEA: 0, TEP: 0, TED: 0 }, porcentajes_por_estado: { TEA: 0, TEP: 0, TED: 0 } }
   const porMateria = Array.isArray(report?.por_materia) ? report.por_materia : []
@@ -308,7 +395,7 @@ export default function ReportesPage() {
                 <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={cursoSel} onChange={(e) => setCursoSel(e.target.value)}>
                   {cursos.length === 0 ? <option value="">Sin cursos</option> : null}
                   {cursos.map((c) => (
-                    <option key={c.id} value={c.id}>{c.label}</option>
+                    <option key={c.value} value={c.value}>{getCourseLabel(c)}</option>
                   ))}
                 </select>
               </div>
@@ -319,7 +406,9 @@ export default function ReportesPage() {
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hijo</label>
                 <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={alumnoSel} onChange={(e) => setAlumnoSel(e.target.value)}>
                   {alumnos.map((a) => (
-                    <option key={a.id || a.id_alumno} value={a.id || a.id_alumno}>{a.nombre} ({a.curso})</option>
+                    <option key={a.id || a.id_alumno} value={a.id || a.id_alumno}>
+                      {a.nombre} ({getCourseDisplayName(a) || "Curso s/d"})
+                    </option>
                   ))}
                 </select>
               </div>
@@ -329,7 +418,7 @@ export default function ReportesPage() {
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hijo</label>
                 <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {alumnos[0]?.nombre} ({alumnos[0]?.curso})
+                  {alumnos[0]?.nombre} ({getCourseDisplayName(alumnos[0]) || "Curso s/d"})
                 </div>
               </div>
             ) : null}

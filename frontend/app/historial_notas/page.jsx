@@ -1,9 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState, useCallback } from "react"
+import { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { useAuthGuard, authFetch } from "../_lib/auth"
+import { useAuthGuard, authFetch, getSessionProfile, useSessionContext } from "../_lib/auth"
+import { getCourseDisplayName } from "../_lib/courses"
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -34,11 +35,15 @@ import {
 import { NotificationBell } from "@/components/notification-bell"
 import { useUnreadCount } from "../_lib/useUnreadCount"
 
-const LOGO_SRC = "/imagenes/tecnova(1).png"
+const LOGO_SRC = "/imagenes/Logo%20Color.png"
 
 /* ===== Constantes ===== */
 const ALL = "__ALL__"
 const DEFAULT_CUATRI = ["1", "2"]
+const HISTORIAL_NOTAS_RESOURCE_MAX_AGE_MS = 15000
+
+const historialNotasResourceCache = new Map()
+const historialNotasResourcePromises = new Map()
 
 /* ======================== Helpers ======================== */
 async function fetchJSON(url, opts) {
@@ -75,10 +80,72 @@ function setQueryInLocation(router, { alumno, materia, cuatrimestre }) {
   router.replace(qs ? `/historial_notas?${qs}` : `/historial_notas`)
 }
 
+function buildHistorialNotasSessionProfile(session) {
+  const groups = Array.isArray(session?.groups) ? session.groups : []
+  const username = String(session?.username || "").trim()
+  const fullName = String(session?.userLabel || "").trim()
+  const hasRoleData = groups.length > 0 || !!session?.isSuperuser || !!username || !!fullName
+  if (!hasRoleData) return null
+  return {
+    username,
+    full_name: fullName,
+    groups,
+    rol: String(session?.role || "").trim(),
+    is_superuser: !!session?.isSuperuser,
+    school: session?.school || null,
+  }
+}
+
+async function loadHistorialNotasResource(cacheKey, loader, options = {}) {
+  const force = options?.force === true
+  const maxAgeMs =
+    Number.isFinite(Number(options?.maxAgeMs)) && Number(options?.maxAgeMs) > 0
+      ? Number(options.maxAgeMs)
+      : HISTORIAL_NOTAS_RESOURCE_MAX_AGE_MS
+  const now = Date.now()
+
+  if (!force) {
+    const cached = historialNotasResourceCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return cached.data
+
+    const pending = historialNotasResourcePromises.get(cacheKey)
+    if (pending) return pending
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    historialNotasResourceCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  historialNotasResourcePromises.set(cacheKey, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (historialNotasResourcePromises.get(cacheKey) === promise) {
+      historialNotasResourcePromises.delete(cacheKey)
+    }
+  }
+}
+
 /* ======================== Page ======================== */
 export default function HistorialNotasPadrePage() {
   useAuthGuard()
   const router = useRouter()
+  const session = useSessionContext()
+  const initialSelectionRef = useRef("")
+  const historialScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
+  const sessionProfile = useMemo(
+    () => buildHistorialNotasSessionProfile(session),
+    [historialScopeKey, session?.groups, session?.isSuperuser, session?.role, session?.userLabel]
+  )
 
   // whoami
   const [me, setMe] = useState(null)
@@ -125,15 +192,23 @@ export default function HistorialNotasPadrePage() {
     let alive = true
     ;(async () => {
       try {
-        const [who, hijosRes] = await Promise.all([
-          fetchJSON("/auth/whoami/"),
-          fetchJSON("/padres/mis-hijos/"),
+        const [who, arr] = await Promise.all([
+          sessionProfile
+            ? Promise.resolve({ ok: true, data: sessionProfile })
+            : getSessionProfile().then((data) => ({ ok: true, data })),
+          loadHistorialNotasResource(
+            `historial-notas-hijos:${historialScopeKey}`,
+            async () => {
+              const hijosRes = await fetchJSON("/api/padres/mis-hijos/")
+              if (!hijosRes.ok) return []
+              return hijosRes.data?.results || []
+            }
+          ),
         ])
         if (!alive) return
 
         if (who.ok) setMe(who.data || null)
 
-        const arr = hijosRes.ok ? (hijosRes.data?.results || []) : []
         setHijos(arr)
 
         // Respetar ?alumno= si coincide; si no, tomar primero
@@ -144,6 +219,7 @@ export default function HistorialNotasPadrePage() {
             ? alumnoQS
             : first
 
+        initialSelectionRef.current = String(initialId || "")
         setSelectedId(initialId)
         if (initialId) await fetchNotas(initialId, materiaFilter, cuatriFilter)
 
@@ -161,10 +237,10 @@ export default function HistorialNotasPadrePage() {
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [historialScopeKey, sessionProfile])
 
   /* -------- Fetch de notas (server-side) -------- */
-  const fetchNotas = useCallback(async (id, materia, cuatri) => {
+  const fetchNotas = useCallback(async (id, materia, cuatri, options = {}) => {
     if (!id) {
       setAlumno(null)
       setNotas([])
@@ -182,26 +258,36 @@ export default function HistorialNotasPadrePage() {
         ? `/padres/hijos/${id}/notas/?${qs.toString()}`
         : `/padres/hijos/${id}/notas/`
 
-      const r = await fetchJSON(url)
-      if (r.ok) {
-        setAlumno(r.data?.alumno || null)
-        setNotas(Array.isArray(r.data?.results) ? r.data.results : [])
-        setMateriasOptions(Array.isArray(r.data?.materias) ? r.data.materias : [])
-        setCuatrimestresOptions(Array.isArray(r.data?.cuatrimestres) ? r.data.cuatrimestres : [])
-      } else {
-        setAlumno(null)
-        setNotas([])
-        setMateriasOptions([])
-        setCuatrimestresOptions([])
-      }
+      const data = await loadHistorialNotasResource(
+        `historial-notas-notas:${historialScopeKey}:${id}:${materia || ALL}:${cuatri || ALL}`,
+        async () => {
+          const r = await fetchJSON(url)
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.data || {}
+        },
+        options
+      )
+      setAlumno(data?.alumno || null)
+      setNotas(Array.isArray(data?.results) ? data.results : [])
+      setMateriasOptions(Array.isArray(data?.materias) ? data.materias : [])
+      setCuatrimestresOptions(Array.isArray(data?.cuatrimestres) ? data.cuatrimestres : [])
+    } catch {
+      setAlumno(null)
+      setNotas([])
+      setMateriasOptions([])
+      setCuatrimestresOptions([])
     } finally {
       setLoadingNotas(false)
     }
-  }, [])
+  }, [historialScopeKey])
 
   // Cambia alumno
   useEffect(() => {
     if (!selectedId) return
+    if (initialSelectionRef.current && String(initialSelectionRef.current) === String(selectedId)) {
+      initialSelectionRef.current = ""
+      return
+    }
     pushFiltersToUrl(selectedId, materiaFilter, cuatriFilter)
     fetchNotas(selectedId, materiaFilter, cuatriFilter)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -287,7 +373,7 @@ export default function HistorialNotasPadrePage() {
                         {[h.apellido, h.nombre].filter(Boolean).join(", ") ||
                           h.nombre ||
                           h.id_alumno}
-                        {h.curso ? ` — ${h.curso}` : ""}
+                        {getCourseDisplayName(h) ? ` — ${getCourseDisplayName(h)}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -343,7 +429,7 @@ export default function HistorialNotasPadrePage() {
                 <Button
                   type="button"
                   className="gap-2"
-                  onClick={() => fetchNotas(selectedId, materiaFilter, cuatriFilter)}
+                  onClick={() => fetchNotas(selectedId, materiaFilter, cuatriFilter, { force: true })}
                   disabled={!selectedId || loadingNotas}
                 >
                   {loadingNotas ? (
@@ -441,6 +527,11 @@ export default function HistorialNotasPadrePage() {
 
 /* ======================== Topbar ======================== */
 function Topbar({ unreadCount, me }) {
+  const session = useSessionContext()
+  const school = session?.school
+  const logoUrl = school?.logo_url || LOGO_SRC
+  const schoolName = school?.short_name || school?.name || "Colegio"
+  const headerStyle = school?.primary_color ? { backgroundColor: school.primary_color } : undefined
   const userLabel =
     (me?.full_name && String(me.full_name).trim()) ||
     me?.username ||
@@ -448,14 +539,14 @@ function Topbar({ unreadCount, me }) {
     ""
 
   return (
-    <div className="bg-blue-600 text-white px-6 py-4">
+    <div className="text-white px-6 py-4" style={headerStyle}>
       <div className="flex items-center justify-between max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="inline-flex">
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
               <img
-                src={LOGO_SRC}
-                alt="Escuela Tecnova"
+                src={logoUrl}
+                alt={schoolName}
                 className="h-full w-full object-contain"
               />
             </div>
@@ -465,7 +556,7 @@ function Topbar({ unreadCount, me }) {
 
         <div className="flex items-center gap-4">
           <Link href="/dashboard">
-            <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+            <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
               <ChevronLeft className="h-4 w-4" />
               Volver al panel
             </Button>
@@ -480,7 +571,7 @@ function Topbar({ unreadCount, me }) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-white hover:bg-blue-700"
+                className="text-white hover:bg-white/15"
               >
                 <Mail className="h-5 w-5" />
               </Button>
@@ -492,7 +583,7 @@ function Topbar({ unreadCount, me }) {
             )}
           </div>
 
-          <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+          <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
             <UsersIcon className="h-4 w-4" />
             {userLabel}
           </Button>

@@ -15,8 +15,11 @@ from rest_framework.response import Response
 from rest_framework.parsers import JSONParser
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
+from .course_access import build_course_ref, course_ref_matches, get_assignment_course_refs
 from .models import Alumno
-from .utils_cursos import filtrar_cursos_validos, is_curso_valido
+from .schools import get_request_school, scope_queryset_to_school
+from .user_groups import get_user_group_names
+from .utils_cursos import get_school_course_dicts, is_curso_valido, resolve_course_reference
 
 try:
     from .models_preceptores import PreceptorCurso  # type: ignore
@@ -24,8 +27,15 @@ except Exception:
     PreceptorCurso = None
 
 
-def _is_valid_curso(curso: str) -> bool:
-    return is_curso_valido(curso)
+def _is_valid_curso(curso: str, school=None) -> bool:
+    return is_curso_valido(curso, school=school)
+
+
+def _alumno_base_qs(school=None):
+    return scope_queryset_to_school(
+        Alumno.objects.select_related("school", "school_course", "padre", "usuario"),
+        school,
+    )
 
 
 def _alumno_to_dict(a: Alumno) -> dict:
@@ -35,7 +45,11 @@ def _alumno_to_dict(a: Alumno) -> dict:
         "id_alumno": a.id_alumno,
         "nombre": getattr(a, "nombre", None),
         "apellido": getattr(a, "apellido", None),
-        "curso": getattr(a, "curso", None),
+        "school_id": getattr(a, "school_id", None),
+        "school_course_id": getattr(a, "school_course_id", None),
+        "school_course_name": getattr(getattr(a, "school_course", None), "name", None)
+        or getattr(getattr(a, "school_course", None), "code", None)
+        or getattr(a, "curso", None),
         "padre": getattr(a, "padre_id", None),
         # Si existe el campo usuario (OneToOne/FK), lo exponemos como id (si no existe, queda None)
         "usuario": getattr(a, "usuario_id", None) if hasattr(a, "usuario_id") else None,
@@ -47,7 +61,18 @@ def _normalizar_prefijo_curso(curso: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", str(curso or "")).upper()
 
 
-def _generar_id_alumno_para_curso(curso: str) -> str:
+def _course_code_for_storage(*, school_course=None, curso: str = "", alumno: Alumno | None = None) -> str:
+    alumno_school_course = getattr(alumno, "school_course", None) if alumno is not None else None
+    return str(
+        getattr(school_course, "code", None)
+        or getattr(alumno_school_course, "code", None)
+        or getattr(alumno, "curso", None)
+        or curso
+        or ""
+    ).strip()
+
+
+def _generar_id_alumno_para_curso(curso: str = "", school=None, school_course=None) -> str:
     """
     Genera un id_alumno único si el frontend lo deja vacío (campo "opcional").
 
@@ -57,13 +82,15 @@ def _generar_id_alumno_para_curso(curso: str) -> str:
 
     Nota: no depende de DB-specific functions; trae los existentes y resuelve en Python.
     """
-    pref = _normalizar_prefijo_curso(curso)
+    pref = _normalizar_prefijo_curso(_course_code_for_storage(school_course=school_course, curso=curso))
     if not pref:
         pref = "AL"
 
     existentes = list(
-        Alumno.objects.filter(id_alumno__istartswith=pref)
-        .values_list("id_alumno", flat=True)
+        scope_queryset_to_school(
+            Alumno.objects.filter(id_alumno__istartswith=pref),
+            school,
+        ).values_list("id_alumno", flat=True)
     )
 
     upper = {str(x).upper() for x in existentes if x}
@@ -94,28 +121,135 @@ def _is_preceptor_user(user) -> bool:
     try:
         if user is None:
             return False
-        return user.groups.filter(name__in=["Preceptores", "Preceptor", "Directivos", "Directivo"]).exists()
+        groups = set(get_user_group_names(user))
+        return bool({"Preceptores", "Preceptor", "Directivos", "Directivo"}.intersection(groups))
     except Exception:
         return False
 
 
-def _resolve_alumno_for_transfer(data) -> Alumno | None:
+def _is_directivo_user(user) -> bool:
+    try:
+        if user is None:
+            return False
+        groups = set(get_user_group_names(user))
+        return "Directivos" in groups or "Directivo" in groups
+    except Exception:
+        return False
+
+
+def _is_preceptor_course_scoped_user(user) -> bool:
+    try:
+        if user is None:
+            return False
+        groups = set(get_user_group_names(user))
+        return "Preceptores" in groups or "Preceptor" in groups
+    except Exception:
+        return False
+
+
+def _can_manage_alumnos(user) -> bool:
+    return bool(getattr(user, "is_superuser", False) or _is_preceptor_user(user))
+
+
+def _preceptor_assignment_refs(user, school=None):
+    if PreceptorCurso is None:
+        return []
+
+    school_id = getattr(school, "id", None) or 0
+    cache_attr = "_cached_alumnos_preceptor_refs_by_school"
+    cached = getattr(user, cache_attr, None)
+    if isinstance(cached, dict) and school_id in cached:
+        return list(cached[school_id])
+
+    try:
+        qs = PreceptorCurso.objects.filter(preceptor=user)
+        if school is not None:
+            qs = scope_queryset_to_school(qs, school)
+        refs = get_assignment_course_refs(qs)
+    except Exception:
+        refs = []
+
+    try:
+        if not isinstance(cached, dict):
+            cached = {}
+        cached[school_id] = tuple(refs)
+        setattr(user, cache_attr, cached)
+    except Exception:
+        pass
+    return refs
+
+
+def _preceptor_assignment_guard(
+    *,
+    user,
+    school=None,
+    school_course=None,
+    curso: str | None = None,
+    alumno: Alumno | None = None,
+    current_detail: str = "No autorizado para ese alumno.",
+    target_detail: str = "No autorizado para ese curso.",
+):
+    if PreceptorCurso is None:
+        return None
+    if getattr(user, "is_superuser", False) or _is_directivo_user(user):
+        return None
+    if not _is_preceptor_course_scoped_user(user):
+        return None
+
+    try:
+        refs = _preceptor_assignment_refs(user, school=school)
+        if alumno is not None and not course_ref_matches(refs, obj=alumno):
+            return Response({"detail": current_detail}, status=403)
+        if not course_ref_matches(
+            refs,
+            school=school,
+            school_course_id=getattr(school_course, "id", None),
+            course_code=curso,
+        ):
+            return Response({"detail": target_detail}, status=403)
+    except Exception:
+        detail = current_detail if alumno is not None else target_detail
+        return Response({"detail": detail}, status=403)
+    return None
+
+
+def _legajo_exists_in_school(id_alumno: str, school=None) -> bool:
+    legajo = str(id_alumno or "").strip()
+    if not legajo:
+        return False
+    try:
+        return scope_queryset_to_school(Alumno.objects.all(), school).filter(id_alumno__iexact=legajo).exists()
+    except Exception:
+        return False
+
+
+def _resolve_alumno_for_transfer(data, school=None) -> Alumno | None:
     alumno_id = data.get("alumno_id") or data.get("id")
     legajo = data.get("id_alumno") or data.get("legajo")
+    qs = _alumno_base_qs(school)
 
     if alumno_id:
         try:
-            return Alumno.objects.get(pk=int(alumno_id))
+            return qs.get(pk=int(alumno_id))
         except Exception:
             return None
 
     if legajo:
         try:
-            return Alumno.objects.get(id_alumno__iexact=str(legajo).strip())
+            return qs.get(id_alumno__iexact=str(legajo).strip())
         except Exception:
             return None
 
     return None
+
+
+def _alumno_matches_target_course(alumno: Alumno, *, school_course=None, curso: str = "") -> bool:
+    refs = [build_course_ref(obj=alumno)]
+    return course_ref_matches(
+        refs,
+        school_course_id=getattr(school_course, "id", None),
+        course_code=_course_code_for_storage(school_course=school_course, curso=curso),
+    )
 
 
 @csrf_exempt
@@ -128,10 +262,10 @@ def crear_alumno(request):
     POST /alumnos/crear/
     JSON:
       {
-        "id_alumno": "A00123",   # opcional (si no viene, se genera)
-        "nombre": "Luca",        # requerido (si no viene, se usa el id_alumno)
-        "apellido": "Cabrera",   # opcional ("" por defecto)
-        "curso": "1A"            # requerido (debe pertenecer a Alumno.CURSOS)
+        "id_alumno": "A00123",    # opcional (si no viene, se genera)
+        "nombre": "Luca",         # requerido (si no viene, se usa el id_alumno)
+        "apellido": "Cabrera",    # opcional ("" por defecto)
+        "school_course_id": 14    # requerido
       }
     """
     data = request.data or {}
@@ -139,16 +273,40 @@ def crear_alumno(request):
     id_alumno = (data.get("id_alumno") or data.get("legajo") or "").strip()
     nombre = (data.get("nombre") or "").strip()
     apellido = (data.get("apellido") or "").strip()
-    curso = (data.get("curso") or "").strip()
+    active_school = get_request_school(request)
+    school_course, curso, course_error = resolve_course_reference(
+        school=active_school,
+        raw_course=data.get("curso"),
+        raw_school_course_id=data.get("school_course_id"),
+        required=True,
+    )
+    user_supplied_legajo = bool(id_alumno)
 
-    if not curso:
-        return Response({"detail": "Falta el campo requerido: curso."}, status=400)
-    if not _is_valid_curso(curso):
-        return Response({"detail": f"Curso inválido: {curso}."}, status=400)
+    if not _can_manage_alumnos(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    if course_error:
+        return Response({"detail": course_error}, status=400)
+    course_code = _course_code_for_storage(school_course=school_course, curso=curso)
+    if not _is_valid_curso(course_code, school=active_school):
+        return Response({"detail": f"Curso inválido: {course_code}."}, status=400)
+    if active_school is not None and school_course is None:
+        return Response({"detail": "No existe ese curso en el colegio activo."}, status=400)
+    guard_response = _preceptor_assignment_guard(
+        user=request.user,
+        school=active_school,
+        school_course=school_course,
+        curso=course_code,
+        target_detail="No autorizado para crear alumnos en ese curso.",
+    )
+    if guard_response is not None:
+        return guard_response
 
     # ✅ id_alumno ahora es realmente opcional (si no viene, lo generamos)
     if not id_alumno:
-        id_alumno = _generar_id_alumno_para_curso(curso)
+        id_alumno = _generar_id_alumno_para_curso(course_code, school=active_school, school_course=school_course)
+    elif _legajo_exists_in_school(id_alumno, school=active_school):
+        return Response({"detail": "El id_alumno (legajo) ya existe en este colegio."}, status=400)
 
     # El modelo requiere nombre; si el frontend manda solo legajo, ponemos algo razonable.
     if not nombre:
@@ -161,23 +319,31 @@ def crear_alumno(request):
                 id_alumno=id_alumno,
                 nombre=nombre,
                 apellido=apellido,
-                curso=curso,
+                school=active_school,
+                school_course=school_course,
+                curso=course_code,
                 padre=None,  # opcional; se puede asociar luego
             )
     except IntegrityError:
         # Si el usuario lo escribió y chocó, devolvemos el error claro.
         # Si lo generamos y chocó por carrera, reintentamos 1 vez.
-        if (data.get("id_alumno") or data.get("legajo")):
-            return Response({"detail": "El id_alumno (legajo) ya existe."}, status=400)
+        if user_supplied_legajo:
+            return Response({"detail": "El id_alumno (legajo) ya existe en este colegio."}, status=400)
 
         try:
-            id_alumno2 = _generar_id_alumno_para_curso(curso)
+            id_alumno2 = _generar_id_alumno_para_curso(
+                course_code,
+                school=active_school,
+                school_course=school_course,
+            )
             with transaction.atomic():
                 a = Alumno.objects.create(
                     id_alumno=id_alumno2,
                     nombre=nombre,
                     apellido=apellido,
-                    curso=curso,
+                    school=active_school,
+                    school_course=school_course,
+                    curso=course_code,
                     padre=None,
                 )
         except IntegrityError:
@@ -185,7 +351,6 @@ def crear_alumno(request):
 
     return Response(
         {
-            "ok": True,
             "alumno": _alumno_to_dict(a),
         },
         status=201,
@@ -216,11 +381,12 @@ def vincular_mi_legajo(request):
     """
     data = request.data or {}
     id_alumno = (data.get("id_alumno") or data.get("legajo") or "").strip()
+    active_school = get_request_school(request)
 
     if not id_alumno:
         return Response({"detail": "Falta id_alumno (legajo)."}, status=400)
 
-    qs = Alumno.objects.filter(id_alumno__iexact=id_alumno)
+    qs = _alumno_base_qs(active_school).filter(id_alumno__iexact=id_alumno)
     a = qs.first()
     if not a:
         return Response({"detail": "No existe un alumno con ese id_alumno (legajo)."}, status=404)
@@ -250,7 +416,6 @@ def vincular_mi_legajo(request):
     if a.usuario_id == request.user.id:
         return Response(
             {
-                "ok": True,
                 "already_linked": True,
                 "alumno": _alumno_to_dict(a),
             },
@@ -263,7 +428,6 @@ def vincular_mi_legajo(request):
 
     return Response(
         {
-            "ok": True,
             "already_linked": False,
             "alumno": _alumno_to_dict(a),
         },
@@ -280,25 +444,22 @@ def cursos_disponibles(request):
     GET /alumnos/cursos/
     Devuelve todos los cursos disponibles (catalogo Alumno.CURSOS).
     """
+    active_school = get_request_school(request)
     # Preferimos los cursos reales en DB (para no listar cursos inexistentes).
     # Si no hay alumnos, caemos al catálogo definido en el modelo.
-    catalogo = filtrar_cursos_validos(getattr(Alumno, "CURSOS", []))
-    catalogo_ids = [c[0] for c in catalogo]
-
-    try:
-        reales = list(
-            Alumno.objects.values_list("curso", flat=True).distinct().order_by("curso")
-        )
-    except Exception:
-        reales = []
-
-    if reales:
-        reales_set = {str(c) for c in reales if c}
-        ordered = [cid for cid in catalogo_ids if cid in reales_set]
-        extras = sorted([cid for cid in reales_set if cid not in set(ordered)])
-        cursos = [{"id": cid, "nombre": dict(catalogo).get(cid, cid)} for cid in (ordered + extras)]
-    else:
-        cursos = [{"id": c[0], "nombre": c[1]} for c in catalogo]
+    cursos = get_school_course_dicts(
+        school=active_school,
+        fallback_to_defaults=False,
+        catalog_only=True,
+    )
+    cursos = [
+        {
+            "id": item.get("id"),
+            "nombre": item.get("nombre"),
+        }
+        for item in cursos
+        if item.get("id")
+    ]
     return Response({"cursos": cursos}, status=200)
 
 
@@ -314,51 +475,60 @@ def transferir_alumno(request):
       {
         "alumno_id": 123,   # opcional si envias id_alumno
         "id_alumno": "1A002",
-        "curso": "2A"
+        "school_course_id": 22
       }
     """
     data = request.data or {}
-    curso = (data.get("curso") or "").strip()
+    active_school = get_request_school(request)
+    school_course, curso, course_error = resolve_course_reference(
+        school=active_school,
+        raw_course=data.get("curso"),
+        raw_school_course_id=data.get("school_course_id"),
+        required=True,
+    )
 
-    if not _is_preceptor_user(request.user):
+    if not _can_manage_alumnos(request.user):
         return Response({"detail": "No autorizado."}, status=403)
 
-    if not curso:
-        return Response({"detail": "Falta el campo requerido: curso."}, status=400)
-    if not _is_valid_curso(curso):
-        return Response({"detail": f"Curso inválido: {curso}."}, status=400)
+    if course_error:
+        return Response({"detail": course_error}, status=400)
+    course_code = _course_code_for_storage(school_course=school_course, curso=curso)
+    if not _is_valid_curso(course_code, school=active_school):
+        return Response({"detail": f"Curso inválido: {course_code}."}, status=400)
+    if active_school is not None and school_course is None:
+        return Response({"detail": "No existe ese curso en el colegio activo."}, status=400)
 
-    alumno = _resolve_alumno_for_transfer(data)
+    alumno = _resolve_alumno_for_transfer(data, school=active_school)
     if not alumno:
         return Response({"detail": "Alumno no encontrado."}, status=404)
 
-    # Si existe PreceptorCurso, validamos acceso al curso actual del alumno
-    if PreceptorCurso is not None:
-        try:
-            if not PreceptorCurso.objects.filter(
-                preceptor=request.user,
-                curso=alumno.curso,
-            ).exists():
-                return Response({"detail": "No autorizado para ese alumno."}, status=403)
-        except Exception:
-            return Response({"detail": "No autorizado para ese alumno."}, status=403)
+    guard_response = _preceptor_assignment_guard(
+        user=request.user,
+        school=active_school,
+        school_course=school_course,
+        curso=course_code,
+        alumno=alumno,
+        current_detail="No autorizado para ese alumno.",
+        target_detail="No autorizado para transferir al curso destino.",
+    )
+    if guard_response is not None:
+        return guard_response
 
-    if alumno.curso == curso:
+    if _alumno_matches_target_course(alumno, school_course=school_course, curso=course_code):
         return Response(
             {
-                "ok": True,
                 "alumno": _alumno_to_dict(alumno),
                 "message": "El alumno ya pertenece a ese curso.",
             },
             status=200,
         )
 
-    alumno.curso = curso
-    alumno.save(update_fields=["curso"])
+    alumno.curso = course_code
+    alumno.school_course = school_course
+    alumno.save(update_fields=["curso", "school_course"])
 
     return Response(
         {
-            "ok": True,
             "alumno": _alumno_to_dict(alumno),
         },
         status=200,

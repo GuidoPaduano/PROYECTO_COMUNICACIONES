@@ -99,9 +99,9 @@
                             <textarea class="form-control" name="descripcion" id="editar-description" required></textarea>
                         </div>
                         <div class="mb-3">
-                            <label for="editar-curso" class="form-label">Curso</label>
-                            <select class="form-select" name="curso" id="editar-curso" required>
-                                {% for c in form.fields.curso.choices %}
+                            <label for="editar-school-course-id" class="form-label">Curso</label>
+                            <select class="form-select" name="school_course_id" id="editar-school-course-id" required>
+                                {% for c in form.fields.school_course_id.choices %}
                                     <option value="{{ c.0 }}">{{ c.1 }}</option>
                                 {% endfor %}
                             </select>
@@ -177,7 +177,7 @@
                     editarBtn.setAttribute('data-title', info.event.title);
                     editarBtn.setAttribute('data-start', info.event.startStr);
                     editarBtn.setAttribute('data-description', info.event.extendedProps.description);
-                    editarBtn.setAttribute('data-curso', info.event.extendedProps.curso);
+                    editarBtn.setAttribute('data-school-course-id', info.event.extendedProps.school_course_id || '');
                     editarBtn.setAttribute('data-tipo_evento', info.event.extendedProps.tipo_evento);
                     editarBtn.setAttribute('data-bs-toggle', 'modal');
                     editarBtn.setAttribute('data-bs-target', '#modalEditar');
@@ -245,8 +245,8 @@
                 calendar.refetchEvents();
             })
             .catch(async error => {
-                const data = await error.json();
-                alert("Error: " + JSON.stringify(data.errors));
+                const data = error?.json ? await error.json() : null;
+                alert("Error: " + (data?.detail || JSON.stringify(data?.errors || data || {})));
             });
         });
 
@@ -257,7 +257,7 @@
             modalEditar.querySelector('#editar-title').value = button.getAttribute('data-title');
             modalEditar.querySelector('#editar-start').value = button.getAttribute('data-start');
             modalEditar.querySelector('#editar-description').value = button.getAttribute('data-description');
-            modalEditar.querySelector('#editar-curso').value = button.getAttribute('data-curso');
+            modalEditar.querySelector('#editar-school-course-id').value = button.getAttribute('data-school-course-id');
             modalEditar.querySelector('#editar-tipo_evento').value = button.getAttribute('data-tipo_evento');
         });
 
@@ -283,8 +283,8 @@
                 calendar.refetchEvents();
             })
             .catch(async error => {
-                const data = await error.json();
-                alert("Error: " + JSON.stringify(data.errors));
+                const data = error?.json ? await error.json() : null;
+                alert("Error: " + (data?.detail || JSON.stringify(data?.errors || data || {})));
             });
         });
 

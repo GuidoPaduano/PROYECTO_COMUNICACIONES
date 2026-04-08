@@ -1,8 +1,17 @@
 "use client"
 
 import Link from "next/link"
-import { use, useEffect, useMemo, useState } from "react"
-import { useAuthGuard, authFetch } from "../../../_lib/auth"
+import { useRouter, useSearchParams } from "next/navigation"
+import { use, useCallback, useEffect, useMemo, useState } from "react"
+import { useAuthGuard, authFetch, useSessionContext } from "../../../_lib/auth"
+import {
+  findCourseOption,
+  getCourseCode,
+  getCourseLabel,
+  getCourseSchoolCourseId,
+  loadCourseCatalog,
+  resolveCanonicalCourseValue,
+} from "../../../_lib/courses"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Users as UsersIcon, User as UserIcon, Plus, ChevronLeft } from "lucide-react"
@@ -23,23 +32,83 @@ async function fetchJSON(url, opts) {
   return { ok: res.ok, data, status: res.status }
 }
 
-function getCursoId(c) {
-  return c?.id ?? c?.value ?? c
+const CURSO_ALUMNOS_RESOURCE_MAX_AGE_MS = 10000
+const cursoAlumnosResourceCache = new Map()
+const cursoAlumnosResourcePromises = new Map()
+
+function invalidateCursoAlumnosResource(cacheKeyPrefix = "") {
+  const prefix = String(cacheKeyPrefix || "").trim()
+  if (!prefix) return
+  for (const key of Array.from(cursoAlumnosResourceCache.keys())) {
+    if (key.startsWith(prefix)) {
+      cursoAlumnosResourceCache.delete(key)
+    }
+  }
+  for (const key of Array.from(cursoAlumnosResourcePromises.keys())) {
+    if (key.startsWith(prefix)) {
+      cursoAlumnosResourcePromises.delete(key)
+    }
+  }
 }
 
-function getCursoNombre(c) {
-  return c?.nombre ?? c?.label ?? String(getCursoId(c))
+async function loadCursoAlumnosResource(
+  cacheKey,
+  loader,
+  { force = false, maxAgeMs = CURSO_ALUMNOS_RESOURCE_MAX_AGE_MS } = {}
+) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (force) {
+    invalidateCursoAlumnosResource(key)
+  }
+
+  const cached = cursoAlumnosResourceCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  if (cursoAlumnosResourcePromises.has(key)) {
+    return await cursoAlumnosResourcePromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    cursoAlumnosResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  cursoAlumnosResourcePromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (cursoAlumnosResourcePromises.get(key) === promise) {
+      cursoAlumnosResourcePromises.delete(key)
+    }
+  }
 }
 
 export default function CursoAlumnosPage({ params }) {
   useAuthGuard()
+  const session = useSessionContext()
   const { cursoId } = use(params)
+  const cursoParam = String(cursoId ?? "").trim()
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [cursoNombre, setCursoNombre] = useState("")
+  const [cursos, setCursos] = useState([])
   const [alumnos, setAlumnos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [q, setQ] = useState("")
+  const [catalogLoaded, setCatalogLoaded] = useState(false)
 
   const [openAdd, setOpenAdd] = useState(false)
   const [idAlumno, setIdAlumno] = useState("")
@@ -47,38 +116,124 @@ export default function CursoAlumnosPage({ params }) {
   const [apellido, setApellido] = useState("")
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState("")
+  const alumnosCursoScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
+  const courseCatalogCacheKey = useMemo(
+    () => `alumnos-curso-catalog:${alumnosCursoScopeKey}`,
+    [alumnosCursoScopeKey]
+  )
+
+  const cursoCanonico = useMemo(
+    () => resolveCanonicalCourseValue(cursoParam, cursos),
+    [cursoParam, cursos]
+  )
+  const cursoResuelto = useMemo(
+    () => findCourseOption(cursos, cursoParam) || findCourseOption(cursos, cursoCanonico),
+    [cursos, cursoParam, cursoCanonico]
+  )
+  const cursoConsulta = useMemo(() => {
+    if (cursoCanonico) return cursoCanonico
+    if (/^\d+$/.test(cursoParam)) return cursoParam
+    return ""
+  }, [cursoCanonico, cursoParam])
+  const cursoSchoolCourseId = useMemo(
+    () => (cursoConsulta ? getCourseSchoolCourseId(cursoConsulta, cursos) : null),
+    [cursoConsulta, cursos]
+  )
+  const cursoQuery = useMemo(
+    () =>
+      cursoSchoolCourseId != null
+        ? `school_course_id=${encodeURIComponent(String(cursoSchoolCourseId))}`
+        : "",
+    [cursoSchoolCourseId]
+  )
+  const cursoCodigo = useMemo(
+    () => getCourseCode(cursoResuelto || cursoConsulta, cursos) || "",
+    [cursoResuelto, cursoConsulta, cursos]
+  )
+  const cursoDetalleQuery = useMemo(
+    () =>
+      cursoSchoolCourseId != null
+        ? `school_course_id=${encodeURIComponent(String(cursoSchoolCourseId))}`
+        : "",
+    [cursoSchoolCourseId]
+  )
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    setError("")
     ;(async () => {
       try {
-        try {
-          const cat = await fetchJSON("/notas/catalogos/")
-          if (cat.ok && Array.isArray(cat.data?.cursos)) {
-            const hit = cat.data.cursos.find(
-              (c) => String(getCursoId(c)) === String(cursoId)
-            )
-            if (hit) setCursoNombre(getCursoNombre(hit))
-          }
-        } catch {}
-
-        const r = await fetchJSON(`/alumnos/?curso=${encodeURIComponent(cursoId)}`)
-        if (!r.ok) throw new Error(r.data?.detail || `HTTP ${r.status}`)
-        const arr =
-          r.data?.alumnos || r.data?.results || (Array.isArray(r.data) ? r.data : [])
-        if (alive) setAlumnos(arr || [])
-      } catch (e) {
-        if (alive) setError(e?.message || "No se pudieron cargar los alumnos.")
+        const nextCursos = await loadCourseCatalog({
+          fetcher: authFetch,
+          urls: ["/notas/catalogos/"],
+          cacheKey: courseCatalogCacheKey,
+        })
+        if (!alive) return
+        const hit = findCourseOption(nextCursos, cursoParam)
+        setCursos(nextCursos)
+        setCursoNombre(getCourseLabel(hit) || getCourseCode(hit) || cursoParam)
+      } catch {
+        if (!alive) return
+        setCursoNombre(cursoParam)
       } finally {
-        if (alive) setLoading(false)
+        if (alive) setCatalogLoaded(true)
       }
     })()
     return () => {
       alive = false
     }
-  }, [cursoId])
+  }, [courseCatalogCacheKey, cursoParam])
+
+  const loadAlumnos = useCallback(
+    async (options = {}) => {
+      if (!cursoParam) {
+        setAlumnos([])
+        setError("No se pudo resolver el curso.")
+        setLoading(false)
+        return
+      }
+      if (!cursoQuery) {
+        if (!catalogLoaded) return
+        setAlumnos([])
+        setError("No se pudo resolver el curso.")
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      setError("")
+      try {
+        const data = await loadCursoAlumnosResource(
+          `alumnos-curso-list:${alumnosCursoScopeKey}:${cursoQuery}`,
+          async () => {
+            const r = await fetchJSON(`/alumnos/?${cursoQuery}`)
+            if (!r.ok) throw new Error(r.data?.detail || `HTTP ${r.status}`)
+            return r.data?.alumnos || []
+          },
+          options
+        )
+        setAlumnos(Array.isArray(data) ? data : [])
+      } catch (e) {
+        setError(e?.message || "No se pudieron cargar los alumnos.")
+      } finally {
+        setLoading(false)
+      }
+    },
+    [alumnosCursoScopeKey, catalogLoaded, cursoParam, cursoQuery]
+  )
+
+  useEffect(() => {
+    if (!catalogLoaded) return
+    if (!cursoCanonico || cursoCanonico === cursoParam) return
+    const qs = searchParams?.toString()
+    router.replace(`/alumnos/curso/${encodeURIComponent(cursoCanonico)}${qs ? `?${qs}` : ""}`)
+  }, [catalogLoaded, cursoCanonico, cursoParam, router, searchParams])
+
+  useEffect(() => {
+    loadAlumnos()
+  }, [loadAlumnos])
 
   const alumnosFiltrados = useMemo(() => {
     const t = q.trim().toLowerCase()
@@ -95,19 +250,24 @@ export default function CursoAlumnosPage({ params }) {
     setFormError("")
     setSaving(true)
     try {
+      if (!cursoCodigo || cursoSchoolCourseId == null) {
+        setFormError("No se pudo resolver el curso.")
+        setSaving(false)
+        return
+      }
       if (!idAlumno && (!nombre || !apellido)) {
         setFormError("Completa legajo o nombre y apellido.")
         setSaving(false)
         return
       }
       const payload = {
-        curso: cursoId,
+        school_course_id: cursoSchoolCourseId,
         id_alumno: idAlumno || null,
         nombre: nombre || null,
         apellido: apellido || null,
       }
       const { ok, data } = await fetchJSON(
-        `/api/cursos/${encodeURIComponent(cursoId)}/agregar-alumno/`,
+        `/api/cursos/${encodeURIComponent(cursoCodigo)}/agregar-alumno/`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -119,12 +279,8 @@ export default function CursoAlumnosPage({ params }) {
         setSaving(false)
         return
       }
-      const r = await fetchJSON(`/alumnos/?curso=${encodeURIComponent(cursoId)}`)
-      if (r.ok) {
-        const arr =
-          r.data?.alumnos || r.data?.results || (Array.isArray(r.data) ? r.data : [])
-        setAlumnos(arr || [])
-      }
+      invalidateCursoAlumnosResource(`alumnos-curso-list:${alumnosCursoScopeKey}:${cursoQuery}`)
+      await loadAlumnos({ force: true })
       setOpenAdd(false)
       setIdAlumno("")
       setNombre("")
@@ -147,17 +303,14 @@ export default function CursoAlumnosPage({ params }) {
               </Button>
             </Link>
 
-            <Button
-              onClick={() => setOpenAdd(true)}
-              className="gap-2 text-indigo-600 border-indigo-200 hover:border-indigo-300"
-            >
+            <Button onClick={() => setOpenAdd(true)} variant="outline" className="gap-2">
               <Plus className="h-4 w-4" />
               Agregar alumno
             </Button>
           </div>
 
           <div className="text-sm text-slate-500">
-            Curso: <span className="font-medium text-slate-700">{cursoNombre || cursoId}</span>
+            Curso: <span className="font-medium text-slate-700">{cursoNombre || cursoParam}</span>
           </div>
         </div>
 
@@ -195,9 +348,10 @@ export default function CursoAlumnosPage({ params }) {
                 const nombre = a.nombre || ""
                 const nombreAlumno = [apellido, nombre].filter(Boolean).join(" ").trim()
                 const legajo = a.id_alumno ?? a.legajo ?? alumnoId
-                const link = `/alumnos/${encodeURIComponent(alumnoId)}?curso=${encodeURIComponent(
-                  cursoNombre || cursoId
-                )}`
+                const courseQuery = cursoDetalleQuery
+                const link = `/alumnos/${encodeURIComponent(alumnoId)}${
+                  courseQuery ? `?${courseQuery}` : ""
+                }`
 
                 return (
                   <li key={`${alumnoId}`}>
@@ -225,7 +379,7 @@ export default function CursoAlumnosPage({ params }) {
       <Dialog open={openAdd} onOpenChange={setOpenAdd}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Agregar alumno a {cursoNombre || cursoId}</DialogTitle>
+            <DialogTitle>Agregar alumno a {cursoNombre || cursoParam}</DialogTitle>
           </DialogHeader>
 
           <form

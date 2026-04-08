@@ -30,7 +30,7 @@ urlpatterns = [
     # Notas (HTML)
     path("agregar_nota/", views.agregar_nota, name="agregar_nota"),
     path("ver_notas/", views.ver_notas, name="ver_notas"),
-    # Form masivo (HTML legacy; la API JSON está en /api/agregar-nota-masiva/)
+    # Form masivo HTML; la API JSON esta en /api/agregar-nota-masiva/
     path("agregar_nota_masiva/", views.agregar_nota_masiva, name="agregar_nota_masiva_html"),
 
     # Mensajería (HTML)
@@ -53,11 +53,11 @@ urlpatterns = [
     path("eventos/editar/<int:evento_id>/", views.editar_evento, name="editar_evento"),
     path("eventos/eliminar/<int:evento_id>/", views.eliminar_evento, name="eliminar_evento"),
 
-    # Perfil mínimo (JSON legacy; el nuevo está en /api/perfil_api/)
+    # Perfil minimo; preferir /api/perfil_api/
     path("mi_perfil/", views.mi_perfil, name="mi_perfil"),
 
     # ─────────────────────────────────────────────────────────────
-    # NUEVO: alias JSON sin prefijo para mensajería (compat con frontend)
+    # Alias JSON sin prefijo para mensajeria
     # ─────────────────────────────────────────────────────────────
 
     # Envío individual / grupal

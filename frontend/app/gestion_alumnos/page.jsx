@@ -9,7 +9,7 @@ export default function GestionAlumnosPage() {
   const router = useRouter()
 
   useEffect(() => {
-    router.replace("/mis-cursos")
+    router.replace("/alumnos")
   }, [router])
 
   return (

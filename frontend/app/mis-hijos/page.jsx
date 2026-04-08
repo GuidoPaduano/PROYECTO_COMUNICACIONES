@@ -1,10 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-import { useAuthGuard, authFetch } from "../_lib/auth"
+import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,10 @@ const LAST_TAB_KEY = "mis_hijos_last_tab"
 const LAST_ALUMNO_KEY = "mis_hijos_last_alumno"
 const ALUMNO_DETAIL_CACHE_PREFIX = "alumno_detail_cache:"
 const VALID_TABS = new Set(["notas", "sanciones", "asistencias"])
+const MIS_HIJOS_RESOURCE_MAX_AGE_MS = 15000
+
+const misHijosResourceCache = new Map()
+const misHijosResourcePromises = new Map()
 
 async function fetchJSON(url, opts) {
   const res = await authFetch(url, {
@@ -24,7 +28,7 @@ async function fetchJSON(url, opts) {
 }
 
 function hijoRouteId(h) {
-  return h?.id_alumno ?? h?.alumno_id ?? h?.legajo ?? h?.id ?? h?.pk ?? null
+  return h?.id ?? h?.pk ?? h?.id_alumno ?? h?.alumno_id ?? h?.legajo ?? null
 }
 
 function safeGetLS(key) {
@@ -50,6 +54,42 @@ function safeSetLSJson(key, value) {
   } catch {}
 }
 
+async function loadMisHijosResource(cacheKey, loader, options = {}) {
+  const force = options?.force === true
+  const maxAgeMs =
+    Number.isFinite(Number(options?.maxAgeMs)) && Number(options?.maxAgeMs) > 0
+      ? Number(options.maxAgeMs)
+      : MIS_HIJOS_RESOURCE_MAX_AGE_MS
+  const now = Date.now()
+
+  if (!force) {
+    const cached = misHijosResourceCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return cached.data
+
+    const pending = misHijosResourcePromises.get(cacheKey)
+    if (pending) return pending
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    misHijosResourceCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  misHijosResourcePromises.set(cacheKey, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (misHijosResourcePromises.get(cacheKey) === promise) {
+      misHijosResourcePromises.delete(cacheKey)
+    }
+  }
+}
+
 export default function MisHijosPage() {
   return (
     <Suspense
@@ -69,9 +109,14 @@ function MisHijosPageInner() {
 
   const router = useRouter()
   const sp = useSearchParams()
+  const session = useSessionContext()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const misHijosScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
 
   const desiredAlumnoQS = sp?.get("alumno") || ""
   const desiredTabQS = (sp?.get("tab") || "").toLowerCase().trim()
@@ -84,28 +129,18 @@ function MisHijosPageInner() {
       setError("")
 
       try {
-        const [hijosRes] = await Promise.all([
-          (async () => {
-            const tries = ["/padres/mis-hijos/", "/api/padres/mis-hijos/"]
-            for (const url of tries) {
-              try {
-                const r = await fetchJSON(url)
-                if (!r.ok) continue
-                return r
-              } catch {}
-            }
-            return { ok: false, data: {}, status: 0 }
-          })(),
-        ])
+        const hijos = await loadMisHijosResource(
+          `mis-hijos-list:${misHijosScopeKey}`,
+          async () => {
+            const hijosRes = await fetchJSON("/api/padres/mis-hijos/")
+            return hijosRes?.ok ? hijosRes.data?.results || [] : []
+          }
+        )
 
         if (!alive) return
 
-        const arr = Array.isArray(hijosRes?.data)
-          ? hijosRes.data
-          : hijosRes?.data?.results || hijosRes?.data?.hijos || []
-
-        const hijos = Array.isArray(arr) ? arr : []
-        hijos.forEach((h) => {
+        const normalizedHijos = Array.isArray(hijos) ? hijos : []
+        normalizedHijos.forEach((h) => {
           const id = hijoRouteId(h)
           if (!id) return
           safeSetLSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${id}`, {
@@ -113,7 +148,7 @@ function MisHijosPageInner() {
             data: h,
           })
         })
-        const ids = hijos
+        const ids = normalizedHijos
           .map((h) => hijoRouteId(h))
           .filter((x) => x != null && String(x) !== "")
           .map((x) => String(x))
@@ -164,7 +199,7 @@ function MisHijosPageInner() {
     return () => {
       alive = false
     }
-  }, [desiredAlumnoQS, desiredTabQS, router])
+  }, [desiredAlumnoQS, desiredTabQS, misHijosScopeKey, router])
 
   return (
     <div className="space-y-6">

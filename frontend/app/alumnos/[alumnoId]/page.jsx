@@ -1,5 +1,6 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import {
   Suspense,
@@ -11,7 +12,8 @@ import {
   useState,
 } from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
-import { useAuthGuard, authFetch } from "../../_lib/auth"
+import { getSessionProfile, useAuthGuard, authFetch, useSessionContext } from "../../_lib/auth"
+import { getCourseDisplayName } from "../../_lib/courses"
 import { INBOX_EVENT } from "../../_lib/inbox" // ✅ NUEVO: evento unificado inbox
 import { useUnreadMessages } from "../../_lib/useUnreadMessages"
 import {
@@ -53,11 +55,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import ComposeMensajeAlumno from "./_compose-alumno"
-import TransferAlumno from "./_transfer-alumno"
 import { NotificationBell } from "@/components/notification-bell"
 
-const LOGO_SRC = "/imagenes/tecnova(1).png"
+const ComposeMensajeAlumno = dynamic(() => import("./_compose-alumno"), {
+  loading: () => null,
+})
+const TransferAlumno = dynamic(() => import("./_transfer-alumno"), {
+  loading: () => null,
+})
+
+const LOGO_SRC = "/imagenes/Logo%20Color.png"
 
 /* ======================== Fix Mis Hijos: persistencia tab ======================== */
 const MIS_HIJOS_LAST_TAB_KEY = "mis_hijos_last_tab"
@@ -65,11 +72,11 @@ const MIS_HIJOS_LAST_ALUMNO_KEY = "mis_hijos_last_alumno"
 const VALID_TABS = new Set(["notas", "sanciones", "asistencias"])
 const ALUMNO_DETAIL_CACHE_PREFIX = "alumno_detail_cache:"
 const ALUMNO_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000
-const ALUMNO_DETAIL_ENDPOINT_KEY = "alumno_detail_endpoint"
 const ALUMNO_DATA_CACHE_TTL_MS = 5 * 60 * 1000
 const NOTAS_CACHE_PREFIX = "alumno_notas_cache:"
 const SANCIONES_CACHE_PREFIX = "alumno_sanciones_cache:"
 const ASISTENCIAS_CACHE_PREFIX = "alumno_asistencias_cache:"
+const ALUMNO_RESOURCE_MAX_AGE_MS = 30000
 const NOTA_TIPOS = ["Examen", "Trabajo Práctico", "Participación", "Tarea"]
 const NOTA_RESULTADOS = [
   { value: "TEA", label: "TEA" },
@@ -143,6 +150,67 @@ function setCachedList(prefix, idParam, data) {
   })
 }
 
+const alumnoResourceCache = new Map()
+const alumnoResourcePromises = new Map()
+
+function invalidateAlumnoResource(cacheKeyPrefix = "") {
+  const prefix = String(cacheKeyPrefix || "").trim()
+  if (!prefix) return
+  for (const key of Array.from(alumnoResourceCache.keys())) {
+    if (key.startsWith(prefix)) {
+      alumnoResourceCache.delete(key)
+    }
+  }
+  for (const key of Array.from(alumnoResourcePromises.keys())) {
+    if (key.startsWith(prefix)) {
+      alumnoResourcePromises.delete(key)
+    }
+  }
+}
+
+async function loadAlumnoResource(
+  cacheKey,
+  loader,
+  { force = false, maxAgeMs = ALUMNO_RESOURCE_MAX_AGE_MS } = {}
+) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (force) {
+    invalidateAlumnoResource(key)
+  }
+
+  const cached = alumnoResourceCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data
+  }
+
+  if (alumnoResourcePromises.has(key)) {
+    return await alumnoResourcePromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    alumnoResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  alumnoResourcePromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (alumnoResourcePromises.get(key) === promise) {
+      alumnoResourcePromises.delete(key)
+    }
+  }
+}
+
 function runIdle(cb, timeout = 800) {
   if (typeof window === "undefined") return setTimeout(cb, timeout)
   if ("requestIdleCallback" in window) {
@@ -168,9 +236,9 @@ function kidPk(h) {
 }
 
 function kidValue(h) {
-  const leg = kidLegajo(h)
   const pk = kidPk(h)
-  const v = leg != null && String(leg) !== "" ? leg : pk
+  const leg = kidLegajo(h)
+  const v = pk != null && String(pk) !== "" ? pk : leg
   return v != null ? String(v) : ""
 }
 
@@ -182,7 +250,8 @@ function kidLabel(h) {
     h?.full_name ||
     h?.username ||
     "Alumno"
-  const curso = h?.curso ? ` — ${h.curso}` : ""
+  const courseLabel = getCourseDisplayName(h)
+  const curso = courseLabel ? ` — ${courseLabel}` : ""
   return `${base}${curso}`
 }
 
@@ -252,7 +321,7 @@ function asistenciaTipoFromAny(a) {
 /** Normaliza a: "clases" | "informatica" | "catequesis" | "" */
 function normalizeAsistenciaTipo(raw) {
   const s = normText(raw)
-  if (!s) return "" // legacy -> lo tratamos como "clases" donde corresponda
+  if (!s) return "" // vacio -> luego se trata como "clases" donde corresponda
 
   // si backend ya manda el slug
   if (s === "clases" || s === "informatica" || s === "catequesis") return s
@@ -283,93 +352,59 @@ async function fetchJSON(url, opts) {
   return { ok: res.ok, data, status: res.status }
 }
 
-/* ------------------------------------------------------------
-   Rutas compatibles (PK o id_alumno/legajo)
------------------------------------------------------------- */
-const ALUMNO_DETAIL_ENDPOINTS = [
-  "/alumnos/{id}/",
-  "/alumnos/detalle/{id}/",
-  "/alumno/{id}/",
-  "/perfil_alumno/{id}/",
-  "/api/alumnos/{id}/",
-]
-
-function alumnoDetailEndpointOrder() {
-  const preferred = safeGetLS(ALUMNO_DETAIL_ENDPOINT_KEY).trim()
-  if (preferred && ALUMNO_DETAIL_ENDPOINTS.includes(preferred)) {
-    return [preferred, ...ALUMNO_DETAIL_ENDPOINTS.filter((t) => t !== preferred)]
-  }
-  return ALUMNO_DETAIL_ENDPOINTS
-}
-
 async function getAlumnoIdsFromAny(idParam) {
   const encoded = encodeURIComponent(idParam)
-  const order = alumnoDetailEndpointOrder()
-  const tries = order.map((t) => t.replace("{id}", encoded))
-
-  for (let i = 0; i < tries.length; i += 1) {
-    const url = tries[i]
-    try {
-      const r = await fetchJSON(url)
-      if (!r.ok) continue
+  try {
+    const r = await fetchJSON(`/api/alumnos/${encoded}/`)
+    if (r.ok) {
       const obj = r.data || {}
-      const a = obj.alumno || obj
-      const pk = a?.id ?? obj?.id
-      const code = a?.id_alumno ?? obj?.id_alumno ?? idParam
+      const pk = obj?.id
+      const code = obj?.id_alumno ?? idParam
       if (pk || code) {
-        const template = order[i]
-        if (template) safeSetLS(ALUMNO_DETAIL_ENDPOINT_KEY, template)
         return { detail: obj, pk, code }
       }
-    } catch {}
-  }
+    }
+  } catch {}
   return { detail: null, pk: null, code: idParam }
 }
 
 /** Notas por PK o por id_alumno (ambas rutas soportadas) */
 async function getNotasByPkOrCode(pk, code) {
   const codeEnc = code != null ? encodeURIComponent(String(code)) : null
+  const pkStr = pk != null ? encodeURIComponent(String(pk)) : null
   const tries = [
-    // ✅ NUEVO: este es el endpoint “bueno” (backend resuelve legajo o pk)
-    codeEnc && `/alumnos/${codeEnc}/notas/`,
-    pk && `/alumnos/${pk}/notas/`,
-    pk && `/notas/?alumno=${pk}`,
-    pk && `/notas/alumno/${pk}/`,
-    codeEnc && `/notas/?id_alumno=${codeEnc}`,
-    codeEnc && `/notas/alumno_codigo/${codeEnc}/`,
+    pkStr && `/api/notas/?alumno=${pkStr}`,
+    pkStr && `/api/notas/?alumno_id=${pkStr}`,
+    codeEnc && `/api/notas/?id_alumno=${codeEnc}`,
+    pk && `/api/alumnos/${pk}/notas/`,
   ].filter(Boolean)
 
+  let fallback = null
   for (const url of tries) {
     try {
       const r = await fetchJSON(url)
       if (!r.ok) continue
-      const arr = Array.isArray(r.data)
-        ? r.data
-        : r.data?.notas || r.data?.results || []
-      if (Array.isArray(arr)) return arr
+      const arr = r.data?.notas || []
+      if (!Array.isArray(arr)) continue
+      if (arr.length > 0) return arr
+      if (fallback === null) fallback = arr
     } catch {}
   }
-  return []
+  return Array.isArray(fallback) ? fallback : []
 }
 
 /** Sanciones por PK o id_alumno */
 async function getSancionesByPkOrCode(pk, code) {
   const tries = [
-    pk && `/sanciones/?alumno=${pk}`,
-    pk && `/api/sanciones/?alumno=${pk}`,
-    pk && `/sanciones/alumno/${pk}/`,
-    code && `/sanciones/?id_alumno=${encodeURIComponent(code)}`,
     code && `/api/sanciones/?id_alumno=${encodeURIComponent(code)}`,
-    code && `/sanciones/alumno_codigo/${encodeURIComponent(code)}/`,
+    pk && `/api/sanciones/?alumno=${pk}`,
   ].filter(Boolean)
 
   for (const url of tries) {
     try {
       const r = await fetchJSON(url)
       if (!r.ok) continue
-      const arr = Array.isArray(r.data)
-        ? r.data
-        : r.data?.sanciones || r.data?.results || []
+      const arr = r.data?.results || []
       if (Array.isArray(arr)) return arr
     } catch {}
   }
@@ -379,25 +414,18 @@ async function getSancionesByPkOrCode(pk, code) {
 /** Asistencias por PK o id_alumno */
 async function getAsistenciasByPkOrCode(pk, code) {
   const pkStr = String(pk ?? "").trim()
-  const pkIsNumeric = /^\d+$/.test(pkStr)
-  const codeSafe = String(code ?? "").trim() || (!pkIsNumeric ? pkStr : "")
+  const codeSafe = String(code ?? "").trim()
 
   const tries = [
-    pkIsNumeric && `/asistencias/?alumno=${pkStr}`,
-    pkIsNumeric && `/api/asistencias/?alumno=${pkStr}`,
-    pkIsNumeric && `/asistencias/alumno/${pkStr}/`,
-    codeSafe && `/asistencias/?id_alumno=${encodeURIComponent(codeSafe)}`,
     codeSafe && `/api/asistencias/?id_alumno=${encodeURIComponent(codeSafe)}`,
-    codeSafe && `/asistencias/alumno_codigo/${encodeURIComponent(codeSafe)}/`,
+    pkStr && `/api/asistencias/?alumno=${pkStr}`,
   ].filter(Boolean)
 
   for (const url of tries) {
     try {
       const r = await fetchJSON(url)
       if (!r.ok) continue
-      const arr = Array.isArray(r.data)
-        ? r.data
-        : r.data?.asistencias || r.data?.results || []
+      const arr = r.data?.results || []
       if (Array.isArray(arr)) return arr
     } catch {}
   }
@@ -431,48 +459,24 @@ async function toggleJustificada(asistenciaId, nextValue) {
     return { ok: false, status: 0, data: { detail: "Sin ID de asistencia." } }
   }
 
-  // ✅ Priorizamos /api (authFetch recorta /api/ si se lo pasan duplicado)
-  // y además soportamos rutas legacy.
-  const tries = [
-    `/api/asistencias/${encodeURIComponent(id)}/justificar/`,
-    `/api/asistencias/${encodeURIComponent(id)}/justificar`,
-    `/api/asistencias/justificar/${encodeURIComponent(id)}/`,
-    `/api/asistencias/justificar/${encodeURIComponent(id)}`,
-    `/asistencias/${encodeURIComponent(id)}/justificar/`,
-    `/asistencias/${encodeURIComponent(id)}/justificar`,
-    `/asistencias/justificar/${encodeURIComponent(id)}/`,
-    `/asistencias/justificar/${encodeURIComponent(id)}`,
-  ]
+  const url = `/api/asistencias/${encodeURIComponent(id)}/justificar/`
 
-  // ✅ Prioridad: POST primero (muchos backends bloquean PATCH en proxies)
   const methods = ["POST", "PATCH", "PUT"]
-
   let last = { ok: false, status: 500, data: { detail: "No se pudo justificar." } }
 
-  for (const url of tries) {
-    for (const method of methods) {
-      try {
-        const r = await fetchJSON(url, {
-          method,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ justificada: nextValue }),
-        })
-
-        if (r.ok) return r
-
-        last = r
-
-        // 404 => probamos otra URL
-        if (r.status === 404) continue
-
-        // 405 => probamos otro método / URL
-        if (r.status === 405) continue
-
-        // cualquier otro error: la URL existe pero falló (permisos/validación/500)
-        return r
-      } catch {
-        // seguimos probando
-      }
+  for (const method of methods) {
+    try {
+      const r = await fetchJSON(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ justificada: nextValue }),
+      })
+      if (r.ok) return r
+      last = r
+      if (r.status === 404 || r.status === 405) continue
+      return r
+    } catch {
+      // seguimos probando el próximo método
     }
   }
 
@@ -485,25 +489,18 @@ async function firmarAsistencia(asistenciaId) {
     return { ok: false, status: 0, data: { detail: "Sin ID de asistencia." } }
   }
 
-  const tries = [
-    `/api/asistencias/${encodeURIComponent(id)}/firmar/`,
-    `/api/asistencias/${encodeURIComponent(id)}/firmar`,
-    `/asistencias/${encodeURIComponent(id)}/firmar/`,
-    `/asistencias/${encodeURIComponent(id)}/firmar`,
-  ]
+  const url = `/api/asistencias/${encodeURIComponent(id)}/firmar/`
   const methods = ["POST", "PATCH"]
   let last = { ok: false, status: 500, data: { detail: "No se pudo firmar la inasistencia." } }
 
-  for (const url of tries) {
-    for (const method of methods) {
-      try {
-        const r = await fetchJSON(url, { method })
-        if (r.ok) return r
-        last = r
-        if (r.status === 404 || r.status === 405) continue
-        return r
-      } catch {}
-    }
+  for (const method of methods) {
+    try {
+      const r = await fetchJSON(url, { method })
+      if (r.ok) return r
+      last = r
+      if (r.status === 404 || r.status === 405) continue
+      return r
+    } catch {}
   }
 
   return last
@@ -515,25 +512,18 @@ async function firmarSancion(sancionId) {
     return { ok: false, status: 0, data: { detail: "Sin ID de sanción." } }
   }
 
-  const tries = [
-    `/api/sanciones/${encodeURIComponent(id)}/firmar/`,
-    `/api/sanciones/${encodeURIComponent(id)}/firmar`,
-    `/sanciones/${encodeURIComponent(id)}/firmar/`,
-    `/sanciones/${encodeURIComponent(id)}/firmar`,
-  ]
+  const url = `/api/sanciones/${encodeURIComponent(id)}/firmar/`
   const methods = ["POST", "PATCH"]
   let last = { ok: false, status: 500, data: { detail: "No se pudo firmar la sanción." } }
 
-  for (const url of tries) {
-    for (const method of methods) {
-      try {
-        const r = await fetchJSON(url, { method })
-        if (r.ok) return r
-        last = r
-        if (r.status === 404 || r.status === 405) continue
-        return r
-      } catch {}
-    }
+  for (const method of methods) {
+    try {
+      const r = await fetchJSON(url, { method })
+      if (r.ok) return r
+      last = r
+      if (r.status === 404 || r.status === 405) continue
+      return r
+    } catch {}
   }
 
   return last
@@ -545,25 +535,18 @@ async function firmarNota(notaId) {
     return { ok: false, status: 0, data: { detail: "Sin ID de nota." } }
   }
 
-  const tries = [
-    `/api/notas/${encodeURIComponent(id)}/firmar/`,
-    `/api/notas/${encodeURIComponent(id)}/firmar`,
-    `/notas/${encodeURIComponent(id)}/firmar/`,
-    `/notas/${encodeURIComponent(id)}/firmar`,
-  ]
+  const url = `/api/notas/${encodeURIComponent(id)}/firmar/`
   const methods = ["POST", "PATCH"]
   let last = { ok: false, status: 500, data: { detail: "No se pudo firmar la nota." } }
 
-  for (const url of tries) {
-    for (const method of methods) {
-      try {
-        const r = await fetchJSON(url, { method })
-        if (r.ok) return r
-        last = r
-        if (r.status === 404 || r.status === 405) continue
-        return r
-      } catch {}
-    }
+  for (const method of methods) {
+    try {
+      const r = await fetchJSON(url, { method })
+      if (r.ok) return r
+      last = r
+      if (r.status === 404 || r.status === 405) continue
+      return r
+    } catch {}
   }
 
   return last
@@ -575,42 +558,22 @@ async function updateDetalleAsistencia(asistenciaId, detalle) {
     return { ok: false, status: 0, data: { detail: "Sin ID de asistencia." } }
   }
 
-  const tries = [
-    `/api/asistencias/${encodeURIComponent(id)}/detalle/`,
-    `/api/asistencias/${encodeURIComponent(id)}/detalle`,
-    `/api/asistencias/${encodeURIComponent(id)}/observacion/`,
-    `/api/asistencias/${encodeURIComponent(id)}/observacion`,
-    `/api/asistencias/detalle/${encodeURIComponent(id)}/`,
-    `/api/asistencias/detalle/${encodeURIComponent(id)}`,
-    `/api/asistencias/observacion/${encodeURIComponent(id)}/`,
-    `/api/asistencias/observacion/${encodeURIComponent(id)}`,
-    `/asistencias/${encodeURIComponent(id)}/detalle/`,
-    `/asistencias/${encodeURIComponent(id)}/detalle`,
-    `/asistencias/${encodeURIComponent(id)}/observacion/`,
-    `/asistencias/${encodeURIComponent(id)}/observacion`,
-    `/asistencias/detalle/${encodeURIComponent(id)}/`,
-    `/asistencias/detalle/${encodeURIComponent(id)}`,
-    `/asistencias/observacion/${encodeURIComponent(id)}/`,
-    `/asistencias/observacion/${encodeURIComponent(id)}`,
-  ]
-
+  const url = `/api/asistencias/${encodeURIComponent(id)}/detalle/`
   const methods = ["PATCH", "POST", "PUT"]
   let last = { ok: false, status: 500, data: { detail: "No se pudo guardar el detalle." } }
 
-  for (const url of tries) {
-    for (const method of methods) {
-      try {
-        const r = await fetchJSON(url, {
-          method,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ detalle }),
-        })
-        if (r.ok) return r
-        last = r
-        if (r.status === 404 || r.status === 405) continue
-        return r
-      } catch {}
-    }
+  for (const method of methods) {
+    try {
+      const r = await fetchJSON(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ detalle }),
+      })
+      if (r.ok) return r
+      last = r
+      if (r.status === 404 || r.status === 405) continue
+      return r
+    } catch {}
   }
 
   return last
@@ -695,7 +658,7 @@ function asistenciaEstadoFromAny(a) {
   // otros mandan presente
   const pres = a.presente ?? a.asistio ?? a.asistió ?? a.pres
 
-  // legacy: inasistente (invertido)
+  // Variante historica: inasistente (invertido)
   if (a.inasistente === true) return "ausente"
   if (a.inasistente === false) return "presente"
 
@@ -786,6 +749,7 @@ export default function AlumnoPerfilPage() {
 
 function AlumnoPerfilPageInner() {
   useAuthGuard()
+  const session = useSessionContext()
 
   // ✅ FIX Next: params ahora es Promise -> en Client Component usamos useParams()
   const routeParams = useParams() || {}
@@ -796,6 +760,10 @@ function AlumnoPerfilPageInner() {
   const router = useRouter()
 
   const [me, setMe] = useState(null)
+  const alumnoPageScopeKey = useMemo(
+    () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
+    [session?.school?.id, session?.username]
+  )
   const userLabel = useMemo(
     () => (me?.full_name?.trim?.() ? me.full_name : me?.username || ""),
     [me]
@@ -815,6 +783,7 @@ function AlumnoPerfilPageInner() {
   const [notas, setNotas] = useState([])
   const [sanciones, setSanciones] = useState([])
   const [asistencias, setAsistencias] = useState([])
+  const notasRef = useRef([])
   const asistenciasRef = useRef([])
 
   const [materiasCat, setMateriasCat] = useState([])
@@ -896,14 +865,31 @@ function AlumnoPerfilPageInner() {
     let alive = true
 
     ;(async () => {
-      const who = await fetchJSON("/auth/whoami/")
-      if (alive && who.ok) setMe(who.data)
+      try {
+        if (
+          Array.isArray(session?.groups) &&
+          (session.groups.length > 0 || session?.isSuperuser)
+        ) {
+          const contextMe = {
+            full_name: session.userLabel || session.username || "",
+            username: session.username || "",
+            groups: session.groups,
+            rol: session.role || "",
+            is_superuser: !!session.isSuperuser,
+          }
+          if (alive) setMe(contextMe)
+          return
+        }
+
+        const who = await getSessionProfile()
+        if (alive) setMe(who)
+      } catch {}
     })()
 
     return () => {
       alive = false
     }
-  }, [])
+  }, [session])
 
   // Carga detalle -> pk/code -> (notas, sanciones, asistencias)
   useEffect(() => {
@@ -922,13 +908,11 @@ function AlumnoPerfilPageInner() {
 
     const cachedDetail = getCachedAlumnoDetail(alumnoid)
     if (cachedDetail && alive) {
-      const cachedAlumno = cachedDetail?.alumno || cachedDetail || {}
-      const cachedPk = cachedAlumno?.id ?? cachedDetail?.id ?? null
+      const cachedPk = cachedDetail?.id ?? null
       const cachedCode =
-        cachedAlumno?.id_alumno ??
         cachedDetail?.id_alumno ??
-        cachedAlumno?.legajo ??
-        cachedAlumno?.codigo ??
+        cachedDetail?.legajo ??
+        cachedDetail?.codigo ??
         null
 
       setAlumnoDetail(cachedDetail)
@@ -965,9 +949,14 @@ function AlumnoPerfilPageInner() {
     let alive = true
     ;(async () => {
       try {
-        const r = await fetchJSON("/notas/catalogos/")
-        if (!r.ok) return
-        const d = r.data || {}
+        const d = await loadAlumnoResource(
+          `alumno-materias:${alumnoPageScopeKey}`,
+          async () => {
+            const r = await fetchJSON("/notas/catalogos/")
+            if (!r.ok) throw new Error("No se pudo cargar el catálogo de materias.")
+            return r.data || {}
+          }
+        )
         if (!alive) return
         const materias = d.materias || d.MATERIAS || []
         setMateriasCat(Array.isArray(materias) ? materias : [])
@@ -976,10 +965,11 @@ function AlumnoPerfilPageInner() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [alumnoPageScopeKey])
 
   // Curso sugerido para el modal de “Enviar mensaje”
   const cursoParam = searchParams.get("curso")
+  const schoolCourseParam = searchParams.get("school_course_id")
   const fromParam = searchParams.get("from")
 
   /* ====================== FIX: tab por URL + persistencia para /mis-hijos ====================== */
@@ -1002,8 +992,6 @@ function AlumnoPerfilPageInner() {
     fromParamEffective === "/mis-hijos" || fromParamEffective === "mis-hijos"
   const rawGroups = Array.isArray(me?.groups)
     ? me.groups
-    : Array.isArray(me?.grupos)
-    ? me.grupos
     : []
   const groupNames = rawGroups
     .map((g) => (typeof g === "string" ? g : g?.name || g?.nombre || ""))
@@ -1016,13 +1004,14 @@ function AlumnoPerfilPageInner() {
   const isDirectivo = hasGroup("directivos") || hasGroup("directivo")
   const canEditNotas = !!me && (me?.is_superuser || hasGroup("profesores") || hasGroup("profesor"))
   const canJustifyAsistencias =
-    !!me && (me?.is_superuser || me?.is_staff || isPreceptor)
+    !!me && (me?.is_superuser || isPreceptor || isDirectivo)
   const canSignByPadre = !!me && (me?.is_superuser || isPadre)
-  const canEditAsistenciaDetalle = canSignByPadre
+  const canEditAsistenciaDetalle =
+    !!me && (me?.is_superuser || isPreceptor || isDirectivo)
   const canViewFirmaEstado =
-    !!me && (me?.is_superuser || me?.is_staff || isPreceptor || isDirectivo || isPadre)
+    !!me && (me?.is_superuser || isPreceptor || isDirectivo || isPadre)
   const canTransferAlumno =
-    !!me && (me?.is_superuser || me?.is_staff || isPreceptor || isDirectivo)
+    !!me && (me?.is_superuser || isPreceptor || isDirectivo)
   const meLoaded = !!me
   const rolesReady = meLoaded
   const hidePadreNavAndMessage = isFromMisHijos || isPadre
@@ -1047,18 +1036,16 @@ function AlumnoPerfilPageInner() {
     ;(async () => {
       setHijosLoaded(false)
       try {
-        const tries = ["/padres/mis-hijos/", "/api/padres/mis-hijos/"]
-        let data = null
-        for (const url of tries) {
-          try {
-            const r = await fetchJSON(url)
-            if (!r.ok) continue
-            data = r.data
-            break
-          } catch {}
-        }
+        const data = await loadAlumnoResource(
+          `alumno-mis-hijos:${alumnoPageScopeKey}`,
+          async () => {
+            const r = await fetchJSON("/api/padres/mis-hijos/")
+            if (!r.ok) throw new Error("No se pudieron cargar los hijos asociados.")
+            return r.data || {}
+          }
+        )
 
-        const arr = Array.isArray(data) ? data : data?.results || data?.hijos || []
+        const arr = data?.results || []
 
         const list = Array.isArray(arr) ? arr : []
         if (!alive) return
@@ -1112,15 +1099,18 @@ function AlumnoPerfilPageInner() {
     return () => {
       alive = false
     }
-  }, [showKidSelector, alumnoid, code, pk])
+  }, [showKidSelector, alumnoid, code, pk, alumnoPageScopeKey])
 
   // ✅ Persistimos "último hijo visto" aunque todavía no haya cargado el listado
   useEffect(() => {
     if (!showKidSelector) return
-    const v = String(selectedKid || code || alumnoid || "").trim()
+    const currentPk = pk != null ? String(pk).trim() : ""
+    const currentCode = String(code || "").trim()
+    const currentRoute = String(alumnoid || "").trim()
+    const v = String(selectedKid || currentPk || currentCode || currentRoute || "").trim()
     if (!v) return
     safeSetLS(MIS_HIJOS_LAST_ALUMNO_KEY, v)
-  }, [showKidSelector, selectedKid, code, alumnoid])
+  }, [showKidSelector, selectedKid, pk, code, alumnoid])
 
   function onChangeKid(v) {
     const next = String(v || "").trim()
@@ -1128,7 +1118,8 @@ function AlumnoPerfilPageInner() {
     if (next === String(selectedKid || "").trim()) return
     const currentId = String(alumnoid || "").trim()
     const currentCode = String(code || "").trim()
-    if (next === currentId || next === currentCode) return
+    const currentPk = pk != null ? String(pk).trim() : ""
+    if (next === currentId || next === currentCode || next === currentPk) return
 
     setSelectedKid(next)
     safeSetLS(MIS_HIJOS_LAST_ALUMNO_KEY, next)
@@ -1155,34 +1146,32 @@ function AlumnoPerfilPageInner() {
     router.push(target)
   }
 
-  const cursoSugerido = useMemo(() => {
-    return cursoParam || alumnoDetail?.alumno?.curso || alumnoDetail?.curso || ""
-  }, [cursoParam, alumnoDetail])
-
   // Reconstrucción del "volver a alumnos"
   const backToAlumnosHref = useMemo(() => {
     if (fromParamEffective && fromParamEffective !== "mis-notas") return fromParamEffective
-    const c = cursoParam || (alumnoDetail?.alumno?.curso || alumnoDetail?.curso)
-    if (c) return `/gestion_alumnos/curso/${encodeURIComponent(String(c))}`
-    return null
-  }, [fromParamEffective, cursoParam, alumnoDetail])
+    const schoolCourseId =
+      schoolCourseParam ??
+      alumnoDetail?.school_course_id ??
+      (/^\d+$/.test(String(cursoParam || "").trim()) ? cursoParam : null)
+    if (schoolCourseId != null && String(schoolCourseId).trim() !== "") {
+      return `/alumnos/curso/${encodeURIComponent(String(schoolCourseId))}`
+    }
+    return "/alumnos"
+  }, [fromParamEffective, schoolCourseParam, cursoParam, alumnoDetail])
 
   // Handler robusto
   function handleBackToAlumnos() {
+    const target = backToAlumnosHref || "/alumnos"
     try {
-      if (
-        typeof document !== "undefined" &&
-        document.referrer &&
-        document.referrer.startsWith(location.origin)
-      ) {
-        router.back()
+      if (typeof window !== "undefined") {
+        // Forzamos navegación completa para evitar reutilizar estado trabado de App Router.
+        window.location.assign(target)
         return
       }
     } catch {}
-    if (backToAlumnosHref) {
-      router.push(backToAlumnosHref)
-    } else {
-      router.push("/gestion_alumnos")
+
+    if (target) {
+      router.replace(target)
     }
   }
 
@@ -1578,19 +1567,19 @@ function AlumnoPerfilPageInner() {
 
   const nombreAlumno = useMemo(() => {
     if (loading && !alumnoDetail) return ""
-    const a = alumnoDetail?.alumno || alumnoDetail || {}
+    const a = alumnoDetail || {}
     return a.nombre && a.apellido
       ? `${a.nombre} ${a.apellido}`
       : a.full_name || a.apellido_y_nombre || a.nombre || "Alumno"
   }, [alumnoDetail, loading])
 
   const cursoAlumno = useMemo(() => {
-    const a = alumnoDetail?.alumno || alumnoDetail || {}
-    return a.curso || a.division || "—"
+    const a = alumnoDetail || {}
+    return a.school_course_name || a.division || "—"
   }, [alumnoDetail])
 
   const legajoAlumno = useMemo(() => {
-    const a = alumnoDetail?.alumno || alumnoDetail || {}
+    const a = alumnoDetail || {}
     return a.id_alumno || a.legajo || a.codigo || String(code || "")
   }, [alumnoDetail, code])
 
@@ -1625,15 +1614,20 @@ function AlumnoPerfilPageInner() {
     if (!pk && !code) return
     const key = `${pk || ""}:${code || ""}`
     if (lastLoadedRef.current.notas === key) return
+    const currentNotas = notasRef.current
 
     const cached = getCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId)
-    if (cached.fresh) {
+    if (cached.fresh && Array.isArray(cached.data) && cached.data.length > 0) {
       setNotas(Array.isArray(cached.data) ? cached.data : [])
       lastLoadedRef.current.notas = key
       return
     }
 
-    if (cached.data && (!Array.isArray(notas) || notas.length === 0)) {
+    if (
+      Array.isArray(cached.data) &&
+      cached.data.length > 0 &&
+      (!Array.isArray(currentNotas) || currentNotas.length === 0)
+    ) {
       setNotas(Array.isArray(cached.data) ? cached.data : [])
     }
 
@@ -1646,7 +1640,7 @@ function AlumnoPerfilPageInner() {
     } finally {
       setLoadingNotas(false)
     }
-  }, [pk, code, alumnoCacheId, notas])
+  }, [pk, code, alumnoCacheId])
 
   const fetchSanciones = useCallback(async () => {
     if (!pk && !code) return
@@ -1714,6 +1708,10 @@ function AlumnoPerfilPageInner() {
       setLoadingAsistencias(false)
     }
   }, [pk, code, alumnoCacheId])
+
+  useEffect(() => {
+    notasRef.current = Array.isArray(notas) ? notas : []
+  }, [notas])
 
   useEffect(() => {
     asistenciasRef.current = Array.isArray(asistencias) ? asistencias : []
@@ -2285,7 +2283,7 @@ function AlumnoPerfilPageInner() {
                         <td className="py-2 pr-4">{cuatr ?? "—"}</td>
                         <td className="py-2 pr-4">{n.tipo || "—"}</td>
                         <td className="py-2 pr-4">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded school-primary-soft-badge">
                             {toNumberOrText(n.calificacion)}
                           </span>
                         </td>
@@ -2339,8 +2337,8 @@ function AlumnoPerfilPageInner() {
               showKidSelector ? "items-center" : "items-start",
             ].join(" ")}
           >
-            <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
-              <Users className="w-7 h-7 text-blue-600" />
+            <div className="w-14 h-14 rounded-xl flex items-center justify-center school-primary-soft-icon">
+              <Users className="w-7 h-7" />
             </div>
             <div>
               <h1 className="text-2xl font-semibold">{nombreAlumno}</h1>
@@ -2408,14 +2406,13 @@ function AlumnoPerfilPageInner() {
                   />
                 )}
                 <ComposeMensajeAlumno
-                  cursoSugerido={searchParams.get("curso") || cursoAlumno || ""}
                   // ✅ NUEVO: identificadores y nombre para preseleccionar destinatario
                   alumnoPk={pk}
                   alumnoCode={code}
                   alumnoNombre={nombreAlumno}
                   onSent={() => {
                     try {
-                      // ✅ NUEVO: evento unificado + legacy
+                      // Evento unificado + refresco local del inbox
                       window.dispatchEvent(new Event(INBOX_EVENT))
                       window.dispatchEvent(new Event("inbox-changed"))
                     } catch {}
@@ -2433,16 +2430,14 @@ function AlumnoPerfilPageInner() {
           <Card
             onClick={() => setActiveSection("notas")}
             className={[
-              "border-0 shadow-sm cursor-pointer transition-all",
-              activeSection === "notas"
-                ? "ring-2 ring-blue-500 bg-blue-50"
-                : "hover:bg-blue-50/70",
+              "border-0 shadow-sm cursor-pointer transition-all school-hover-card",
+              activeSection === "notas" ? "school-primary-selected" : "",
             ].join(" ")}
           >
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                  <ClipboardList className="w-5 h-5 text-blue-600" />
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center school-primary-soft-icon">
+                  <ClipboardList className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="text-xl font-semibold text-gray-900">Notas</div>
@@ -2518,8 +2513,8 @@ function AlumnoPerfilPageInner() {
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <ClipboardList className="h-6 w-6 text-blue-600" />
+                      <div className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 school-primary-soft-icon">
+                        <ClipboardList className="h-6 w-6" />
                       </div>
                       <div className="flex-1">
                         <h3 className="tile-title">Notas</h3>
@@ -2646,7 +2641,7 @@ function AlumnoPerfilPageInner() {
                                 <td className="py-2 pr-4">{cuatr ?? "—"}</td>
                                 <td className="py-2 pr-4">{n.tipo || "—"}</td>
                                 <td className="py-2 pr-4">
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded school-primary-soft-badge">
                                     {toNumberOrText(n.calificacion)}
                                   </span>
                                 </td>
@@ -3185,7 +3180,7 @@ function AlumnoPerfilPageInner() {
                                     <button
                                       type="button"
                                       onClick={() => openDetalleModal(a)}
-                                      className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 text-gray-600 hover:border-blue-200 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 text-gray-600 school-icon-button disabled:opacity-50 disabled:cursor-not-allowed"
                                       title="Agregar/editar detalle"
                                       disabled={!puedeDetalle}
                                     >
@@ -3381,15 +3376,21 @@ function Topbar({
   showBackAlumnos = true,
   showBackCursos = true,
 }) {
+  const session = useSessionContext()
+  const school = session?.school
+  const logoUrl = school?.logo_url || LOGO_SRC
+  const schoolName = school?.short_name || school?.name || "Colegio"
+  const headerStyle = school?.primary_color ? { backgroundColor: school.primary_color } : undefined
+
   return (
-    <div className="bg-blue-600 text-white px-6 py-4">
+    <div className="text-white px-6 py-4" style={headerStyle}>
       <div className="flex items-center justify-between max-w-7xl mx-auto">
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="inline-flex">
             <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
               <img
-                src={LOGO_SRC}
-                alt="Escuela Tecnova"
+                src={logoUrl}
+                alt={schoolName}
                 className="h-full w-full object-contain"
               />
             </div>
@@ -3404,7 +3405,7 @@ function Topbar({
               type="button"
               variant="ghost"
               onClick={onBackToAlumnos}
-              className="text-white hover:bg-blue-700 gap-2"
+              className="text-white hover:bg-white/15 gap-2"
             >
               <ChevronLeft className="h-4 w-4" />
               {backToAlumnosHref ? "Volver a alumnos" : "Volver"}
@@ -3413,8 +3414,8 @@ function Topbar({
 
           {/* Volver a cursos */}
           {showBackCursos && (
-            <Link href="/gestion_alumnos" prefetch>
-              <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+            <Link href="/alumnos" prefetch>
+              <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
                 <ChevronLeft className="h-4 w-4" />
                 Volver a cursos
               </Button>
@@ -3423,7 +3424,7 @@ function Topbar({
 
           {/* Volver al panel: siempre */}
           <Link href="/dashboard" prefetch>
-            <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+            <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
               <ChevronLeft className="h-4 w-4" />
               Volver al panel
             </Button>
@@ -3433,7 +3434,7 @@ function Topbar({
 
           <div className="relative">
             <Link href="/mensajes" prefetch>
-              <Button variant="ghost" size="icon" className="text-white hover:bg-blue-700">
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/15">
                 <Mail className="h-5 w-5" />
               </Button>
             </Link>
@@ -3446,7 +3447,7 @@ function Topbar({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="text-white hover:bg-blue-700 gap-2">
+              <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
                 <UserIcon className="h-4 w-4" />
                 {userLabel}
                 <ChevronDown className="h-4 w-4" />
