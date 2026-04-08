@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 export const API_BASE =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL)
     ? process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "")
-    : "http://localhost:8000/api"
+    : "/api"
 export const SCHOOL_PARENT_DOMAIN =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PARENT_DOMAIN)
     ? String(process.env.NEXT_PUBLIC_PARENT_DOMAIN).trim().toLowerCase()
