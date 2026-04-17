@@ -10,7 +10,6 @@ import {
   KeyRound,
   Layers3,
   Settings2,
-  UserCog,
   UserPlus,
 } from "lucide-react"
 
@@ -141,13 +140,6 @@ export default function AdminPage() {
       external: true,
     },
     {
-      title: "Roles y grupos",
-      description: "Gestiona grupos y permisos base del sistema desde el modelo Group.",
-      href: djangoAdminModelHref("auth/group/"),
-      icon: <UserCog className="h-6 w-6" />,
-      external: true,
-    },
-    {
       title: "Alumnos",
       description: "Consulta y corrige altas de alumnos, colegio asignado, curso y legajo.",
       href: djangoAdminModelHref("calificaciones/alumno/"),
@@ -155,18 +147,18 @@ export default function AdminPage() {
       external: true,
     },
     {
-      title: "Asignaciones de preceptores",
-      description: "Vincula preceptores a cursos reales por colegio usando PreceptorCurso.",
-      href: djangoAdminModelHref("calificaciones/preceptorcurso/"),
+      title: "Asignacion a preceptores",
+      description: "Asigna preceptores a cursos del colegio activo desde una herramienta propia de la plataforma.",
+      href: "/admin/asignacion-preceptores",
       icon: <FolderCog className="h-6 w-6" />,
-      external: true,
+      external: false,
     },
     {
-      title: "Asignaciones de profesores",
-      description: "Vincula profesores a cursos reales por colegio usando ProfesorCurso.",
-      href: djangoAdminModelHref("calificaciones/profesorcurso/"),
+      title: "Asignacion a profesores",
+      description: "Asigna profesores a cursos del colegio activo desde una herramienta propia de la plataforma.",
+      href: "/admin/asignacion-profesores",
       icon: <KeyRound className="h-6 w-6" />,
-      external: true,
+      external: false,
     },
   ] : []
 
@@ -207,8 +199,8 @@ export default function AdminPage() {
       ) : null}
       {existingAdminTools.length ? (
         <ToolSection
-          title="Accesos Directos al Django Admin"
-          description="Herramientas que hoy ya existen y funcionan, pero viven dentro del admin nativo del backend."
+          title="Herramientas Operativas"
+          description="Herramientas del colegio activo y accesos que todavía viven dentro del admin nativo del backend."
           tools={existingAdminTools}
         />
       ) : null}

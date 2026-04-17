@@ -34,14 +34,14 @@ const ROUTE_META = [
   {
     match: (p) => p === "/dashboard",
     title: (name) => `Bienvenido${name ? "," : ""} ${name || ""}`.trim(),
-    subtitle: "Tenes todo en un solo lugar: mensajeria, notas y agenda.",
+    subtitle: "Tenés todo en un solo lugar: mensajería, notas y agenda.",
     icon: <Home className="w-5 h-5" />,
     actions: null,
   },
   {
     match: (p) => p.startsWith("/alumnos"),
     title: () => "Alumnos",
-    subtitle: "Gestion de perfiles, notas, sanciones y asistencias.",
+    subtitle: "Gestión de perfiles, notas, sanciones y asistencias.",
     icon: <Users className="w-5 h-5" />,
   },
   {
@@ -73,7 +73,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/agregar_nota"),
     title: () => "Nueva nota",
-    subtitle: "Agrega una calificacion u observacion.",
+    subtitle: "Agrega una calificación u observación.",
     icon: <ClipboardList className="w-5 h-5" />,
   },
   {
@@ -97,19 +97,19 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/mis-hijos"),
     title: () => "Mis hijos",
-    subtitle: "Seguimiento academico y comunicacion.",
+    subtitle: "Seguimiento académico y comunicación.",
     icon: <GraduationCap className="w-5 h-5" />,
   },
   {
     match: (p) => p.startsWith("/reportes"),
     title: () => "Reportes",
-    subtitle: "Dashboard de estadisticas de notas y asistencias.",
+    subtitle: "Dashboard de estadísticas de notas y asistencias.",
     icon: <BarChart3 className="w-5 h-5" />,
   },
   {
     match: (p) => p.startsWith("/admin"),
-    title: () => "Administracion",
-    subtitle: "Herramientas de control y configuracion avanzada.",
+    title: () => "Administración",
+    subtitle: "Herramientas de control y configuración avanzada.",
     icon: <Shield className="w-5 h-5" />,
   },
   {
@@ -121,7 +121,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/perfil"),
     title: () => "Perfil",
-    subtitle: "Datos personales y configuracion.",
+    subtitle: "Datos personales y configuración.",
     icon: <User className="w-5 h-5" />,
   },
 ]

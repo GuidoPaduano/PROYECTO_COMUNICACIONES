@@ -281,7 +281,7 @@ function normalizeGroups(rawGroups) {
 }
 
 export function buildSessionContext(payload = {}) {
-  const school = normalizeSchool(payload?.school || payload?.user?.school || null)
+  const initialSchool = normalizeSchool(payload?.school || payload?.user?.school || null)
   const availableSchools = normalizeSchoolList(
     payload?.available_schools || payload?.availableSchools || payload?.user?.available_schools || []
   )
@@ -295,6 +295,7 @@ export function buildSessionContext(payload = {}) {
       [payload?.first_name, payload?.last_name].filter(Boolean).join(" ") ||
       [payload?.user?.first_name, payload?.user?.last_name].filter(Boolean).join(" ")
   ).trim()
+  const school = initialSchool || availableSchools[0] || null
 
   return {
     userLabel: fullName || username,
@@ -729,8 +730,11 @@ function captureSessionContext(path, res) {
 
 function applySchoolHeader(headers) {
   const sessionContext = getSessionContext()
-  if (!sessionContext?.isSuperuser) return
-  const schoolRef = sessionContext?.school?.slug || sessionContext?.school?.id
+  const schoolRef =
+    sessionContext?.school?.slug ||
+    sessionContext?.school?.id ||
+    getRequestedSchoolIdentifierFromWindow()
+  if (!sessionContext?.isSuperuser && !schoolRef) return
   if (schoolRef && !headers.has("X-School")) {
     headers.set("X-School", String(schoolRef))
   }

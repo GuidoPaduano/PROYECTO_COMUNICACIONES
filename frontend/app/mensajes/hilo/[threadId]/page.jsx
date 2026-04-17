@@ -30,7 +30,7 @@ function fmtFecha(input) {
   if (!input) return "—"
   try {
     const d = new Date(input)
-    return d.toLocaleString()
+    return d.toLocaleDateString()
   } catch {
     return String(input)
   }
@@ -49,6 +49,14 @@ function collapseRePrefix(s) {
   if (!base) return ""
   const hasRe = /^\s*re\s*:/i.test(String(s || ""))
   return hasRe ? `Re: ${base}` : base
+}
+
+function getReadReceiptLabel(message, myId) {
+  if (!message || !myId) return ""
+  const mine = message.emisor_id && message.emisor_id === myId
+  if (!mine) return ""
+  if (!message.leido_en) return ""
+  return `Visto el ${fmtFecha(message.leido_en)}`
 }
 
 /* === Helper local para notificar cambios en la bandeja (badge/contador) === */
@@ -224,7 +232,7 @@ export default function HiloMensajesPage() {
           setReplyAsunto(base?.asunto ? `Re: ${stripRePrefix(base.asunto)}` : "Re:")
         }
 
-        // Auto-marcado: SOLO del mensaje puntual que se abre como base del hilo.
+        // Auto-marcado: marca como leídos todos los mensajes recibidos de este hilo.
         if (!didAutoMarkRef.current && myId && base?.id) {
           const hasLeido = Object.prototype.hasOwnProperty.call(base, "leido")
           const hasLeidoEn = Object.prototype.hasOwnProperty.call(base, "leido_en")
@@ -236,15 +244,22 @@ export default function HiloMensajesPage() {
 
           if (hasFlags && isMine && isUnread) {
             didAutoMarkRef.current = true
-            const targetId = base.id
+            const nowIso = new Date().toISOString()
+            const markUrl = isUUID(threadIdParam)
+              ? `/api/mensajes/thread/${threadIdParam}/marcar_leidos/`
+              : `/api/mensajes/${base.id}/marcar_leido/`
 
-            fetchJSON(`/api/mensajes/${targetId}/marcar_leido/`, { method: "POST" }).finally(() => {
+            fetchJSON(markUrl, { method: "POST" }).finally(() => {
               setMensajes(prev =>
-                prev.map(m =>
-                  m.id === targetId
-                    ? { ...m, leido: true, leido_en: m.leido_en || new Date().toISOString() }
-                    : m
-                )
+                prev.map(m => {
+                  const receivedByMe = m.receptor_id === myId
+                  if (!receivedByMe) return m
+                  return {
+                    ...m,
+                    leido: true,
+                    leido_en: m.leido_en || nowIso,
+                  }
+                })
               )
               invalidateHiloResource(hiloCacheKey)
               notifyInboxChanged()
@@ -344,6 +359,7 @@ export default function HiloMensajesPage() {
                   const mine = m.emisor_id && myId && m.emisor_id === myId
                   const canReplyToThis = m.receptor_id && myId && m.receptor_id === myId
                   const isReplyTarget = m.id === replyToId
+                  const readReceipt = getReadReceiptLabel(m, myId)
                   return (
                     <div key={m.id} className={"flex " + (mine ? "justify-end" : "justify-start")}>
                       <div
@@ -365,10 +381,16 @@ export default function HiloMensajesPage() {
                       >
                         <div className="text-xs opacity-80 mb-1 flex items-center justify-between gap-3">
                           <span className="truncate">{mine ? "Vos" : (m.emisor || "—")}</span>
-                          <span className="truncate">{fmtFecha(m.fecha || m.fecha_envio)}</span>
+                          <span className="truncate">{`Enviado el ${fmtFecha(m.fecha || m.fecha_envio)}`}</span>
                         </div>
                         <div className="font-medium break-words">{collapseRePrefix(m.asunto) || "Sin asunto"}</div>
                         <div className="mt-1 whitespace-pre-wrap break-words">{m.contenido || m.body || ""}</div>
+
+                        {readReceipt ? (
+                          <div className={"mt-2 text-[12px] " + (mine ? "text-white/80" : "text-gray-600")}>
+                            {readReceipt}
+                          </div>
+                        ) : null}
 
                         {canReplyToThis && (
                           <div className={"mt-2 text-[12px] " + (mine ? "text-white/80" : "text-gray-600")}>

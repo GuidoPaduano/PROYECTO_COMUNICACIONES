@@ -217,6 +217,13 @@ export default function Profile() {
     return [rolRaw, ...grupos].some((t) => t.includes("alumno"));
   }, [api]);
 
+  useEffect(() => {
+    if (isAlumno && showPasswordForm) {
+      setShowPasswordForm(false);
+      resetPasswordForm();
+    }
+  }, [isAlumno, showPasswordForm]);
+
   const departmentInfo = useMemo(
     () => getDepartmentInfo(api, profileData.department),
     [api, profileData.department]
@@ -606,14 +613,16 @@ export default function Profile() {
                       Información personal
                     </h4>
                     <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={handleTogglePassword}
-                      >
-                        <KeyRound className="h-4 w-4 mr-2" />
-                        Cambiar contraseña
-                      </Button>
-                      {isEditing ? (
+                      {!isAlumno && (
+                        <Button
+                          size="sm"
+                          onClick={handleTogglePassword}
+                        >
+                          <KeyRound className="h-4 w-4 mr-2" />
+                          Cambiar contraseña
+                        </Button>
+                      )}
+                      {!isAlumno && isEditing ? (
                         <>
                           <Button size="sm" onClick={handleSave} disabled={saving}>
                             <Save className="h-4 w-4 mr-2" />
@@ -627,7 +636,7 @@ export default function Profile() {
                             Cancelar
                           </Button>
                         </>
-                      ) : (
+                      ) : !isAlumno ? (
                         <Button
                           size="sm"
                           onClick={() => setIsEditing(true)}
@@ -635,7 +644,7 @@ export default function Profile() {
                           <Edit3 className="h-4 w-4 mr-2" />
                           Editar
                         </Button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
 
@@ -715,7 +724,7 @@ export default function Profile() {
                     </div>
                   </div>
 
-                  {showPasswordForm && (
+                  {!isAlumno && showPasswordForm && (
                     <div className="mt-8 border-t pt-6">
                       <h5 className="font-semibold text-gray-900 text-base mb-4">
                         Cambiar contraseña
@@ -798,11 +807,27 @@ export default function Profile() {
                         Alumnos a cargo
                       </h4>
                       <ul className="text-sm text-gray-800 list-disc pl-5 space-y-1">
-                        {getChildren(api).map((a) => (
-                          <li key={a.id}>
-                            {a.nombre} — {getCourseDisplayName(a) || "Curso s/d"} (ID: {a.id_alumno})
-                          </li>
-                        ))}
+                        {getChildren(api).map((a) => {
+                          const alumnoId = a?.id ?? a?.id_alumno;
+                          const href = alumnoId
+                            ? `/alumnos/${encodeURIComponent(String(alumnoId))}?from=%2Fmis-hijos`
+                            : "";
+                          return (
+                            <li key={a.id || a.id_alumno}>
+                              {href ? (
+                                <Link
+                                  href={href}
+                                  className="font-medium text-[var(--school-primary,#0b1b3f)] underline-offset-2 hover:underline"
+                                >
+                                  {a.nombre}
+                                </Link>
+                              ) : (
+                                <span className="font-medium">{a.nombre}</span>
+                              )}{" "}
+                              — {getCourseDisplayName(a) || "Curso s/d"} (ID: {a.id_alumno})
+                            </li>
+                          );
+                        })}
                       </ul>
                     </CardContent>
                   </Card>

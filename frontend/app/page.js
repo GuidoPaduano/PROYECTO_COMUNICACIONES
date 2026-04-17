@@ -158,7 +158,7 @@ export default function HomePage() {
                     Alumnix
                   </p>
                   <h1 className="text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-                    Elegi tu colegio
+                    Elegí tu colegio
                   </h1>
                 </div>
               </div>
@@ -201,7 +201,7 @@ export default function HomePage() {
             </div>
           ) : (
             <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
-              No encontramos colegios para esa busqueda.
+              No encontramos colegios para esa búsqueda.
             </div>
           )}
         </section>

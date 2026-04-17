@@ -51,6 +51,7 @@ from .api_mensajes import (
     mensajes_conversacion_por_mensaje,
     mensajes_conversacion_por_thread,
     mensajes_marcar_leido,
+    mensajes_marcar_thread_leidos,
 )
 
 
@@ -97,6 +98,7 @@ from .api_password_reset import (
     password_reset_confirm,
 )
 from .api_schools import admin_create_school, public_school_branding, public_school_directory
+from .api_admin_staff import admin_staff_overview, admin_staff_update, admin_staff_course_update
 from .utils_cursos import parse_school_course_id
 
 # APIs de eventos para padres (calendario filtrado por hijo/curso)
@@ -182,6 +184,12 @@ urlpatterns = [
     path("auth/whoami/", WhoAmI.as_view(), name="api_whoami"),
     path("admin/schools/", admin_create_school, name="admin_create_school"),
     path("admin/schools", admin_create_school, name="admin_create_school_noslash"),
+    path("admin/staff/", admin_staff_overview, name="admin_staff_overview"),
+    path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
+    path("admin/staff/<int:user_id>/", admin_staff_update, name="admin_staff_update"),
+    path("admin/staff/<int:user_id>", admin_staff_update, name="admin_staff_update_noslash"),
+    path("admin/staff/course/<int:course_id>/", admin_staff_course_update, name="admin_staff_course_update"),
+    path("admin/staff/course/<int:course_id>", admin_staff_course_update, name="admin_staff_course_update_noslash"),
 
     # Rutas “oficiales”
     path("mi-perfil/", mi_perfil, name="mi_perfil_api"),
@@ -315,6 +323,8 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
 
     path("mensajes/conversacion/thread/<uuid:thread_id>/", mensajes_conversacion_por_thread, name="mensajes_conversacion_por_thread"),
     path("mensajes/conversacion/thread/<uuid:thread_id>", mensajes_conversacion_por_thread, name="mensajes_conversacion_por_thread_noslash"),
+    path("mensajes/thread/<uuid:thread_id>/marcar_leidos/", mensajes_marcar_thread_leidos, name="mensajes_marcar_thread_leidos"),
+    path("mensajes/thread/<uuid:thread_id>/marcar_leidos", mensajes_marcar_thread_leidos, name="mensajes_marcar_thread_leidos_noslash"),
 
     # Mensajería desde perfil de alumno
     path("mensajes/destinatarios_docentes/", docentes_destinatarios, name="docentes_destinatarios"),

@@ -26,7 +26,7 @@ export default function ComunicadoFamiliasPage() {
             <div>
               <div className="text-lg">Comunicados a familias</div>
               <div className="text-sm text-slate-500">
-                Envia comunicados seleccionando primero el curso y luego el destinatario.
+                Envía comunicados seleccionando primero el curso y luego el destinatario.
               </div>
             </div>
           </div>

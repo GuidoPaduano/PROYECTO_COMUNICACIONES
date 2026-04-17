@@ -27,7 +27,7 @@ export default function ForgotPasswordPage() {
       } else {
         setMessage(
           data?.detail ||
-            "Si el correo existe, te enviaremos un link para restablecer tu contrasena."
+            "Si el correo existe, te enviaremos un link para restablecer tu contraseña."
         )
       }
     } catch {
@@ -60,7 +60,7 @@ export default function ForgotPasswordPage() {
             }}
           />
         </div>
-        <h1 className="mb-6 text-center text-2xl font-semibold">Recuperar contrasena</h1>
+        <h1 className="mb-6 text-center text-2xl font-semibold">Recuperar contraseña</h1>
         <p className="mb-6 text-center text-sm text-gray-600">
           Te enviaremos un enlace para restablecer el acceso a {branding.short_name || branding.name}.
         </p>
@@ -95,7 +95,7 @@ export default function ForgotPasswordPage() {
 
           <div className="text-center">
             <a href="/login" className="text-sm hover:underline" style={{ color: branding.accent_color }}>
-              Volver a iniciar sesion
+              Volver a iniciar sesión
             </a>
           </div>
         </form>

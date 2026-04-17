@@ -347,7 +347,7 @@ export default function CargarNotasRapidas() {
     })
 
     if (invalid.length) {
-      setError("Completa materia, tipo, cuatrimestre y una calificacion valida en cada fila.")
+      setError("Completa materia, tipo, cuatrimestre y una calificación válida en cada fila.")
       return
     }
 
@@ -450,7 +450,7 @@ export default function CargarNotasRapidas() {
               ))}
             </select>
             <select className="rounded border px-3 py-2" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
-              <option value="">Calificacion</option>
+              <option value="">Calificación</option>
               {calificaciones.map((r) => (
                 <option key={r.id} value={r.id}>{r.label}</option>
               ))}
@@ -501,7 +501,7 @@ export default function CargarNotasRapidas() {
                 <th className="border-b px-3 py-2">Alumno</th>
                 <th className="border-b px-3 py-2">Materia</th>
                 <th className="border-b px-3 py-2">Tipo</th>
-                <th className="border-b px-3 py-2">Calificacion</th>
+                <th className="border-b px-3 py-2">Calificación</th>
                 <th className="border-b px-3 py-2">Cuatr.</th>
                 <th className="border-b px-3 py-2">Fecha</th>
               </tr>
@@ -554,7 +554,7 @@ export default function CargarNotasRapidas() {
               <Save className="mr-2 h-4 w-4" /> {saving ? "Guardando..." : "Guardar seleccionadas"}
             </Button>
             <div className="text-xs text-slate-500">
-              Debes completar una calificacion valida en cada fila seleccionada.
+              Debes completar una calificación válida en cada fila seleccionada.
             </div>
           </div>
         </CardContent>

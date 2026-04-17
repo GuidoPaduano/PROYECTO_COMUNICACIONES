@@ -57,6 +57,7 @@ const ComposeComunicadoFamilia = dynamic(() => import("./_compose-comunicado-fam
 
 const LOGO_SRC = "/imagenes/Logo%20Color.png"
 const MENSAJES_RESOURCE_MAX_AGE_MS = 10000
+const TODOS_LOS_HIJOS_VALUE = "__todos__"
 const mensajesResourceCache = new Map()
 const mensajesResourcePromises = new Map()
 
@@ -202,6 +203,18 @@ function esNoLeido(m, myId) {
   return isUnread
 }
 
+function hasAlumnoOrPadreRole(me) {
+  const groups = Array.isArray(me?.groups) ? me.groups : []
+  return groups.includes("Padres") || groups.includes("Alumnos") || groups.includes("Alumno")
+}
+
+function getReadReceiptLabel(message, myId) {
+  if (!message || !myId) return ""
+  const mine = message.emisor_id && message.emisor_id === myId
+  if (!mine || !message.leido_en) return ""
+  return `Visto el ${fmtFecha(message.leido_en)}`
+}
+
 /* ======================== Page ======================== */
 export default function MensajesPage() {
   useAuthGuard()
@@ -218,6 +231,9 @@ export default function MensajesPage() {
   const [error, setError] = useState("")
   const [buscar, setBuscar] = useState("")
   const [mensajes, setMensajes] = useState([])
+  const [hijos, setHijos] = useState([])
+  const [hijoSel, setHijoSel] = useState("")
+  const [hijosLoading, setHijosLoading] = useState(false)
 
   const [traces, setTraces] = useState([])
   const [open, setOpen] = useState(false)
@@ -252,13 +268,19 @@ export default function MensajesPage() {
   const [destinatariosDoc, setDestinatariosDoc] = useState([])
   const [alumnoDestType, setAlumnoDestType] = useState("")
   const myId = me?.id ?? me?.user?.id
+  const blockDeleteForUnread = hasAlumnoOrPadreRole(me)
+  const groups = Array.isArray(me?.groups) ? me.groups : []
+  const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
+  const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
+  const isPadre = groups.includes("Padres") || groups.includes("Padre")
+  const isAlumnoOrPadre = isAlumno || isPadre
   const mensajesScopeKey = useMemo(
     () => `${session?.username || me?.username || "anon"}:${session?.school?.id || "default"}`,
     [me?.username, session?.school?.id, session?.username]
   )
   const inboxCacheKey = useMemo(
-    () => `mensajes-inbox:${mensajesScopeKey}`,
-    [mensajesScopeKey]
+    () => `mensajes-inbox:${mensajesScopeKey}:${isPadre ? hijoSel || "sin-hijo" : "general"}`,
+    [hijoSel, isPadre, mensajesScopeKey]
   )
 
   const unreadCount = useUnreadCount()
@@ -289,11 +311,57 @@ export default function MensajesPage() {
     }
   }, [sessionBootstrapProfile])
 
+  useEffect(() => {
+    if (!isPadre) {
+      setHijos([])
+      setHijoSel("")
+      setHijosLoading(false)
+      return undefined
+    }
+
+    let alive = true
+    setHijosLoading(true)
+    ;(async () => {
+      try {
+        const r = await fetchJSON("/api/padres/mis-hijos/")
+        const arr = Array.isArray(r?.data?.results) ? r.data.results : []
+        if (!alive) return
+        setHijos(arr)
+        setHijoSel((prev) => {
+          const ids = arr.map((h) => String(h?.id ?? "")).filter(Boolean)
+          if (prev && ids.includes(String(prev))) return String(prev)
+          if (prev === TODOS_LOS_HIJOS_VALUE && ids.length > 0) return TODOS_LOS_HIJOS_VALUE
+          return ids.length > 0 ? TODOS_LOS_HIJOS_VALUE : ""
+        })
+      } catch {
+        if (alive) {
+          setHijos([])
+          setHijoSel("")
+        }
+      } finally {
+        if (alive) setHijosLoading(false)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [isPadre, mensajesScopeKey])
+
   // ===== Loader de mensajes =====
   useEffect(() => {
     let alive = true
     ;(async () => {
       try {
+        if (isPadre && hijosLoading) return
+        if (isPadre && !hijoSel) {
+          if (alive) {
+            setMensajes([])
+            setTraces([])
+            setLoading(false)
+          }
+          return
+        }
         if (reloadTick === 0 && mensajes.length === 0) {
           setLoading(true)
         }
@@ -305,7 +373,10 @@ export default function MensajesPage() {
           const inbox = await loadMensajesResource(
             inboxCacheKey,
             async () => {
-              const url = "/api/mensajes/recibidos/"
+              const url =
+                isPadre && hijoSel && hijoSel !== TODOS_LOS_HIJOS_VALUE
+                  ? `/api/mensajes/recibidos/?alumno_id=${encodeURIComponent(String(hijoSel))}`
+                  : "/api/mensajes/recibidos/"
               const r = await fetchJSON(url)
               return {
                 list: r.ok && Array.isArray(r.data) ? r.data : [],
@@ -334,7 +405,7 @@ export default function MensajesPage() {
     return () => {
       alive = false
     }
-  }, [inboxCacheKey, mensajes.length, reloadTick])
+  }, [hijoSel, hijosLoading, inboxCacheKey, isPadre, mensajes.length, reloadTick])
 
   // escuchar el evento global para refrescar cuando otro view cambie el inbox
   useEffect(() => {
@@ -367,7 +438,11 @@ export default function MensajesPage() {
 
   async function marcarTodoLeido() {
     try {
-      const r = await authFetch("/api/mensajes/marcar_todos_leidos/", { method: "POST" })
+      const url =
+        isPadre && hijoSel && hijoSel !== TODOS_LOS_HIJOS_VALUE
+          ? `/api/mensajes/marcar_todos_leidos/?alumno_id=${encodeURIComponent(String(hijoSel))}`
+          : "/api/mensajes/marcar_todos_leidos/"
+      const r = await authFetch(url, { method: "POST" })
       if (r.ok) {
         setMensajes((prev) =>
           prev.map((x) => ({
@@ -578,13 +653,6 @@ export default function MensajesPage() {
     [me?.user?.first_name, me?.user?.last_name].filter(Boolean).join(" ") ||
     ""
 
-  const groups = Array.isArray(me?.groups)
-    ? me.groups
-    : []
-  const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
-  const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
-  const isPadre = groups.includes("Padres") || groups.includes("Padre")
-  const isAlumnoOrPadre = isAlumno || isPadre
   const cursosEndpoint = "/alumnos/cursos/"
 
   const debugFlag =
@@ -598,6 +666,7 @@ export default function MensajesPage() {
     (Array.isArray(list) ? list.length : 0) === 0
 
   const cursoChip = getCourseDisplayName(msgSel)
+  const msgSelReadReceipt = getReadReceiptLabel(msgSel, myId)
   const cursoSugeridoAlumnoId = useMemo(() => {
     const schoolCourseId = me?.alumno?.school_course_id ?? null
     if (schoolCourseId != null) return Number(schoolCourseId)
@@ -685,8 +754,44 @@ export default function MensajesPage() {
         <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
           <CardContent className="p-6">
             {/* Acciones y búsqueda */}
-            <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <div className="sm:col-span-2">
+            <div className="mb-4 grid grid-cols-1 lg:grid-cols-12 gap-3">
+              {isPadre ? (
+                <div className="lg:col-span-4">
+                  <Label htmlFor="hijo-mensajes" className="text-xs text-gray-600">
+                    Alumno
+                  </Label>
+                  <select
+                    id="hijo-mensajes"
+                    className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                    value={hijoSel}
+                    onChange={(e) => {
+                      setHijoSel(e.target.value)
+                      setBuscar("")
+                    }}
+                    disabled={hijosLoading || hijos.length === 0}
+                  >
+                    {hijos.length === 0 ? (
+                      <option value="">
+                        {hijosLoading ? "Cargando alumnos..." : "Sin hijos asociados"}
+                      </option>
+                    ) : (
+                      <>
+                        <option value={TODOS_LOS_HIJOS_VALUE}>Todos</option>
+                        {hijos.map((h) => {
+                          const nombre = [h?.apellido, h?.nombre].filter(Boolean).join(", ")
+                          const curso = h?.school_course_name ? ` - ${h.school_course_name}` : ""
+                          return (
+                            <option key={h?.id || h?.id_alumno} value={String(h?.id || "")}>
+                              {nombre || h?.id_alumno || "Alumno"}{curso}
+                            </option>
+                          )
+                        })}
+                      </>
+                    )}
+                  </select>
+                </div>
+              ) : null}
+              <div className={isPadre ? "lg:col-span-4" : "lg:col-span-6"}>
                 <Label htmlFor="buscar" className="text-xs text-gray-600">
                   Buscar
                 </Label>
@@ -701,7 +806,7 @@ export default function MensajesPage() {
                   <Search className="h-4 w-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end sm:col-span-2">
+              <div className={isPadre ? "grid grid-cols-1 sm:grid-cols-3 gap-2 items-end lg:col-span-4" : "grid grid-cols-1 sm:grid-cols-3 gap-2 items-end lg:col-span-6"}>
                 <Button
                   onClick={() => (isAlumnoOrPadre ? setOpenSendPicker(true) : setOpenSendPicker(true))}
                   className="w-full gap-2"
@@ -731,10 +836,13 @@ export default function MensajesPage() {
                 {error}
               </div>
             ) : list.length === 0 ? (
-              <div className="text-sm text-gray-600">No hay mensajes.</div>
+              <div className="text-sm text-gray-600">No hay mensajes recibidos.</div>
             ) : (
               <div className="divide-y">
                 {list.map((m, i) => (
+                  (() => {
+                    const readReceipt = getReadReceiptLabel(m, myId)
+                    return (
                   <div
                     key={m.id || i}
                     role="button"
@@ -785,16 +893,18 @@ export default function MensajesPage() {
                             <div className="text-xs text-gray-500">
                               {fmtFecha(m.fecha || m.fecha_envio)}
                             </div>
-                            <button
-                              type="button"
-                              onClick={(e) => pedirEliminar(m, e)}
-                              className="p-1 rounded-md border border-transparent bg-red-50/70 text-red-600 shadow-sm hover:bg-red-100 hover:text-red-700 hover:border-red-200"
-                              title="Eliminar mensaje"
-                              aria-label="Eliminar mensaje"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                              {!(blockDeleteForUnread && esNoLeido(m, myId)) ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => pedirEliminar(m, e)}
+                                  className="p-1 rounded-md border border-transparent bg-red-50/70 text-red-600 shadow-sm hover:bg-red-100 hover:text-red-700 hover:border-red-200"
+                                  title="Eliminar mensaje"
+                                  aria-label="Eliminar mensaje"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              ) : null}
+                            </div>
                         </div>
                         <div
                           className={`text-sm truncate ${
@@ -806,9 +916,14 @@ export default function MensajesPage() {
                         <div className="text-sm text-gray-600 mt-0.5 line-clamp-2 max-h-[3.2rem] overflow-hidden">
                           {preview(m.contenido || m.body || "")}
                         </div>
+                        {readReceipt ? (
+                          <div className="mt-1 text-xs text-gray-500">{readReceipt}</div>
+                        ) : null}
                       </div>
                     </div>
                   </div>
+                    )
+                  })()
                 ))}
               </div>
             )}
@@ -1075,6 +1190,11 @@ export default function MensajesPage() {
                       {cursoChip}
                     </span>
                   )}
+                  {msgSelReadReceipt ? (
+                    <span className="inline-flex items-center px-3 py-1 rounded-full border bg-white text-sm text-gray-700">
+                      {msgSelReadReceipt}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </DialogDescription>

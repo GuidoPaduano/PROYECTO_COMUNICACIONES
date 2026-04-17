@@ -726,6 +726,11 @@ function isFirmadaFromAny(item) {
   )
 }
 
+function isAsistenciaFirmable(item) {
+  const estado = estadoTexto(asistenciaEstadoFromAny(item))
+  return estado === "Ausente" || estado === "Tarde"
+}
+
 function normalizeNotaNumericaInput(value) {
   return String(value ?? "").replace(",", ".")
 }
@@ -784,6 +789,7 @@ function AlumnoPerfilPageInner() {
   const [sanciones, setSanciones] = useState([])
   const [asistencias, setAsistencias] = useState([])
   const notasRef = useRef([])
+  const sancionesRef = useRef([])
   const asistenciasRef = useRef([])
 
   const [materiasCat, setMateriasCat] = useState([])
@@ -823,8 +829,14 @@ function AlumnoPerfilPageInner() {
   })
   const [savingNotaId, setSavingNotaId] = useState(null)
   const [signingNotaId, setSigningNotaId] = useState(null)
+  const [signingAllNotas, setSigningAllNotas] = useState(false)
+  const [confirmFirmarTodoOpen, setConfirmFirmarTodoOpen] = useState(false)
   const [signingSancionId, setSigningSancionId] = useState(null)
+  const [signingAllSanciones, setSigningAllSanciones] = useState(false)
+  const [confirmFirmarSancionesOpen, setConfirmFirmarSancionesOpen] = useState(false)
   const [signingAsistenciaId, setSigningAsistenciaId] = useState(null)
+  const [signingAllAsistencias, setSigningAllAsistencias] = useState(false)
+  const [confirmFirmarAsistenciasOpen, setConfirmFirmarAsistenciasOpen] = useState(false)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -1239,6 +1251,14 @@ function AlumnoPerfilPageInner() {
     return arr
   }, [notas, filMateria, filCuatr, filTipo, buscar])
 
+  const notasPendientesFirma = useMemo(
+    () =>
+      (Array.isArray(notas) ? notas : []).filter(
+        (nota) => nota?.id && !isFirmadaFromAny(nota)
+      ),
+    [notas]
+  )
+
   const mesesSancionesDisponibles = useMemo(() => {
     const map = new Map()
     const arr = Array.isArray(sanciones) ? sanciones : []
@@ -1301,6 +1321,14 @@ function AlumnoPerfilPageInner() {
     return arr
   }, [sanciones, filSancionMes, filSancionDocente, buscarSanc])
 
+  const sancionesPendientesFirma = useMemo(
+    () =>
+      (Array.isArray(sanciones) ? sanciones : []).filter(
+        (sancion) => sancion?.id && !isFirmadaFromAny(sancion)
+      ),
+    [sanciones]
+  )
+
   // ✅ NUEVO: meses disponibles para el filtro
   const mesesDisponibles = useMemo(() => {
     const map = new Map() // key -> label
@@ -1343,6 +1371,17 @@ function AlumnoPerfilPageInner() {
 
     return arr
   }, [asistencias, filAsisMes, filAsisTipo])
+
+  const asistenciasPendientesFirma = useMemo(
+    () =>
+      (Array.isArray(asistencias) ? asistencias : []).filter(
+        (asistencia) =>
+          getAsistenciaId(asistencia) &&
+          isAsistenciaFirmable(asistencia) &&
+          !isFirmadaFromAny(asistencia)
+      ),
+    [asistencias]
+  )
 
   // ✅ NUEVO: total de inasistencias ponderadas SIEMPRE (no filtra por mes)
   // Solo respeta el filtro de tipo (Clases / Informática / Catequesis / Todas)
@@ -1588,10 +1627,12 @@ function AlumnoPerfilPageInner() {
     [pk, code, alumnoid]
   )
   const lastLoadedRef = useRef({ notas: "", sanciones: "", asistencias: "" })
+  const inFlightRef = useRef({ notas: "", sanciones: "", asistencias: "" })
 
   useEffect(() => {
     if (!alumnoCacheId) return
     lastLoadedRef.current = { notas: "", sanciones: "", asistencias: "" }
+    inFlightRef.current = { notas: "", sanciones: "", asistencias: "" }
     const cachedNotas = getCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId)
     if (cachedNotas.data) {
       setNotas(Array.isArray(cachedNotas.data) ? cachedNotas.data : [])
@@ -1614,6 +1655,7 @@ function AlumnoPerfilPageInner() {
     if (!pk && !code) return
     const key = `${pk || ""}:${code || ""}`
     if (lastLoadedRef.current.notas === key) return
+    if (inFlightRef.current.notas === key) return
     const currentNotas = notasRef.current
 
     const cached = getCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId)
@@ -1631,6 +1673,7 @@ function AlumnoPerfilPageInner() {
       setNotas(Array.isArray(cached.data) ? cached.data : [])
     }
 
+    inFlightRef.current.notas = key
     setLoadingNotas(true)
     try {
       const n = await getNotasByPkOrCode(pk, code)
@@ -1638,6 +1681,9 @@ function AlumnoPerfilPageInner() {
       setCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId, Array.isArray(n) ? n : [])
       lastLoadedRef.current.notas = key
     } finally {
+      if (inFlightRef.current.notas === key) {
+        inFlightRef.current.notas = ""
+      }
       setLoadingNotas(false)
     }
   }, [pk, code, alumnoCacheId])
@@ -1646,6 +1692,8 @@ function AlumnoPerfilPageInner() {
     if (!pk && !code) return
     const key = `${pk || ""}:${code || ""}`
     if (lastLoadedRef.current.sanciones === key) return
+    if (inFlightRef.current.sanciones === key) return
+    const currentSanciones = sancionesRef.current
 
     const cached = getCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId)
     if (cached.fresh) {
@@ -1654,10 +1702,14 @@ function AlumnoPerfilPageInner() {
       return
     }
 
-    if (cached.data && (!Array.isArray(sanciones) || sanciones.length === 0)) {
+    if (
+      cached.data &&
+      (!Array.isArray(currentSanciones) || currentSanciones.length === 0)
+    ) {
       setSanciones(Array.isArray(cached.data) ? cached.data : [])
     }
 
+    inFlightRef.current.sanciones = key
     setLoadingSanciones(true)
     try {
       const s = await getSancionesByPkOrCode(pk, code)
@@ -1665,9 +1717,12 @@ function AlumnoPerfilPageInner() {
       setCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId, Array.isArray(s) ? s : [])
       lastLoadedRef.current.sanciones = key
     } finally {
+      if (inFlightRef.current.sanciones === key) {
+        inFlightRef.current.sanciones = ""
+      }
       setLoadingSanciones(false)
     }
-  }, [pk, code, alumnoCacheId, sanciones])
+  }, [pk, code, alumnoCacheId])
 
   const fetchAsistencias = useCallback(async () => {
     if (!pk && !code) return
@@ -1684,6 +1739,7 @@ function AlumnoPerfilPageInner() {
       currentAsistencias.length > 0
     )
       return
+    if (inFlightRef.current.asistencias === key) return
 
     const cached = getCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId)
     if (cached.fresh) {
@@ -1694,10 +1750,14 @@ function AlumnoPerfilPageInner() {
       // Revalidamos en background para no quedar desactualizado.
     }
 
-    if (cached.data && (!Array.isArray(asistencias) || asistencias.length === 0)) {
+    if (
+      cached.data &&
+      (!Array.isArray(currentAsistencias) || currentAsistencias.length === 0)
+    ) {
       setAsistencias(Array.isArray(cached.data) ? cached.data : [])
     }
 
+    inFlightRef.current.asistencias = key
     setLoadingAsistencias(true)
     try {
       const a = await getAsistenciasByPkOrCode(pk, code)
@@ -1705,6 +1765,9 @@ function AlumnoPerfilPageInner() {
       setCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId, Array.isArray(a) ? a : [])
       lastLoadedRef.current.asistencias = key
     } finally {
+      if (inFlightRef.current.asistencias === key) {
+        inFlightRef.current.asistencias = ""
+      }
       setLoadingAsistencias(false)
     }
   }, [pk, code, alumnoCacheId])
@@ -1712,6 +1775,10 @@ function AlumnoPerfilPageInner() {
   useEffect(() => {
     notasRef.current = Array.isArray(notas) ? notas : []
   }, [notas])
+
+  useEffect(() => {
+    sancionesRef.current = Array.isArray(sanciones) ? sanciones : []
+  }, [sanciones])
 
   useEffect(() => {
     asistenciasRef.current = Array.isArray(asistencias) ? asistencias : []
@@ -1781,7 +1848,7 @@ function AlumnoPerfilPageInner() {
         { key: "materia", label: "Materia", width: 140 },
         { key: "cuatr", label: "Cuatr.", width: 60 },
         { key: "tipo", label: "Tipo", width: 120 },
-        { key: "calificacion", label: "Calificacion", width: 80 },
+        { key: "calificacion", label: "Calificación", width: 80 },
         { key: "comentarios", label: "Comentarios", width: commentsWidth },
       ]
       const lineHeight = 12
@@ -1892,6 +1959,66 @@ function AlumnoPerfilPageInner() {
       alert("No se pudo generar el PDF. Probá nuevamente.")
   } finally {
       setDownloadingPdf(false)
+    }
+  }
+
+  const handleFirmarTodasNotas = async () => {
+    if (signingAllNotas) return
+    const pendientes = notasPendientesFirma
+    if (!pendientes.length) return
+
+    setConfirmFirmarTodoOpen(false)
+    setSigningAllNotas(true)
+    try {
+      const results = await Promise.allSettled(
+        pendientes.map(async (nota) => {
+          const r = await firmarNota(nota.id)
+          if (!r.ok) {
+            throw new Error(r.data?.detail || `Error (HTTP ${r.status || "?"})`)
+          }
+          return {
+            id: nota.id,
+            firmada_en: r.data?.firmada_en || new Date().toISOString(),
+          }
+        })
+      )
+
+      const firmadas = new Map()
+      let fallidas = 0
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          firmadas.set(String(result.value.id), result.value.firmada_en)
+        } else {
+          fallidas += 1
+        }
+      }
+
+      if (firmadas.size > 0) {
+        setNotas((prev) => {
+          const next = (Array.isArray(prev) ? prev : []).map((nota) => {
+            const firmadaEn = firmadas.get(String(nota?.id || ""))
+            if (!firmadaEn) return nota
+            return {
+              ...nota,
+              firmada: true,
+              firmada_en: firmadaEn,
+            }
+          })
+          setCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId, next)
+          return next
+        })
+      }
+
+      if (fallidas > 0) {
+        alert(
+          fallidas === 1
+            ? "No se pudo firmar 1 nota pendiente."
+            : `No se pudieron firmar ${fallidas} notas pendientes.`
+        )
+      }
+    } finally {
+      setSigningAllNotas(false)
     }
   }
 
@@ -2016,6 +2143,66 @@ function AlumnoPerfilPageInner() {
       alert("No se pudo generar el PDF. Proba nuevamente.")
     } finally {
       setDownloadingSancionesPdf(false)
+    }
+  }
+
+  const handleFirmarTodasSanciones = async () => {
+    if (signingAllSanciones) return
+    const pendientes = sancionesPendientesFirma
+    if (!pendientes.length) return
+
+    setConfirmFirmarSancionesOpen(false)
+    setSigningAllSanciones(true)
+    try {
+      const results = await Promise.allSettled(
+        pendientes.map(async (sancion) => {
+          const r = await firmarSancion(sancion.id)
+          if (!r.ok) {
+            throw new Error(r.data?.detail || `Error (HTTP ${r.status || "?"})`)
+          }
+          return {
+            id: sancion.id,
+            firmada_en: r.data?.firmada_en || new Date().toISOString(),
+          }
+        })
+      )
+
+      const firmadas = new Map()
+      let fallidas = 0
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          firmadas.set(String(result.value.id), result.value.firmada_en)
+        } else {
+          fallidas += 1
+        }
+      }
+
+      if (firmadas.size > 0) {
+        setSanciones((prev) => {
+          const next = (Array.isArray(prev) ? prev : []).map((sancion) => {
+            const firmadaEn = firmadas.get(String(sancion?.id || ""))
+            if (!firmadaEn) return sancion
+            return {
+              ...sancion,
+              firmada: true,
+              firmada_en: firmadaEn,
+            }
+          })
+          setCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId, next)
+          return next
+        })
+      }
+
+      if (fallidas > 0) {
+        alert(
+          fallidas === 1
+            ? "No se pudo firmar 1 sanción pendiente."
+            : `No se pudieron firmar ${fallidas} sanciones pendientes.`
+        )
+      }
+    } finally {
+      setSigningAllSanciones(false)
     }
   }
 
@@ -2154,6 +2341,68 @@ function AlumnoPerfilPageInner() {
       alert("No se pudo generar el PDF. Proba nuevamente.")
     } finally {
       setDownloadingAsistenciasPdf(false)
+    }
+  }
+
+  const handleFirmarTodasAsistencias = async () => {
+    if (signingAllAsistencias) return
+    const pendientes = asistenciasPendientesFirma
+    if (!pendientes.length) return
+
+    setConfirmFirmarAsistenciasOpen(false)
+    setSigningAllAsistencias(true)
+    try {
+      const results = await Promise.allSettled(
+        pendientes.map(async (asistencia) => {
+          const asistenciaId = getAsistenciaId(asistencia)
+          const r = await firmarAsistencia(asistenciaId)
+          if (!r.ok) {
+            throw new Error(r.data?.detail || `Error (HTTP ${r.status || "?"})`)
+          }
+          return {
+            id: asistenciaId,
+            firmada_en: r.data?.firmada_en || new Date().toISOString(),
+          }
+        })
+      )
+
+      const firmadas = new Map()
+      let fallidas = 0
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          firmadas.set(String(result.value.id), result.value.firmada_en)
+        } else {
+          fallidas += 1
+        }
+      }
+
+      if (firmadas.size > 0) {
+        setAsistencias((prev) => {
+          const next = (Array.isArray(prev) ? prev : []).map((asistencia) => {
+            const asistenciaId = getAsistenciaId(asistencia)
+            const firmadaEn = firmadas.get(String(asistenciaId || ""))
+            if (!firmadaEn) return asistencia
+            return {
+              ...asistencia,
+              firmada: true,
+              firmada_en: firmadaEn,
+            }
+          })
+          setCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId, next)
+          return next
+        })
+      }
+
+      if (fallidas > 0) {
+        alert(
+          fallidas === 1
+            ? "No se pudo firmar 1 inasistencia pendiente."
+            : `No se pudieron firmar ${fallidas} inasistencias pendientes.`
+        )
+      }
+    } finally {
+      setSigningAllAsistencias(false)
     }
   }
 
@@ -2524,6 +2773,16 @@ function AlumnoPerfilPageInner() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {canSignByPadre ? (
+                        <Button
+                          type="button"
+                          onClick={() => setConfirmFirmarTodoOpen(true)}
+                          disabled={signingAllNotas || notasPendientesFirma.length === 0}
+                          className="h-9 gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {signingAllNotas ? "Firmando..." : "Firmar todo"}
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         onClick={handleDownloadNotasPdf}
@@ -2685,7 +2944,10 @@ function AlumnoPerfilPageInner() {
                                             return next
                                           })
                                         }}
-                                        disabled={String(signingNotaId || "") === String(n.id || "")}
+                                        disabled={
+                                          signingAllNotas ||
+                                          String(signingNotaId || "") === String(n.id || "")
+                                        }
                                         className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                                       >
                                         {String(signingNotaId || "") === String(n.id || "")
@@ -2745,6 +3007,19 @@ function AlumnoPerfilPageInner() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {canSignByPadre ? (
+                        <Button
+                          type="button"
+                          onClick={() => setConfirmFirmarSancionesOpen(true)}
+                          disabled={
+                            signingAllSanciones ||
+                            sancionesPendientesFirma.length === 0
+                          }
+                          className="h-9 gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {signingAllSanciones ? "Firmando..." : "Firmar todo"}
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         onClick={handleDownloadSancionesPdf}
@@ -2877,7 +3152,10 @@ function AlumnoPerfilPageInner() {
                                             return next
                                           })
                                         }}
-                                        disabled={String(signingSancionId || "") === String(s.id || "")}
+                                        disabled={
+                                          signingAllSanciones ||
+                                          String(signingSancionId || "") === String(s.id || "")
+                                        }
                                         className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                                       >
                                         {String(signingSancionId || "") === String(s.id || "")
@@ -2915,22 +3193,8 @@ function AlumnoPerfilPageInner() {
 
                     {/* ✅ NUEVO: filtros mes + tipo */}
                     <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          onClick={handleDownloadAsistenciasPdf}
-                          disabled={downloadingAsistenciasPdf}
-                          className="h-9 gap-2 primary-button"
-                        >
-                          <Download className="h-4 w-4" />
-                          {downloadingAsistenciasPdf
-                            ? "Generando..."
-                            : "Descargar en PDF"}
-                        </Button>
-                      </div>
-
                       {asistencias.length > 0 && (
-                        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                        <>
                           <div className="min-w-[180px]">
                             <Label className="text-xs text-gray-600">Mes</Label>
                             <select
@@ -2960,8 +3224,35 @@ function AlumnoPerfilPageInner() {
                               <option value="catequesis">Catequesis</option>
                             </select>
                           </div>
-                        </div>
+                        </>
                       )}
+
+                      <div className="flex items-center gap-2">
+                        {canSignByPadre ? (
+                          <Button
+                            type="button"
+                            onClick={() => setConfirmFirmarAsistenciasOpen(true)}
+                            disabled={
+                              signingAllAsistencias ||
+                              asistenciasPendientesFirma.length === 0
+                            }
+                            className="h-9 gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {signingAllAsistencias ? "Firmando..." : "Firmar todo"}
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          onClick={handleDownloadAsistenciasPdf}
+                          disabled={downloadingAsistenciasPdf}
+                          className="h-9 gap-2 primary-button"
+                        >
+                          <Download className="h-4 w-4" />
+                          {downloadingAsistenciasPdf
+                            ? "Generando..."
+                            : "Descargar en PDF"}
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
@@ -3146,6 +3437,7 @@ function AlumnoPerfilPageInner() {
                                           })
                                         }}
                                         disabled={
+                                          signingAllAsistencias ||
                                           !asistenciaId ||
                                           String(signingAsistenciaId || "") ===
                                             String(asistenciaId || rowId)
@@ -3210,6 +3502,118 @@ function AlumnoPerfilPageInner() {
       </div>
 
       <Dialog
+        open={confirmFirmarTodoOpen}
+        onOpenChange={(open) => {
+          if (!signingAllNotas) setConfirmFirmarTodoOpen(open)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Firmar todo</DialogTitle>
+            <DialogDescription>
+              Vas a firmar todas las notas pendientes de este alumno. Esta acción no
+              puede deshacerse.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Notas pendientes a firmar: {notasPendientesFirma.length}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmFirmarTodoOpen(false)}
+              disabled={signingAllNotas}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleFirmarTodasNotas}
+              disabled={signingAllNotas || notasPendientesFirma.length === 0}
+              className="primary-button"
+            >
+              {signingAllNotas ? "Firmando..." : "Confirmar firma"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmFirmarSancionesOpen}
+        onOpenChange={(open) => {
+          if (!signingAllSanciones) setConfirmFirmarSancionesOpen(open)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Firmar todo</DialogTitle>
+            <DialogDescription>
+              Vas a firmar todas las sanciones pendientes de este alumno. Esta acción
+              no puede deshacerse.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Sanciones pendientes a firmar: {sancionesPendientesFirma.length}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmFirmarSancionesOpen(false)}
+              disabled={signingAllSanciones}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleFirmarTodasSanciones}
+              disabled={
+                signingAllSanciones || sancionesPendientesFirma.length === 0
+              }
+              className="primary-button"
+            >
+              {signingAllSanciones ? "Firmando..." : "Confirmar firma"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmFirmarAsistenciasOpen}
+        onOpenChange={(open) => {
+          if (!signingAllAsistencias) setConfirmFirmarAsistenciasOpen(open)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Firmar todo</DialogTitle>
+            <DialogDescription>
+              Vas a firmar todas las inasistencias pendientes de este alumno. Esta
+              acción no puede deshacerse.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Inasistencias pendientes a firmar: {asistenciasPendientesFirma.length}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmFirmarAsistenciasOpen(false)}
+              disabled={signingAllAsistencias}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleFirmarTodasAsistencias}
+              disabled={
+                signingAllAsistencias || asistenciasPendientesFirma.length === 0
+              }
+              className="primary-button"
+            >
+              {signingAllAsistencias ? "Firmando..." : "Confirmar firma"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={notaModal.open}
         onOpenChange={(open) => (!open ? closeNotaModal() : null)}
       >
@@ -3252,7 +3656,7 @@ function AlumnoPerfilPageInner() {
               </select>
             </div>
             <div>
-              <Label>Calificacion</Label>
+              <Label>Calificación</Label>
               <select
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                 value={notaModal.resultado}

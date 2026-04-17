@@ -231,6 +231,166 @@ class ReportesApiTests(TestCase):
         self.assertNotIn("curso", body)
         self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)
 
+    def test_profesor_puede_ver_historico_de_un_alumno_del_curso(self):
+        profesor = _make_user("profesor_historico", ["Profesores"])
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_1a,
+            profesor=profesor,
+            curso="1A",
+        )
+
+        alumno = Alumno.objects.create(
+            nombre="Julia",
+            apellido="Ramos",
+            id_alumno="J001",
+            school=self.school,
+            school_course=self.course_1a,
+            curso="1A",
+        )
+        otro_alumno = Alumno.objects.create(
+            nombre="Kevin",
+            apellido="Sosa",
+            id_alumno="K001",
+            school=self.school,
+            school_course=self.course_1a,
+            curso="1A",
+        )
+
+        Nota.objects.create(
+            school=self.school,
+            alumno=alumno,
+            materia="Matemática",
+            tipo="Examen",
+            resultado="TEA",
+            calificacion="8",
+            nota_numerica=8,
+            cuatrimestre=1,
+            fecha=date(2026, 3, 10),
+        )
+        Nota.objects.create(
+            school=self.school,
+            alumno=alumno,
+            materia="Historia",
+            tipo="Trabajo Práctico",
+            resultado="TEP",
+            calificacion="5",
+            nota_numerica=5,
+            cuatrimestre=1,
+            fecha=date(2026, 4, 5),
+        )
+        Nota.objects.create(
+            school=self.school,
+            alumno=otro_alumno,
+            materia="Historia",
+            tipo="Examen",
+            resultado="TED",
+            calificacion="TED",
+            cuatrimestre=1,
+            fecha=date(2026, 4, 6),
+        )
+
+        self.client.force_authenticate(user=profesor)
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_1a.id}/",
+            {"school": self.school.slug, "alumno_id": alumno.id},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["scope"], "alumno_historico")
+        self.assertEqual(body["alumno_activo"]["id_alumno"], "J001")
+        self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 2)
+        self.assertEqual(len(body["historial_detallado"]), 2)
+        self.assertEqual(body["historial_detallado"][0]["fecha"], "2026-04-05")
+        self.assertEqual(body["promedio_general_numerico"], 6.5)
+        self.assertEqual(body["evolucion_mensual_notas"][0]["promedio_numerico"], 8.0)
+        self.assertEqual(body["evolucion_mensual_notas"][1]["promedio_numerico"], 5.0)
+
+    def test_reporte_historico_rechaza_alumno_fuera_del_curso(self):
+        profesor = _make_user("profesor_historico_invalid", ["Profesores"])
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_1a,
+            profesor=profesor,
+            curso="1A",
+        )
+
+        alumno_otro_curso = Alumno.objects.create(
+            nombre="Laura",
+            apellido="Mendez",
+            id_alumno="L001",
+            school=self.school,
+            school_course=self.course_2a,
+            curso="2A",
+        )
+
+        self.client.force_authenticate(user=profesor)
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_1a.id}/",
+            {"school": self.school.slug, "alumno_id": alumno_otro_curso.id},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["detail"], "El alumno no pertenece al curso seleccionado.")
+
+    def test_historico_alumno_expone_comparativa_anual_y_permite_filtrar_un_anio(self):
+        profesor = _make_user("profesor_historico_anual", ["Profesores"])
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_1a,
+            profesor=profesor,
+            curso="1A",
+        )
+
+        alumno = Alumno.objects.create(
+            nombre="Mia",
+            apellido="Neri",
+            id_alumno="M001",
+            school=self.school,
+            school_course=self.course_1a,
+            curso="1A",
+        )
+        Nota.objects.create(
+            school=self.school,
+            alumno=alumno,
+            materia="Matemática",
+            tipo="Examen",
+            resultado="TEA",
+            calificacion="8",
+            nota_numerica=8,
+            cuatrimestre=1,
+            fecha=date(2025, 5, 10),
+        )
+        Nota.objects.create(
+            school=self.school,
+            alumno=alumno,
+            materia="Matemática",
+            tipo="Examen",
+            resultado="TEP",
+            calificacion="5",
+            nota_numerica=5,
+            cuatrimestre=1,
+            fecha=date(2026, 5, 10),
+        )
+
+        self.client.force_authenticate(user=profesor)
+        res = self.client.get(
+            f"/api/reportes/curso/{self.course_1a.id}/",
+            {"school": self.school.slug, "alumno_id": alumno.id, "anio": 2026},
+            follow=True,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["filtros"]["anio"], 2026)
+        self.assertEqual(body["resumen_notas"]["total_evaluaciones"], 1)
+        self.assertEqual(body["historial_detallado"][0]["fecha"], "2026-05-10")
+        self.assertEqual(body["anios_disponibles"], [2025, 2026])
+        self.assertEqual(len(body["historial_anual"]), 2)
+
 
 class ReportesSchoolScopingTests(TestCase):
     def setUp(self):

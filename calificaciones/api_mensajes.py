@@ -179,7 +179,7 @@ def _message_base_queryset(*, school=None):
     sf = _sender_field()
     rf = _recipient_field()
     qs = scope_queryset_to_school(Mensaje.objects.all(), school)
-    return _safe_select_related(qs, sf, rf, "school_course")
+    return _safe_select_related(qs, sf, rf, "school_course", "alumno")
 
 
 def _user_label(u):
@@ -329,6 +329,7 @@ def _serialize_msg(m):
     flags = _flags()
     sender_obj = _get_sender_obj(m)
     recipient_obj = _get_recipient_obj(m)
+    alumno_obj = getattr(m, "alumno", None) if flags["has_alumno"] else None
 
     item = {
         "id": m.id,
@@ -349,6 +350,19 @@ def _serialize_msg(m):
         "remitente_id": getattr(getattr(m, "remitente", None), "id", None) if flags["has_remitente"] else None,
         "destinatario_id": getattr(getattr(m, "destinatario", None), "id", None) if flags["has_destinatario"] else None,
     }
+    if alumno_obj is not None:
+        item["alumno_id"] = getattr(alumno_obj, "id", None)
+        item["alumno_legajo"] = getattr(alumno_obj, "id_alumno", None)
+        item["alumno_nombre"] = " ".join(
+            part
+            for part in [
+                getattr(alumno_obj, "apellido", None),
+                getattr(alumno_obj, "nombre", None),
+            ]
+            if part
+        ).strip()
+    elif flags["has_alumno"]:
+        item["alumno_id"] = getattr(m, "alumno_id", None)
 
     if hasattr(m, "reply_to_id"):
         item["reply_to"] = m.reply_to_id
@@ -383,6 +397,75 @@ def _mark_qs_as_read(qs):
     if has_leido_en:
         return qs.filter(leido_en__isnull=True).update(leido_en=timezone.now())
     return 0
+
+
+def _message_is_unread(msg) -> bool:
+    flags = _flags()
+    has_leido = flags["has_leido"]
+    has_leido_en = flags["has_leido_en"]
+
+    if has_leido and getattr(msg, "leido", None) is False:
+        return True
+    if has_leido_en and getattr(msg, "leido_en", None) is None:
+        return True
+    return False
+
+
+def _user_is_alumno_or_padre(user) -> bool:
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    return user_in_groups(user, "Alumnos", "Alumno", "Padres")
+
+
+def _user_can_filter_inbox_by_alumno(user, alumno) -> bool:
+    if not user or not getattr(user, "is_authenticated", False) or alumno is None:
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    if getattr(alumno, "padre_id", None) == getattr(user, "id", None):
+        return True
+    if getattr(alumno, "usuario_id", None) == getattr(user, "id", None):
+        return True
+    return _authorize_staff_for_alumno(user, alumno)
+
+
+def _can_include_legacy_course_messages_for_alumno(user, alumno) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+
+    school_course_id = getattr(alumno, "school_course_id", None)
+    curso = str(getattr(alumno, "curso", "") or "").strip()
+    if not school_course_id and not curso:
+        return False
+
+    siblings = Alumno.objects.filter(padre_id=getattr(user, "id", None))
+    if school_course_id:
+        siblings = siblings.filter(school_course_id=school_course_id)
+    else:
+        siblings = siblings.filter(curso__iexact=curso)
+
+    try:
+        return siblings.count() == 1
+    except Exception:
+        return False
+
+
+def _filter_messages_for_alumno(qs, alumno, *, user=None):
+    flags = _flags()
+    if alumno is None or not flags["has_alumno"]:
+        return qs
+
+    q = models.Q(alumno=alumno)
+
+    if _can_include_legacy_course_messages_for_alumno(user, alumno):
+        school_course_id = getattr(alumno, "school_course_id", None)
+        curso = str(getattr(alumno, "curso", "") or "").strip()
+        if school_course_id:
+            q |= models.Q(alumno__isnull=True, school_course_id=school_course_id)
+        elif curso:
+            q |= models.Q(alumno__isnull=True, curso__iexact=curso)
+
+    return qs.filter(q)
 
 
 def _coerce_json(request):
@@ -977,6 +1060,18 @@ def mensajes_unread_count(request):
 def mensajes_marcar_todos_leidos(request):
     active_school = get_request_school(request)
     qs = _qs_inbox_for_user(request.user, school=active_school)
+    alumno_param = (
+        request.GET.get("alumno_id")
+        or request.GET.get("id_alumno")
+        or request.GET.get("alumno")
+    )
+    if alumno_param not in (None, ""):
+        alumno = _get_alumno_by_any_id_prefetched(alumno_param, school=active_school)
+        if alumno is None:
+            return Response({"detail": "Alumno no encontrado."}, status=404)
+        if not _user_can_filter_inbox_by_alumno(request.user, alumno):
+            return Response({"detail": "No autorizado para ese alumno."}, status=403)
+        qs = _filter_messages_for_alumno(qs, alumno, user=request.user)
     updated = _mark_qs_as_read(qs)
     if updated > 0:
         return Response({"actualizados": updated}, status=200)
@@ -1050,6 +1145,17 @@ def mensajes_eliminar(request, mensaje_id: int):
     ):
         return Response({"detail": "No autorizado."}, status=403)
 
+    if (
+        destinatario == request.user
+        and not getattr(request.user, "is_superuser", False)
+        and _user_is_alumno_or_padre(request.user)
+        and _message_is_unread(msg)
+    ):
+        return Response(
+            {"detail": "No podes eliminar mensajes no leidos."},
+            status=403,
+        )
+
     msg.delete()
     return Response({"id": mensaje_id}, status=200)
 # ===================== Listados =====================
@@ -1060,6 +1166,19 @@ def mensajes_recibidos(request):
     active_school = get_request_school(request)
     qs = _qs_inbox_for_user(request.user, school=active_school)
     flags = _flags()
+    alumno_param = (
+        request.GET.get("alumno_id")
+        or request.GET.get("id_alumno")
+        or request.GET.get("alumno")
+    )
+
+    if alumno_param not in (None, ""):
+        alumno = _get_alumno_by_any_id_prefetched(alumno_param, school=active_school)
+        if alumno is None:
+            return Response({"detail": "Alumno no encontrado."}, status=404)
+        if not _user_can_filter_inbox_by_alumno(request.user, alumno):
+            return Response({"detail": "No autorizado para ese alumno."}, status=403)
+        qs = _filter_messages_for_alumno(qs, alumno, user=request.user)
 
     if request.GET.get("solo_no_leidos") in ("1", "true", "True"):
         has_leido = flags["has_leido"]
@@ -1086,7 +1205,7 @@ def mensajes_recibidos(request):
 
     sf = _sender_field()
     rf = _recipient_field()
-    qs = _safe_select_related(qs, sf, rf, "school_course")
+    qs = _safe_select_related(qs, sf, rf, "school_course", "alumno")
 
     data = [_serialize_msg(m) for m in qs]
     return Response(data, status=200)

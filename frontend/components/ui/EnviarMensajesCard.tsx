@@ -7,7 +7,7 @@ import { Mail } from "lucide-react"
 import { PropsWithChildren, ReactNode } from "react"
 
 type Props = {
-  /** Ruta a la vista que abre el modal/pantalla de mensajes. Si preferís abrir inline, no pases href y usá onClick. */
+  /** Ruta a la vista que abre el modal o la pantalla de mensajes. Si preferís abrir inline, no pases href y usá onClick. */
   href?: string
   /** Handler opcional para abrir el modal directamente en la misma pantalla. Si se define, no se usa el Link. */
   onClick?: () => void
@@ -38,7 +38,7 @@ function Wrapper({
 /**
  * Tarjeta para el panel de preceptores.
  * Título: "Enviar mensajes"
- * Subtítulo: "Envia mensajes a alumnos, cursos o padres"
+ * Subtítulo: "Envía mensajes a alumnos, cursos o padres"
  */
 export default function EnviarMensajesCard({ href = "#", onClick }: Props) {
   let actionEl: ReactNode = null
@@ -51,7 +51,7 @@ export default function EnviarMensajesCard({ href = "#", onClick }: Props) {
   } else if (href && href !== "#") {
     actionEl = (
       <Link href={href}>
-        <Button >Crear</Button>
+        <Button>Crear</Button>
       </Link>
     )
   } else {
@@ -63,18 +63,18 @@ export default function EnviarMensajesCard({ href = "#", onClick }: Props) {
   }
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardContent className="p-4 flex items-center gap-4">
+    <Card className="transition-shadow hover:shadow-md">
+      <CardContent className="flex items-center gap-4 p-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-full border">
           <Mail className="h-5 w-5" />
         </div>
 
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <Wrapper href={href} onClick={onClick}>
             <div>
-              <div className="font-semibold truncate">Enviar mensajes</div>
+              <div className="truncate font-semibold">Enviar mensajes</div>
               <div className="text-sm text-muted-foreground">
-                Envia mensajes a alumnos, cursos o padres
+                Envía mensajes a alumnos, cursos o padres
               </div>
             </div>
           </Wrapper>
@@ -87,4 +87,3 @@ export default function EnviarMensajesCard({ href = "#", onClick }: Props) {
     </Card>
   )
 }
-
