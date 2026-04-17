@@ -21,8 +21,18 @@ def _padre_hijos_qs(*, user, school=None):
 
 
 def _eventos_qs(*, school=None):
-    qs = Evento.objects.select_related("school", "school_course")
+    qs = Evento.objects.select_related("school", "school_course", "creado_por")
     return scope_queryset_to_school(qs, school)
+
+
+def _user_label(user) -> str:
+    try:
+        full = (user.get_full_name() or "").strip()
+        if full:
+            return full
+        return (getattr(user, "username", "") or "").strip() or "Usuario"
+    except Exception:
+        return "Usuario"
 
 
 def _serialize_evento(ev: Evento):
@@ -38,6 +48,7 @@ def _serialize_evento(ev: Evento):
         or getattr(school_course, "code", None)
         or get_course_label(getattr(ev, "curso", ""), school=getattr(ev, "school", None))
     )
+    creado_por = _user_label(getattr(ev, "creado_por", None)) if getattr(ev, "creado_por_id", None) else ""
 
     return {
         "id": str(getattr(ev, "id", "")),
@@ -45,11 +56,13 @@ def _serialize_evento(ev: Evento):
         "school_course_name": curso_nombre,
         "title": getattr(ev, "titulo", "") or getattr(ev, "title", ""),
         "start": start,
+        "creado_por": creado_por,
         "extendedProps": {
             "description": getattr(ev, "descripcion", "") or getattr(ev, "description", ""),
             "school_course_name": curso_nombre,
             "school_course_id": getattr(ev, "school_course_id", None),
             "tipo_evento": getattr(ev, "tipo_evento", ""),
+            "creado_por": creado_por,
         },
     }
 

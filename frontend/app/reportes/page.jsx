@@ -81,7 +81,7 @@ function DistribucionEstados({ conteos }) {
   )
   const rows = [
     { key: "TEA", label: "TEA", color: "bg-emerald-500", value: Number(conteos?.TEA || 0) },
-    { key: "TEP", label: "TEP", color: "bg-amber-500", value: Number(conteos?.TEP || 0) },
+    { key: "TEP", label: "TEP", color: "bg-yellow-400", value: Number(conteos?.TEP || 0) },
     { key: "TED", label: "TED", color: "bg-rose-500", value: Number(conteos?.TED || 0) },
   ]
 
@@ -129,11 +129,16 @@ function EvolucionMensual({ rows }) {
                 <div key={row.mes}>
                   <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
                     <span>{row.mes}</span>
-                    <span>Total: {row.total}</span>
+                    <span>
+                      Total: {row.total}
+                      {Number(row.evaluaciones_numericas || 0) > 0 && row.promedio_numerico != null
+                        ? ` | Promedio: ${Number(row.promedio_numerico).toFixed(2)}`
+                        : ""}
+                    </span>
                   </div>
                   <div className="flex h-4 overflow-hidden rounded bg-slate-100">
                     <div className="bg-emerald-500" style={{ width: `${(tea / total) * 100}%` }} />
-                    <div className="bg-amber-500" style={{ width: `${(tep / total) * 100}%` }} />
+                    <div className="bg-yellow-400" style={{ width: `${(tep / total) * 100}%` }} />
                     <div className="bg-rose-500" style={{ width: `${(ted / total) * 100}%` }} />
                   </div>
                 </div>
@@ -148,6 +153,7 @@ function EvolucionMensual({ rows }) {
 
 const REPORTES_RESOURCE_MAX_AGE_MS = 30000
 const REPORTES_DYNAMIC_RESOURCE_MAX_AGE_MS = 15000
+const CURRENT_REPORT_YEAR = String(new Date().getFullYear())
 const reportesResourceCache = new Map()
 const reportesResourcePromises = new Map()
 
@@ -196,10 +202,14 @@ export default function ReportesPage() {
 
   const [role, setRole] = useState("SinRol")
   const [cursos, setCursos] = useState([])
+  const [alumnosCurso, setAlumnosCurso] = useState([])
   const [cursoSel, setCursoSel] = useState("")
   const [alumnos, setAlumnos] = useState([])
   const [alumnoSel, setAlumnoSel] = useState("")
+  const [alumnoCursoSel, setAlumnoCursoSel] = useState("")
+  const [anioSel, setAnioSel] = useState(CURRENT_REPORT_YEAR)
   const [cuatrimestre, setCuatrimestre] = useState("all")
+  const [materiaSel, setMateriaSel] = useState("all")
   const [report, setReport] = useState(null)
 
   const isPadre = role === "Padres"
@@ -281,6 +291,47 @@ export default function ReportesPage() {
   }, [usaCurso, isProfesor, isPreceptor, courseCatalogCacheKey, cursoSel])
 
   useEffect(() => {
+    if (profileLoading || !usaCurso || !cursoSelSchoolCourseId) {
+      setAlumnosCurso([])
+      setAlumnoCursoSel("")
+      return
+    }
+
+    let alive = true
+    ;(async () => {
+      try {
+        const data = await loadReportesResource(
+          `reportes-alumnos-curso:${reportesScopeKey}:${cursoSelSchoolCourseId}`,
+          async () => {
+            const res = await authFetch(`/alumnos/?school_course_id=${encodeURIComponent(String(cursoSelSchoolCourseId))}`)
+            const payload = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
+            return Array.isArray(payload?.alumnos) ? payload.alumnos : []
+          },
+          REPORTES_DYNAMIC_RESOURCE_MAX_AGE_MS
+        )
+        if (!alive) return
+        setAlumnosCurso(data)
+        setAlumnoCursoSel((current) => {
+          const currentId = String(current || "")
+          if (currentId && data.some((a) => String(a?.id || a?.id_alumno || "") === currentId)) {
+            return current
+          }
+          return ""
+        })
+      } catch {
+        if (!alive) return
+        setAlumnosCurso([])
+        setAlumnoCursoSel("")
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [profileLoading, usaCurso, cursoSelSchoolCourseId, reportesScopeKey])
+
+  useEffect(() => {
     if (profileLoading || !isPadre) return
     let alive = true
     ;(async () => {
@@ -328,8 +379,11 @@ export default function ReportesPage() {
         setError("")
 
         const params = new URLSearchParams()
+        if (anioSel !== "all") params.set("anio", anioSel)
         if (cuatrimestre !== "all") params.set("cuatrimestre", cuatrimestre)
+        if (materiaSel !== "all") params.set("materia", materiaSel)
         if (isPadre) params.set("alumno_id", alumnoSel)
+        if (usaCurso && alumnoCursoSel) params.set("alumno_id", alumnoCursoSel)
 
         const qs = params.toString()
         const path = isPadre || isAlumno
@@ -365,41 +419,99 @@ export default function ReportesPage() {
     return () => {
       alive = false
     }
-  }, [profileLoading, isPadre, isAlumno, isProfesor, isPreceptor, isDirectivo, isSuper, usaCurso, cursoSel, cursoSelSchoolCourseId, alumnoSel, cuatrimestre])
+  }, [profileLoading, isPadre, isAlumno, isProfesor, isPreceptor, isDirectivo, isSuper, usaCurso, cursoSel, cursoSelSchoolCourseId, alumnoSel, alumnoCursoSel, anioSel, cuatrimestre, materiaSel])
 
   const resumen = report?.resumen_notas || { total_evaluaciones: 0, conteos_por_estado: { TEA: 0, TEP: 0, TED: 0 }, porcentajes_por_estado: { TEA: 0, TEP: 0, TED: 0 } }
   const porMateria = Array.isArray(report?.por_materia) ? report.por_materia : []
   const evolucionNotas = Array.isArray(report?.evolucion_mensual_notas) ? report.evolucion_mensual_notas : []
+  const historialAnual = Array.isArray(report?.historial_anual) ? report.historial_anual : []
+  const alumnoHistoricoActivo = report?.scope === "alumno_historico"
+  const aniosDisponibles = useMemo(() => {
+    const source = Array.isArray(report?.anios_disponibles) && report.anios_disponibles.length
+      ? report.anios_disponibles
+      : historialAnual.map((row) => row?.anio).filter(Boolean)
+    return Array.from(new Set([CURRENT_REPORT_YEAR, ...source.map((value) => String(value))])).sort((a, b) => Number(b) - Number(a))
+  }, [report?.anios_disponibles, historialAnual])
+  const materiasDisponibles = useMemo(() => {
+    const source = porMateria.length > 0
+      ? porMateria.map((row) => row?.materia_nombre).filter(Boolean)
+      : []
+    return Array.from(new Set(source)).sort((a, b) => String(a).localeCompare(String(b)))
+  }, [porMateria])
   const empty = useMemo(() => {
     if (!report) return false
     return Number(resumen?.total_evaluaciones || 0) === 0
   }, [report, resumen])
 
+  useEffect(() => {
+    if (!aniosDisponibles.length) return
+    setAnioSel((current) => {
+      const currentValue = String(current || "").trim()
+      if (currentValue && aniosDisponibles.includes(currentValue)) return current
+      if (aniosDisponibles.includes(CURRENT_REPORT_YEAR)) return CURRENT_REPORT_YEAR
+      return "all"
+    })
+  }, [aniosDisponibles])
+
   return (
     <div className="space-y-6">
       <Card>
         <CardContent className="space-y-4 p-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Cuatrimestre</label>
-              <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={cuatrimestre} onChange={(e) => setCuatrimestre(e.target.value)}>
-                <option value="all">Todos</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-              </select>
-            </div>
-
-            {usaCurso ? (
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Curso</label>
-                <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={cursoSel} onChange={(e) => setCursoSel(e.target.value)}>
-                  {cursos.length === 0 ? <option value="">Sin cursos</option> : null}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+              {usaCurso ? (
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Curso</label>
+                  <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={cursoSel} onChange={(e) => setCursoSel(e.target.value)}>
+                    {cursos.length === 0 ? <option value="">Sin cursos</option> : null}
                   {cursos.map((c) => (
                     <option key={c.value} value={c.value}>{getCourseLabel(c)}</option>
                   ))}
                 </select>
               </div>
             ) : null}
+
+            {usaCurso ? (
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Alumno</label>
+                <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={alumnoCursoSel} onChange={(e) => setAlumnoCursoSel(e.target.value)}>
+                  <option value="">Todos</option>
+                  {alumnosCurso.map((a) => (
+                    <option key={a.id || a.id_alumno} value={a.id || a.id_alumno}>
+                      {a.apellido ? `${a.apellido}, ${a.nombre}` : a.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Materia</label>
+                <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={materiaSel} onChange={(e) => setMateriaSel(e.target.value)}>
+                  <option value="all">Todas</option>
+                  {materiasDisponibles.map((materia) => (
+                    <option key={materia} value={materia}>{materia}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Cuatrimestre</label>
+                <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={cuatrimestre} onChange={(e) => setCuatrimestre(e.target.value)}>
+                  <option value="all">Todos</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Año</label>
+                <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={anioSel} onChange={(e) => setAnioSel(e.target.value)}>
+                  <option value="all">Todos</option>
+                  {aniosDisponibles.map((anio) => (
+                    <option key={anio} value={anio}>{anio}</option>
+                  ))}
+                </select>
+              </div>
 
             {isPadre && alumnos.length > 1 ? (
               <div>
@@ -457,7 +569,7 @@ export default function ReportesPage() {
               icon={<XCircle className="h-4 w-4" />}
               title="TEP"
               value={fmtPct(resumen?.porcentajes_por_estado?.TEP)}
-              accentClass="bg-amber-100 text-amber-700"
+              accentClass="bg-yellow-100 text-yellow-700"
             />
             <KpiCard
               icon={<AlertTriangle className="h-4 w-4" />}
@@ -506,6 +618,45 @@ export default function ReportesPage() {
               )}
             </CardContent>
           </Card>
+
+          {alumnoHistoricoActivo ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Resumen anual comparativo</CardTitle>
+                <CardDescription>Porcentajes TEA / TEP / TED del alumno comparados entre años</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {historialAnual.length === 0 ? (
+                  <EmptyHint text="No hay años previos para comparar." />
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-base font-extrabold text-slate-900">Año</TableHead>
+                        <TableHead className="text-right text-base font-extrabold text-slate-900">%TEA</TableHead>
+                        <TableHead className="text-right text-base font-extrabold text-slate-900">%TEP</TableHead>
+                        <TableHead className="text-right text-base font-extrabold text-slate-900">%TED</TableHead>
+                        <TableHead className="text-right text-base font-extrabold text-slate-900">Promedio</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {historialAnual.map((row) => (
+                        <TableRow key={row.anio}>
+                          <TableCell className="font-medium text-slate-800">{row.anio}</TableCell>
+                          <TableCell className="text-right">{fmtPct(row.TEA_pct)}</TableCell>
+                          <TableCell className="text-right">{fmtPct(row.TEP_pct)}</TableCell>
+                          <TableCell className="text-right">{fmtPct(row.TED_pct)}</TableCell>
+                          <TableCell className="text-right">
+                            {row.promedio_numerico != null ? Number(row.promedio_numerico).toFixed(2) : "S/D"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
 
         </>
       ) : null}

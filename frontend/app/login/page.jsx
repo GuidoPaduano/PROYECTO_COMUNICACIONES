@@ -9,7 +9,6 @@ import {
   DEFAULT_SCHOOL_LOGO_URL,
   authFetch,
   getRequestedSchoolIdentifierFromWindow,
-  clearTokens,
   sanitizePostLoginPath,
   setTokens,
   syncSessionContext,
@@ -31,16 +30,6 @@ export default function LoginPage() {
   useEffect(() => {
     setLogoSrc(branding.logo_url || DEFAULT_SCHOOL_LOGO_URL)
   }, [branding.logo_url])
-
-  const clearServerSession = async () => {
-    try {
-      await fetch(`${API_BASE}/auth/logout/`, {
-        method: "POST",
-        credentials: "include",
-      })
-    } catch {}
-    clearTokens()
-  }
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -68,8 +57,8 @@ export default function LoginPage() {
           const me = await meRes.json().catch(() => ({}))
 
           if (isAdminLogin && !me?.is_superuser) {
-            await clearServerSession()
-            setError("Este acceso es solo para administradores.")
+            syncSessionContext(me)
+            router.replace("/dashboard")
             return
           }
 
@@ -111,7 +100,7 @@ export default function LoginPage() {
             }}
           />
         </div>
-        <h1 className="text-2xl font-semibold text-center mb-3">Iniciar sesion</h1>
+        <h1 className="text-2xl font-semibold text-center mb-3">Iniciar sesión</h1>
         <p className="text-sm text-center text-gray-600 mb-6">
           Accede con tu usuario para entrar a {branding.short_name || branding.name}.
         </p>
@@ -134,7 +123,7 @@ export default function LoginPage() {
 
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              Contrasena
+              Contraseña
             </label>
             <input
               id="password"
@@ -167,7 +156,7 @@ export default function LoginPage() {
                 className="whitespace-nowrap hover:underline"
                 style={{ color: branding.accent_color }}
               >
-                Olvidaste tu contrasena?
+                ¿Olvidaste tu contraseña?
               </a>
             </div>
           </div>

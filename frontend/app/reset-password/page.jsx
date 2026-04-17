@@ -23,15 +23,15 @@ export default function ResetPasswordPage() {
     setError("")
     setMessage("")
     if (!hasParams) {
-      setError("El link es invalido o esta incompleto.")
+      setError("El link es inválido o está incompleto.")
       return
     }
     if (!password || password.length < 6) {
-      setError("La contrasena debe tener al menos 6 caracteres.")
+      setError("La contraseña debe tener al menos 6 caracteres.")
       return
     }
     if (password !== confirm) {
-      setError("Las contrasenas no coinciden.")
+      setError("Las contraseñas no coinciden.")
       return
     }
     setLoading(true)
@@ -43,9 +43,9 @@ export default function ResetPasswordPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data?.detail || "No se pudo actualizar la contrasena.")
+        setError(data?.detail || "No se pudo actualizar la contraseña.")
       } else {
-        setMessage(data?.detail || "Contrasena actualizada. Ya podes iniciar sesion.")
+        setMessage(data?.detail || "Contraseña actualizada. Ya podés iniciar sesión.")
       }
     } catch {
       setError("No se pudo conectar con el servidor.")
@@ -77,7 +77,7 @@ export default function ResetPasswordPage() {
             }}
           />
         </div>
-        <h1 className="mb-6 text-center text-2xl font-semibold">Nueva contrasena</h1>
+        <h1 className="mb-6 text-center text-2xl font-semibold">Nueva contraseña</h1>
         <p className="mb-6 text-center text-sm text-gray-600">
           Actualiza el acceso para volver a entrar a {branding.short_name || branding.name}.
         </p>
@@ -85,7 +85,7 @@ export default function ResetPasswordPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              Contrasena nueva
+              Contraseña nueva
             </label>
             <input
               id="password"
@@ -100,7 +100,7 @@ export default function ResetPasswordPage() {
 
           <div>
             <label htmlFor="confirm" className="block text-sm font-medium text-gray-700">
-              Repetir contrasena
+              Repetir contraseña
             </label>
             <input
               id="confirm"
@@ -122,12 +122,12 @@ export default function ResetPasswordPage() {
             className="w-full rounded-md py-2 text-white disabled:opacity-70"
             style={{ backgroundColor: branding.primary_color }}
           >
-            {loading ? "Guardando..." : "Actualizar contrasena"}
+            {loading ? "Guardando..." : "Actualizar contraseña"}
           </button>
 
           <div className="text-center">
             <a href="/login" className="text-sm hover:underline" style={{ color: branding.accent_color }}>
-              Volver a iniciar sesion
+              Volver a iniciar sesión
             </a>
           </div>
         </form>

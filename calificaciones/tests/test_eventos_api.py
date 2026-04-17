@@ -249,6 +249,8 @@ class EventosSchoolScopingTests(TestCase):
         evento = Evento.objects.get(titulo="Reunion Norte")
         self.assertEqual(evento.school_id, self.school_a.id)
         self.assertEqual(evento.school_course_id, self.school_course_a.id)
+        self.assertEqual(evento.creado_por_id, self.profesor.id)
+        self.assertEqual(res.json()["creado_por"], self.profesor.username)
 
         notif = Notificacion.objects.filter(tipo="evento", destinatario=self.padre_a).latest("id")
         self.assertEqual(notif.meta["school_course_id"], self.school_course_a.id)
@@ -565,6 +567,7 @@ class EventosSchoolScopingTests(TestCase):
 class EventoSerializerContractTests(TestCase):
     def test_serializer_no_expone_curso_y_usa_school_course_name(self):
         school = School.objects.create(name="Colegio Evento Serializer", slug="colegio-evento-serializer")
+        creador = _make_user("creador_evento_serializer", ["Profesores"])
         school_course = SchoolCourse.objects.create(
             school=school,
             code="1A",
@@ -579,6 +582,7 @@ class EventoSerializerContractTests(TestCase):
             curso="1A",
             fecha="2026-03-28",
             tipo_evento="Acto",
+            creado_por=creador,
         )
 
         data = EventoSerializer(evento).data
@@ -586,3 +590,4 @@ class EventoSerializerContractTests(TestCase):
         self.assertNotIn("curso", data)
         self.assertEqual(data["school_course_id"], school_course.id)
         self.assertEqual(data["school_course_name"], "1A Norte")
+        self.assertEqual(data["creado_por"], creador.username)

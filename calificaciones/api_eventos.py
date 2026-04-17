@@ -561,6 +561,7 @@ def _serialize_evento(ev: Evento):
     school_course = getattr(ev, "school_course", None)
     curso = getattr(ev, "curso", "")
     curso_nombre = getattr(school_course, "name", None) or get_course_label(curso, school=getattr(ev, "school", None))
+    creado_por = _user_label(getattr(ev, "creado_por", None)) if getattr(ev, "creado_por_id", None) else ""
 
     return {
         "id": str(getattr(ev, "id", "")),
@@ -568,11 +569,13 @@ def _serialize_evento(ev: Evento):
         "school_course_name": curso_nombre,
         "title": getattr(ev, "titulo", "") or getattr(ev, "title", ""),
         "start": start,
+        "creado_por": creado_por,
         "extendedProps": {
             "description": getattr(ev, "descripcion", "") or getattr(ev, "description", ""),
             "school_course_name": curso_nombre,
             "school_course_id": getattr(ev, "school_course_id", None),
             "tipo_evento": getattr(ev, "tipo_evento", ""),
+            "creado_por": creado_por,
         },
     }
 
@@ -657,7 +660,7 @@ def eventos_listar(request):
     """
     active_school = get_request_school(request)
     qs = scope_queryset_to_school(
-        Evento.objects.select_related("school_course", "school"),
+        Evento.objects.select_related("school_course", "school", "creado_por"),
         active_school,
     )
 
@@ -896,6 +899,7 @@ def eventos_crear(request):
                 descripcion=descripcion,
                 curso=school_course.code,
                 tipo_evento=tipo_evento,
+                creado_por=request.user,
             )
             for school_course in cursos_all
         ]
@@ -921,6 +925,7 @@ def eventos_crear(request):
         descripcion=descripcion,
         curso=getattr(school_course, "code", None) or curso,
         tipo_evento=tipo_evento,
+        creado_por=request.user,
     )
 
     _notify_evento_creado(request, ev)

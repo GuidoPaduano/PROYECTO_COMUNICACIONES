@@ -246,7 +246,7 @@ class EventoSerializer(serializers.ModelSerializer):
     fecha = serializers.DateField(required=True, input_formats=["%Y-%m-%d"])
     curso = serializers.CharField(required=False, allow_blank=True, allow_null=True, write_only=True)
     tipo_evento = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    creado_por = serializers.StringRelatedField(read_only=True)
+    creado_por = serializers.SerializerMethodField()
     school_course_id = serializers.IntegerField(read_only=True)
     school_course_name = serializers.SerializerMethodField()
 
@@ -278,6 +278,13 @@ class EventoSerializer(serializers.ModelSerializer):
 
     def get_school_course_name(self, obj):
         return _get_course_name(obj)
+
+    def get_creado_por(self, obj):
+        user = getattr(obj, "creado_por", None)
+        if user is None:
+            return None
+        full = (user.get_full_name() or "").strip()
+        return full or (getattr(user, "username", "") or "").strip() or None
 
 
 class AlumnoFullSerializer(serializers.ModelSerializer):

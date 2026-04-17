@@ -3,7 +3,7 @@
 from typing import Optional
 
 from django.core.cache import cache
-from django.db.models import Case, CharField, Count, F, Q, Value, When
+from django.db.models import Avg, Case, CharField, Count, F, Q, Value, When
 from django.db.models.functions import TruncMonth, Trim, Upper
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -86,10 +86,10 @@ def _role_label(user) -> str:
     return "SinRol"
 
 
-def _mis_estadisticas_cache_key(*, user_id, role, school_id, alumno_param, cuatrimestre) -> str:
+def _mis_estadisticas_cache_key(*, user_id, role, school_id, alumno_param, anio, cuatrimestre, materia) -> str:
     return (
         f"reportes:v2:mis_estadisticas:u{user_id}:r{role}:s{school_id or 'none'}:"
-        f"a{alumno_param or 'default'}:q{cuatrimestre or 'all'}"
+        f"a{alumno_param or 'default'}:y{anio or 'all'}:q{cuatrimestre or 'all'}:m{materia or 'all'}"
     )
 
 
@@ -102,6 +102,21 @@ def _serialize_alumno(a: Alumno) -> dict:
         "school_course_name": getattr(getattr(a, "school_course", None), "name", None)
         or getattr(getattr(a, "school_course", None), "code", None)
         or getattr(a, "curso", ""),
+    }
+
+
+def _serialize_nota_detalle(nota: Nota) -> dict:
+    promedio = getattr(nota, "nota_numerica", None)
+    return {
+        "id": nota.id,
+        "fecha": nota.fecha.isoformat() if getattr(nota, "fecha", None) else None,
+        "materia": getattr(nota, "materia", None),
+        "tipo": getattr(nota, "tipo", None),
+        "calificacion": getattr(nota, "calificacion", None),
+        "resultado": getattr(nota, "resultado", None),
+        "nota_numerica": float(promedio) if promedio is not None else None,
+        "cuatrimestre": getattr(nota, "cuatrimestre", None),
+        "observaciones": getattr(nota, "observaciones", None),
     }
 
 
@@ -201,6 +216,19 @@ def _normalize_cuatrimestre(raw: str) -> Optional[int]:
     except Exception:
         return None
     if val not in (1, 2):
+        return None
+    return val
+
+
+def _normalize_anio(raw: str) -> Optional[int]:
+    txt = str(raw or "").strip()
+    if not txt or txt.lower() in {"all", "todos", "todas"}:
+        return None
+    try:
+        val = int(txt)
+    except Exception:
+        return None
+    if val < 2000 or val > 2100:
         return None
     return val
 
@@ -323,6 +351,13 @@ def _resolve_materia(raw: str) -> Optional[str]:
     return None
 
 
+def _normalize_materia_filter(raw: str) -> Optional[str]:
+    txt = str(raw or "").strip()
+    if not txt or txt.lower() in {"all", "todas", "todos"}:
+        return None
+    return _resolve_materia(txt) or txt
+
+
 def _annotate_estado_notas(qs):
     return (
         qs.annotate(calificacion_normalizada=Upper(Trim("calificacion")))
@@ -398,6 +433,8 @@ def _build_notas_payload(base_qs):
         .values("mes")
         .annotate(
             total=Count("id"),
+            evaluaciones_numericas=Count("nota_numerica"),
+            promedio_numerico=Avg("nota_numerica"),
             TEA_count=Count("id", filter=Q(estado_reporte="TEA")),
             TEP_count=Count("id", filter=Q(estado_reporte="TEP")),
             TED_count=Count("id", filter=Q(estado_reporte="TED")),
@@ -416,6 +453,8 @@ def _build_notas_payload(base_qs):
             {
                 "mes": mes.strftime("%Y-%m"),
                 "total": total_mes,
+                "evaluaciones_numericas": int(row.get("evaluaciones_numericas") or 0),
+                "promedio_numerico": _round2(row.get("promedio_numerico")) if row.get("promedio_numerico") is not None else None,
                 "TEA_count": tea_mes,
                 "TEP_count": int(row.get("TEP_count") or 0),
                 "TED_count": int(row.get("TED_count") or 0),
@@ -445,10 +484,131 @@ def _build_notas_payload(base_qs):
     }
 
 
+def _build_historial_anual_payload(base_qs):
+    qs = _annotate_estado_notas(base_qs)
+    rows = (
+        qs.values("fecha__year")
+        .annotate(
+            total=Count("id"),
+            evaluaciones_numericas=Count("nota_numerica"),
+            promedio_numerico=Avg("nota_numerica"),
+            TEA_count=Count("id", filter=Q(estado_reporte="TEA")),
+            TEP_count=Count("id", filter=Q(estado_reporte="TEP")),
+            TED_count=Count("id", filter=Q(estado_reporte="TED")),
+        )
+        .order_by("fecha__year")
+    )
+
+    historial = []
+    for row in rows:
+        anio = row.get("fecha__year")
+        if anio is None:
+            continue
+        total = int(row.get("total") or 0)
+        tea = int(row.get("TEA_count") or 0)
+        tep = int(row.get("TEP_count") or 0)
+        ted = int(row.get("TED_count") or 0)
+        historial.append(
+            {
+                "anio": int(anio),
+                "total": total,
+                "evaluaciones_numericas": int(row.get("evaluaciones_numericas") or 0),
+                "promedio_numerico": _round2(row.get("promedio_numerico")) if row.get("promedio_numerico") is not None else None,
+                "TEA_count": tea,
+                "TEP_count": tep,
+                "TED_count": ted,
+                "TEA_pct": _safe_pct(tea, total),
+                "TEP_pct": _safe_pct(tep, total),
+                "TED_pct": _safe_pct(ted, total),
+            }
+        )
+    return historial
+
+
 def _apply_cuatrimestre_filter(notas_qs, cuatrimestre: Optional[int]):
     if cuatrimestre in (1, 2):
         return notas_qs.filter(cuatrimestre=cuatrimestre)
     return notas_qs
+
+
+def _apply_anio_filter(notas_qs, anio: Optional[int]):
+    if anio is not None:
+        return notas_qs.filter(fecha__year=anio)
+    return notas_qs
+
+
+def _apply_materia_filter(notas_qs, materia: Optional[str]):
+    if materia:
+        return notas_qs.filter(materia=materia)
+    return notas_qs
+
+
+def _resolve_reporte_alumno_en_curso(*, raw_alumno, curso: str, school=None, school_course=None):
+    alumno_param = str(raw_alumno or "").strip()
+    if not alumno_param:
+        return None, "Falta el parámetro alumno_id."
+
+    alumnos_qs = scope_queryset_to_school(
+        Alumno.objects.select_related("school_course"),
+        school,
+    )
+    if alumno_param.isdigit():
+        alumno = alumnos_qs.filter(id=int(alumno_param)).first()
+    else:
+        alumno = alumnos_qs.filter(id_alumno__iexact=alumno_param).first()
+
+    if not alumno:
+        return None, "Alumno no encontrado."
+
+    course_q = build_course_membership_q(
+        school_course_id=getattr(school_course, "id", None),
+        course_code=curso,
+        school_course_field="school_course",
+        code_field="curso",
+    )
+    if course_q is None or not Alumno.objects.filter(id=alumno.id).filter(course_q).exists():
+        return None, "El alumno no pertenece al curso seleccionado."
+
+    return alumno, None
+
+
+def _build_alumno_historico_payload(
+    *,
+    alumno: Alumno,
+    notas_qs,
+    notas_qs_historicas,
+    role: str,
+    school=None,
+    curso="",
+    school_course=None,
+    cuatrimestre=None,
+    anio=None,
+    materia=None,
+):
+    notas_payload = _build_notas_payload(notas_qs)
+    historial_anual = _build_historial_anual_payload(notas_qs_historicas)
+    detalle_qs = notas_qs.order_by("-fecha", "-id")
+    historial_detallado = [_serialize_nota_detalle(nota) for nota in detalle_qs]
+    promedio_general = detalle_qs.aggregate(
+        promedio_numerico=Avg("nota_numerica"),
+        evaluaciones_numericas=Count("nota_numerica"),
+    )
+    ultima_nota = detalle_qs.first()
+
+    return {
+        "scope": "alumno_historico",
+        "rol": role,
+        **_public_course_payload(school=school, course_code=curso, school_course=school_course),
+        "alumno_activo": _serialize_alumno(alumno),
+        "filtros": {"cuatrimestre": cuatrimestre, "anio": anio, "materia": materia},
+        "anios_disponibles": [row["anio"] for row in historial_anual],
+        "historial_anual": historial_anual,
+        "promedio_general_numerico": _round2(promedio_general.get("promedio_numerico")) if promedio_general.get("promedio_numerico") is not None else None,
+        "evaluaciones_numericas": int(promedio_general.get("evaluaciones_numericas") or 0),
+        "ultima_evaluacion": _serialize_nota_detalle(ultima_nota) if ultima_nota else None,
+        "historial_detallado": historial_detallado,
+        **notas_payload,
+    }
 
 
 @api_view(["GET"])
@@ -458,6 +618,8 @@ def reportes_mis_estadisticas(request):
     user = request.user
     role = _role_label(user)
     cuatrimestre = _normalize_cuatrimestre(request.GET.get("cuatrimestre"))
+    anio = _normalize_anio(request.GET.get("anio"))
+    materia = _normalize_materia_filter(request.GET.get("materia"))
     active_school = get_request_school(request)
     alumno_param = (request.GET.get("alumno_id") or "").strip()
 
@@ -469,7 +631,9 @@ def reportes_mis_estadisticas(request):
         role=role,
         school_id=getattr(active_school, "id", None),
         alumno_param=alumno_param,
+        anio=anio,
         cuatrimestre=cuatrimestre,
+        materia=materia,
     )
     cached = cache.get(cache_key)
     if cached is not None:
@@ -539,7 +703,9 @@ def reportes_mis_estadisticas(request):
         alumnos = [selected]
 
     notas_qs = scope_queryset_to_school(Nota.objects.filter(alumno=selected), active_school)
+    notas_qs = _apply_anio_filter(notas_qs, anio)
     notas_qs = _apply_cuatrimestre_filter(notas_qs, cuatrimestre)
+    notas_qs = _apply_materia_filter(notas_qs, materia)
 
     notas_payload = _build_notas_payload(notas_qs)
 
@@ -548,7 +714,7 @@ def reportes_mis_estadisticas(request):
         "rol": role,
         "alumnos": [_serialize_alumno(a) for a in alumnos],
         "alumno_activo": _serialize_alumno(selected),
-        "filtros": {"cuatrimestre": cuatrimestre},
+        "filtros": {"cuatrimestre": cuatrimestre, "anio": anio, "materia": materia},
         **notas_payload,
     }
     cache.set(cache_key, payload, 120)
@@ -566,7 +732,10 @@ def reportes_por_curso(request, curso: str):
         curso,
         school=active_school,
     )
+    anio = _normalize_anio(request.GET.get("anio"))
     cuatrimestre = _normalize_cuatrimestre(request.GET.get("cuatrimestre"))
+    materia = _normalize_materia_filter(request.GET.get("materia"))
+    alumno_param = (request.GET.get("alumno_id") or "").strip()
 
     if course_error:
         return Response({"detail": course_error}, status=400)
@@ -598,18 +767,53 @@ def reportes_por_curso(request, curso: str):
     ):
         return Response({"detail": "No autorizado para ese curso."}, status=403)
 
-    cache_key = f"reportes:v2:curso:u{user.id}:r{role}:s{_active_school_id(active_school)}:c{curso_norm}:q{cuatrimestre or 'all'}"
+    cache_key = (
+        f"reportes:v2:curso:u{user.id}:r{role}:s{_active_school_id(active_school)}:"
+        f"c{curso_norm}:a{alumno_param or 'all'}:y{anio or 'all'}:q{cuatrimestre or 'all'}:m{materia or 'all'}"
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         return Response(cached)
 
-    notas_qs = _filter_notas_por_curso(
+    notas_qs_base = _filter_notas_por_curso(
         scope_queryset_to_school(Nota.objects.all(), active_school),
         curso_norm,
         school=active_school,
         school_course=school_course,
     )
+    notas_qs = _apply_anio_filter(notas_qs_base, anio)
     notas_qs = _apply_cuatrimestre_filter(notas_qs, cuatrimestre)
+    notas_qs = _apply_materia_filter(notas_qs, materia)
+
+    if alumno_param:
+        alumno, alumno_error = _resolve_reporte_alumno_en_curso(
+            raw_alumno=alumno_param,
+            curso=curso_norm,
+            school=active_school,
+            school_course=school_course,
+        )
+        if alumno_error:
+            status_code = 404 if alumno_error == "Alumno no encontrado." else 400
+            return Response({"detail": alumno_error}, status=status_code)
+
+        payload = _build_alumno_historico_payload(
+            alumno=alumno,
+            notas_qs=notas_qs.filter(alumno=alumno),
+            notas_qs_historicas=_apply_materia_filter(
+                _apply_cuatrimestre_filter(notas_qs_base.filter(alumno=alumno), cuatrimestre),
+                materia,
+            ),
+            role=role,
+            school=active_school,
+            curso=curso_norm,
+            school_course=school_course,
+            cuatrimestre=cuatrimestre,
+            anio=anio,
+            materia=materia,
+        )
+        payload["permisos"] = {"cursos_habilitados": cursos_habilitados}
+        cache.set(cache_key, payload, 120)
+        return Response(payload)
 
     notas_payload = _build_notas_payload(notas_qs)
 
@@ -617,7 +821,7 @@ def reportes_por_curso(request, curso: str):
         "scope": "curso",
         "rol": role,
         **_public_course_payload(school=active_school, course_code=curso_norm, school_course=school_course),
-        "filtros": {"cuatrimestre": cuatrimestre},
+        "filtros": {"cuatrimestre": cuatrimestre, "anio": anio, "materia": materia},
         "permisos": {"cursos_habilitados": cursos_habilitados},
         **notas_payload,
     }

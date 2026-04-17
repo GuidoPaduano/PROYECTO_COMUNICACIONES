@@ -102,7 +102,7 @@ export default function MisCursosPage() {
         </div>
       ) : cursosValidos.length === 0 ? (
         <div className="surface-card surface-card-pad text-gray-600">
-          No tenes cursos asignados.
+          No tenés cursos asignados.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">

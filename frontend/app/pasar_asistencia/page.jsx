@@ -458,7 +458,7 @@ export default function PasarAsistenciaPage() {
                   }}
                 >
                   <option value="clases">Clases</option>
-                  <option value="informatica">Informatica</option>
+                  <option value="informatica">Informática</option>
                   <option value="catequesis">Catequesis</option>
                 </select>
               </div>
@@ -490,7 +490,7 @@ export default function PasarAsistenciaPage() {
             {errMsg && <p className="mb-2 text-sm text-red-600">{errMsg}</p>}
             {okMsg && <SuccessMessage className="mb-3">{okMsg}</SuccessMessage>}
             {!loadingCursos && cursos.length === 0 && (
-              <p className="text-gray-600">No tenes cursos asignados.</p>
+              <p className="text-gray-600">No tenés cursos asignados.</p>
             )}
           </div>
 

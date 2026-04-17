@@ -1973,7 +1973,7 @@ function PreceptorInicio({
             eventos={eventos}
             eventosLoading={eventosLoading}
             hasCurso={hasCurso}
-            noCursoText="SeleccionÃ¡ un curso para ver eventos."
+            noCursoText="Seleccioná un curso para ver eventos."
             cursos={cursos}
             cursoSel={cursoSel}
             onCursoChange={onCursoChange}
@@ -2178,7 +2178,7 @@ function MensajesRecientesCard({ mensajes, loading, myId }) {
               <Inbox className="h-6 w-6" style={{ color: "var(--school-accent)" }} />
             </div>
             <div>
-              <h3 className="tile-title">Ultimos mensajes</h3>
+              <h3 className="tile-title">Últimos mensajes</h3>
               <p className="tile-subtitle">Bandeja de entrada</p>
             </div>
           </div>
@@ -2257,7 +2257,7 @@ function MensajesRecientesCard({ mensajes, loading, myId }) {
             })}
           </div>
         ) : (
-          <p className="text-sm text-slate-500">No tenes mensajes recientes.</p>
+          <p className="text-sm text-slate-500">No tenés mensajes recientes.</p>
         )}
       </CardContent>
     </Card>

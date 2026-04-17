@@ -249,6 +249,8 @@ if ALLOW_VERCEL_ORIGINS:
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "x-preview-role",   # ← necesario para enviar el rol simulado por header
+    "x-school",
+    "x-school-slug",
 ]
 
 # ✅ Cookies seguras según entorno

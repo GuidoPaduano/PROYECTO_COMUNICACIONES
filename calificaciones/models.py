@@ -507,6 +507,13 @@ class Mensaje(models.Model):
 
     # max_length grande para codigos historicos
     curso = models.CharField(max_length=20, blank=True, null=True, db_index=True)
+    alumno = models.ForeignKey(
+        Alumno,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="mensajes",
+    )
 
     # âœ… default para evitar prompts si hay filas viejas
     tipo_remitente = models.CharField(max_length=20, choices=REMITENTE_TIPOS, default="Profesor")
@@ -515,6 +522,7 @@ class Mensaje(models.Model):
     contenido = models.TextField()
     fecha_envio = models.DateTimeField(auto_now_add=True)
     leido = models.BooleanField(default=False)
+    leido_en = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         ordering = ["-fecha_envio", "-id"]
@@ -635,6 +643,13 @@ class Evento(models.Model):
 
     fecha = models.DateField()
     tipo_evento = models.CharField(max_length=50, choices=TIPOS_EVENTO, default='Otro')
+    creado_por = models.ForeignKey(
+        User,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="eventos_creados",
+    )
 
     class Meta:
         ordering = ["-fecha", "-id"]

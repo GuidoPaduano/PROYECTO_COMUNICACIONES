@@ -76,6 +76,77 @@ class MensajesSchoolScopingTests(TestCase):
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
+class MensajesPadreInboxAlumnoTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.padre = _make_user("padre_inbox_alumno")
+        self.otro_padre = _make_user("otro_padre_inbox_alumno")
+        self.remitente = _make_user("remitente_inbox_alumno")
+        _add_user_to_group(self.padre, "Padres")
+        _add_user_to_group(self.otro_padre, "Padres")
+        self.school = School.objects.create(name="Colegio Inbox Alumno", slug="colegio-inbox-alumno")
+        self.course_a = SchoolCourse.objects.create(school=self.school, code="1A", name="1A", sort_order=1)
+        self.course_b = SchoolCourse.objects.create(school=self.school, code="2A", name="2A", sort_order=2)
+        self.hijo_a = Alumno.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            nombre="Ana",
+            apellido="Padre",
+            id_alumno="HIJOA",
+            curso="1A",
+            padre=self.padre,
+        )
+        self.hijo_b = Alumno.objects.create(
+            school=self.school,
+            school_course=self.course_b,
+            nombre="Beto",
+            apellido="Padre",
+            id_alumno="HIJOB",
+            curso="2A",
+            padre=self.padre,
+        )
+        self.msg_a = Mensaje.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            alumno=self.hijo_a,
+            remitente=self.remitente,
+            destinatario=self.padre,
+            curso="1A",
+            asunto="Mensaje hijo A",
+            contenido="Contenido hijo A",
+        )
+        self.msg_b = Mensaje.objects.create(
+            school=self.school,
+            school_course=self.course_b,
+            alumno=self.hijo_b,
+            remitente=self.remitente,
+            destinatario=self.padre,
+            curso="2A",
+            asunto="Mensaje hijo B",
+            contenido="Contenido hijo B",
+        )
+
+    def test_padre_filtra_recibidos_por_hijo(self):
+        self.client.force_authenticate(user=self.padre)
+
+        res = self.client.get("/api/mensajes/recibidos/", {"alumno_id": self.hijo_a.id})
+
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual([item["id"] for item in data], [self.msg_a.id])
+        self.assertEqual(data[0]["alumno_id"], self.hijo_a.id)
+        self.assertEqual(data[0]["alumno_nombre"], "Padre Ana")
+
+    def test_padre_no_puede_filtrar_hijo_ajeno(self):
+        self.client.force_authenticate(user=self.otro_padre)
+
+        res = self.client.get("/api/mensajes/recibidos/", {"alumno_id": self.hijo_a.id})
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No autorizado para ese alumno.")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
 class MensajesEliminarTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -124,6 +195,37 @@ class MensajesEliminarTests(TestCase):
     def test_superuser_puede_eliminar_mensaje_ajeno(self):
         self.client.force_authenticate(user=self.superuser)
 
+        res = self.client.delete(f"/api/mensajes/{self.mensaje.id}/eliminar/")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(Mensaje.objects.filter(id=self.mensaje.id).exists())
+
+    def test_padre_no_puede_eliminar_mensaje_no_leido(self):
+        _add_user_to_group(self.destinatario, "Padres")
+        self.client.force_authenticate(user=self.destinatario)
+
+        res = self.client.delete(f"/api/mensajes/{self.mensaje.id}/eliminar/")
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No podes eliminar mensajes no leidos.")
+        self.assertTrue(Mensaje.objects.filter(id=self.mensaje.id).exists())
+
+    def test_padre_puede_eliminar_mensaje_leido(self):
+        _add_user_to_group(self.destinatario, "Padres")
+        if _mensaje_has_field("leido"):
+            self.mensaje.leido = True
+        if _mensaje_has_field("leido_en"):
+            from django.utils import timezone
+            self.mensaje.leido_en = timezone.now()
+        update_fields = []
+        if _mensaje_has_field("leido"):
+            update_fields.append("leido")
+        if _mensaje_has_field("leido_en"):
+            update_fields.append("leido_en")
+        if update_fields:
+            self.mensaje.save(update_fields=update_fields)
+
+        self.client.force_authenticate(user=self.destinatario)
         res = self.client.delete(f"/api/mensajes/{self.mensaje.id}/eliminar/")
 
         self.assertEqual(res.status_code, 200)
@@ -190,6 +292,18 @@ class MensajesConversacionTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["detail"], "No autorizado.")
+
+    def test_marcar_leido_guarda_fecha_de_lectura(self):
+        self.client.force_authenticate(user=self.destinatario)
+
+        res = self.client.post(f"/api/mensajes/{self.msg_1.id}/marcar_leido/")
+
+        self.assertEqual(res.status_code, 204)
+        self.msg_1.refresh_from_db()
+        if _mensaje_has_field("leido"):
+            self.assertTrue(self.msg_1.leido)
+        if _mensaje_has_field("leido_en"):
+            self.assertIsNotNone(self.msg_1.leido_en)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)

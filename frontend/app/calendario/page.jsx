@@ -387,6 +387,7 @@ export default function CalendarioEscolarPage() {
     descripcion: "",
     schoolCourseId: "",
     tipo_evento: "",
+    creadoPor: "",
   })
   const [eliminar, setEliminar] = useState({ id: "", titulo: "" })
 
@@ -610,6 +611,7 @@ export default function CalendarioEscolarPage() {
       descripcion: ev.extendedProps?.description || "",
       schoolCourseId: String(ev.extendedProps?.school_course_id ?? ""),
       tipo_evento: ev.extendedProps?.tipo_evento || "",
+      creadoPor: ev.extendedProps?.creado_por || ev.extendedProps?.created_by || "",
     })
     setEditarSoloLectura(readOnly)
     setOpenEditar(true)
@@ -782,6 +784,7 @@ export default function CalendarioEscolarPage() {
                     "",
                   school_course_id: e.extendedProps?.school_course_id ?? e.school_course_id ?? null,
                   tipo_evento: e.extendedProps?.tipo_evento ?? e.tipo_evento ?? "",
+                  creado_por: e.extendedProps?.creado_por ?? e.creado_por ?? "",
                 },
               }))
             }
@@ -1512,10 +1515,20 @@ export default function CalendarioEscolarPage() {
                 ))}
               </select>
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="e-creado-por">Creado por</Label>
+              <p
+                id="e-creado-por"
+                className="text-sm text-gray-900"
+              >
+                {editar.creadoPor || "—"}
+              </p>
+            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button
-              variant="outline"
+              variant={editarSoloLectura ? "default" : "outline"}
+              className={editarSoloLectura ? "primary-button" : ""}
               onClick={() => {
                 setOpenEditar(false)
                 setEditarSoloLectura(false)
