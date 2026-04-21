@@ -10,9 +10,28 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='mensaje',
-            name='leido_en',
-            field=models.DateTimeField(blank=True, db_index=True, null=True),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql=(
+                        "ALTER TABLE calificaciones_mensaje "
+                        "ADD COLUMN IF NOT EXISTS leido_en timestamp with time zone NULL;"
+                        "CREATE INDEX IF NOT EXISTS calificaciones_mensaje_leido_en_idx "
+                        "ON calificaciones_mensaje (leido_en);"
+                    ),
+                    reverse_sql=(
+                        "DROP INDEX IF EXISTS calificaciones_mensaje_leido_en_idx;"
+                        "ALTER TABLE calificaciones_mensaje "
+                        "DROP COLUMN IF EXISTS leido_en;"
+                    ),
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='mensaje',
+                    name='leido_en',
+                    field=models.DateTimeField(blank=True, db_index=True, null=True),
+                ),
+            ],
         ),
     ]
