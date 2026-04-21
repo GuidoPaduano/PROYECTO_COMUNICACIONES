@@ -3,7 +3,7 @@
     "builder": "NIXPACKS",
     "buildCommand": "pip install -r requirements.txt && python manage.py collectstatic --noinput"
   },
-  "start": "python manage.py migrate && gunicorn boletin.wsgi"
+  "start": "python manage.py migrate && gunicorn boletin.wsgi:application --bind 0.0.0.0:${PORT:-8000}"
 }
 
 
