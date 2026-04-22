@@ -225,11 +225,11 @@ function ProtectedShell({ children, pathname }) {
   }, [sessionContext])
 
   useEffect(() => {
-    if (isPublic || sessionContext) return
+    if (isPublic) return
     let alive = true
     ;(async () => {
       try {
-        const data = await getSessionProfile()
+        const data = await getSessionProfile({ force: true })
         const label = data?.full_name?.trim?.() ? data.full_name : data?.username || ""
         const rawGroups =
           (Array.isArray(data?.groups) && data.groups) ||
@@ -249,7 +249,7 @@ function ProtectedShell({ children, pathname }) {
     return () => {
       alive = false
     }
-  }, [isPublic, sessionContext])
+  }, [isPublic, pathname])
 
   const meta = useMemo(() => resolveMeta(pathname, userLabel), [pathname, userLabel])
   const hideHeader = useMemo(
