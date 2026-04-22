@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import secrets
+import sys
 from dotenv import load_dotenv
 import dj_database_url  # 👉 Asegurate de tenerlo en requirements.txt
 from corsheaders.defaults import default_headers  # ✅ para extender headers permitidos en CORS
@@ -9,6 +10,10 @@ from corsheaders.defaults import default_headers  # ✅ para extender headers pe
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_BUILD = (
+    os.environ.get("RAILWAY_STATIC_BUILD", "").strip() == "1"
+    or any(arg == "collectstatic" for arg in sys.argv[1:])
+)
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
@@ -27,7 +32,7 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOW_VERCEL_ORIGINS = os.environ.get("ALLOW_VERCEL_ORIGINS", "False") == "True"
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
 if not SECRET_KEY:
-    if DEBUG:
+    if DEBUG or STATIC_BUILD:
         SECRET_KEY = secrets.token_urlsafe(50)
     else:
         raise Exception("DJANGO_SECRET_KEY no configurado.")
@@ -35,14 +40,14 @@ if not SECRET_KEY:
 # Frontend (para links de reset de contraseña)
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "").strip()
 if not FRONTEND_BASE_URL:
-    if DEBUG:
+    if DEBUG or STATIC_BUILD:
         FRONTEND_BASE_URL = "http://localhost:3000"
     else:
         raise Exception("FRONTEND_BASE_URL no configurado.")
 PASSWORD_RESET_PATH = os.environ.get("PASSWORD_RESET_PATH", "/reset-password")
 SCHOOL_PARENT_HOSTS = _split_env_list("SCHOOL_PARENT_HOSTS", [])
 
-if not DEBUG and not RESEND_ENABLED:
+if not DEBUG and not STATIC_BUILD and not RESEND_ENABLED:
     raise Exception(
         "RESEND_API_KEY/RESEND_FROM_EMAIL not configured. "
         "Set RESEND_API_KEY and RESEND_FROM_EMAIL."
@@ -114,7 +119,7 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 DB_SSL_REQUIRE = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
 DATABASES = {
     'default': dj_database_url.config(
-        default=DATABASE_URL,
+        default=DATABASE_URL or ("sqlite:///" + str(BASE_DIR / "static-build.sqlite3") if STATIC_BUILD else ""),
         conn_max_age=600,
         ssl_require=DB_SSL_REQUIRE
     )
@@ -137,7 +142,7 @@ else:
     }
 
 # Verificación de configuración para entorno local
-if 'ENGINE' not in DATABASES['default']:
+if 'ENGINE' not in DATABASES['default'] and not STATIC_BUILD:
     raise Exception(
         "La variable de entorno DATABASE_URL no está definida o es inválida.\n"
         "Exportala en tu entorno local o cargala desde un archivo .env antes de correr el servidor.\n\n"

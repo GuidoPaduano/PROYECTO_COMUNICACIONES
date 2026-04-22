@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia el resto del proyecto
 COPY . ./
 
+# Genera los estaticos de Django en build para que WhiteNoise los sirva en runtime
+RUN RAILWAY_STATIC_BUILD=1 python manage.py collectstatic --noinput
+
 # Expone el puerto (por defecto en Railway es 8000)
 EXPOSE 8000
 
