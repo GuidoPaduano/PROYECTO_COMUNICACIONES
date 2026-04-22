@@ -85,3 +85,29 @@ class ProfesorCurso(models.Model):
     def save(self, *args, **kwargs):
         ensure_school_course_for_save(self, kwargs)
         return super().save(*args, **kwargs)
+
+
+class SchoolAdmin(models.Model):
+    school = models.ForeignKey(
+        School,
+        on_delete=models.PROTECT,
+        related_name="school_admin_assignments",
+    )
+    admin = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="school_admin_assignments",
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("school", "admin")
+        verbose_name = "Administrador de colegio"
+        verbose_name_plural = "Administradores de colegio"
+        indexes = [
+            models.Index(fields=["school", "admin"]),
+            models.Index(fields=["admin"]),
+        ]
+
+    def __str__(self):
+        return f"{self.school} -> {self.admin}"

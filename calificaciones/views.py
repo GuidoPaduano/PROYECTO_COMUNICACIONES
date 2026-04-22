@@ -405,7 +405,7 @@ def _rol_principal(user):
     if getattr(user, "is_superuser", False):
         return "superusuario"
     group_names = set(get_user_group_names(user))
-    for g in ("Directivos", "Profesores", "Padres", "Alumnos", "Preceptores"):
+    for g in ("Administradores", "Directivos", "Profesores", "Padres", "Alumnos", "Preceptores"):
         if g in group_names:
             return g
     return "â€”"

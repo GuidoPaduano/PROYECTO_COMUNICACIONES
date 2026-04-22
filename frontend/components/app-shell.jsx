@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import {
   BarChart3,
+  Building2,
   CalendarDays,
   ClipboardList,
   Gavel,
@@ -40,6 +41,11 @@ import {
 } from "@/components/ui/select"
 
 const TECNOVA_SIDEBAR_LOGO_URL = "/imagenes/tecnova(1).png"
+
+function hasAdminColegioAccess({ roles, isSuper }) {
+  if (isSuper) return true
+  return roles.has("administradores") || roles.has("administrador")
+}
 
 function normalizeHexColor(value, fallback) {
   const raw = String(value || "").trim()
@@ -131,8 +137,14 @@ const NAV_ITEMS = [
       roles.has("alumnos"),
   },
   {
-    href: "/admin",
-    label: "Admin",
+    href: "/admin/colegio",
+    label: "Admin colegio",
+    icon: Building2,
+    show: ({ roles, isSuper }) => hasAdminColegioAccess({ roles, isSuper }),
+  },
+  {
+    href: "/admin/plataforma",
+    label: "Admin plataforma",
     icon: Shield,
     show: ({ isSuper }) => isSuper,
   },
@@ -178,6 +190,7 @@ export function AppShell({
     return new Set(roles.map((role) => String(role || "").toLowerCase()).filter(Boolean))
   }, [roles])
   const roleLabel = useMemo(() => {
+    if (roleSet.has("administradores") || roleSet.has("administrador")) return "Admin colegio"
     if (roleSet.has("padres")) return "Padre"
     if (roleSet.has("profesores")) return "Profesor"
     if (roleSet.has("directivos")) return "Directivo"
@@ -220,18 +233,20 @@ export function AppShell({
     if (school.id != null) return `id:${school.id}`
     return ""
   }, [school])
-  const sidebarEyebrow = adminOnlyMode ? "Colegio activo" : "Escuela"
+  const sidebarEyebrow = adminOnlyMode ? "Colegio" : "Escuela"
   const sidebarTitle = schoolShortName || schoolName || "Comunicaciones"
-  const sidebarSubtitle =
-    adminOnlyMode && schoolName && schoolShortName !== schoolName ? schoolName : ""
-  const showSidebarSlug = adminOnlyMode && school?.slug
   const hideHeaderForPadrePerfil =
     rolesReady && pathname?.startsWith("/perfil") && roleSet.has("padres")
   const hideHeaderForAlumnoDetail =
     pathname?.startsWith("/alumnos/") && pathname !== "/alumnos"
   const navItems = useMemo(() => {
     if (rolesReady && adminOnlyMode) {
-      return NAV_ITEMS.filter((item) => item.href === "/admin" || item.href === "/perfil")
+      return NAV_ITEMS.filter(
+        (item) =>
+          item.href === "/admin/colegio" ||
+          item.href === "/admin/plataforma" ||
+          item.href === "/perfil"
+      )
     }
     return NAV_ITEMS.filter((item) => {
       if (!rolesReady) return item.public
@@ -254,6 +269,10 @@ export function AppShell({
     )
     return match?.href || ""
   }, [pathname, fromParam])
+  const canAccessAdminColegio = useMemo(
+    () => hasAdminColegioAccess({ roles: roleSet, isSuper }),
+    [roleSet, isSuper]
+  )
 
   const handleLogout = () => {
     logout()
@@ -267,7 +286,7 @@ export function AppShell({
     setSwitchingSchool(true)
     if (typeof window !== "undefined") {
       const href = `${window.location.pathname || ""}${window.location.search || ""}${window.location.hash || ""}`
-      window.location.assign(href || "/admin")
+      window.location.assign(href || "/admin/colegio")
     }
   }
 
@@ -289,7 +308,7 @@ export function AppShell({
       {!hideSidebar && (
         <aside className={cn("app-sidebar", sidebarOpen && "app-sidebar--open")}>
           <div className="sidebar-top">
-            <Link href={adminOnlyMode ? "/admin" : "/dashboard"} className="sidebar-brand" prefetch>
+            <Link href={adminOnlyMode || canAccessAdminColegio ? "/admin/colegio" : "/dashboard"} className="sidebar-brand" prefetch>
               <div className="sidebar-logo">
                 <img
                   src={schoolLogo}
@@ -305,12 +324,6 @@ export function AppShell({
               <div>
                 <p className="text-xs text-slate-300 leading-tight">{sidebarEyebrow}</p>
                 <p className="text-sm font-semibold text-white leading-tight">{sidebarTitle}</p>
-                {sidebarSubtitle ? (
-                  <p className="text-[11px] text-slate-400 leading-tight">{sidebarSubtitle}</p>
-                ) : null}
-                {showSidebarSlug ? (
-                  <p className="text-[11px] text-slate-400 leading-tight">{school.slug}</p>
-                ) : null}
               </div>
             </Link>
             <div className="sidebar-bell">
@@ -349,9 +362,6 @@ export function AppShell({
                 <p className="text-xs text-slate-300 leading-tight">
                   {roleLabel || "Conectado"}
                 </p>
-                {adminOnlyMode && schoolName ? (
-                  <p className="text-[11px] text-slate-400 leading-tight">{schoolName}</p>
-                ) : null}
               </div>
             </div>
             <button type="button" className="sidebar-logout" onClick={handleLogout}>
@@ -417,10 +427,6 @@ export function AppShell({
                         </SelectContent>
                       </Select>
                     </div>
-                  ) : adminOnlyMode && schoolName ? (
-                    <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-                      {schoolName}
-                    </span>
                   ) : null}
                   {actions}
                 </div>

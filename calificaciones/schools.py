@@ -264,6 +264,7 @@ def resolve_school_for_user(user) -> Optional[School]:
     try_legajo_lookup = try_alumno_link
     try_preceptor_assignment = (not has_explicit_groups) or ("Preceptores" in group_names)
     try_profesor_assignment = (not has_explicit_groups) or ("Profesores" in group_names)
+    try_school_admin_assignment = (not has_explicit_groups) or ("Administradores" in group_names)
 
     if try_alumno_link:
         try:
@@ -303,12 +304,26 @@ def resolve_school_for_user(user) -> Optional[School]:
 
     if resolved_school is None:
         try:
-            from .models_preceptores import PreceptorCurso, ProfesorCurso
+            from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
         except Exception:
             PreceptorCurso = None
             ProfesorCurso = None
+            SchoolAdmin = None
 
-        if try_preceptor_assignment and PreceptorCurso is not None:
+        if try_school_admin_assignment and SchoolAdmin is not None:
+            try:
+                assignment = (
+                    SchoolAdmin.objects.select_related("school")
+                    .filter(admin=user, school__isnull=False)
+                    .order_by("school_id", "id")
+                    .first()
+                )
+                if assignment is not None and assignment.school_id:
+                    resolved_school = assignment.school
+            except Exception:
+                pass
+
+        if resolved_school is None and try_preceptor_assignment and PreceptorCurso is not None:
             try:
                 asignacion = (
                     PreceptorCurso.objects.select_related("school")

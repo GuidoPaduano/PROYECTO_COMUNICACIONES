@@ -34,14 +34,14 @@ const ROUTE_META = [
   {
     match: (p) => p === "/dashboard",
     title: (name) => `Bienvenido${name ? "," : ""} ${name || ""}`.trim(),
-    subtitle: "Tenés todo en un solo lugar: mensajería, notas y agenda.",
+    subtitle: "Tenes todo en un solo lugar: mensajeria, notas y agenda.",
     icon: <Home className="w-5 h-5" />,
     actions: null,
   },
   {
     match: (p) => p.startsWith("/alumnos"),
     title: () => "Alumnos",
-    subtitle: "Gestión de perfiles, notas, sanciones y asistencias.",
+    subtitle: "Gestion de perfiles, notas, sanciones y asistencias.",
     icon: <Users className="w-5 h-5" />,
   },
   {
@@ -73,7 +73,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/agregar_nota"),
     title: () => "Nueva nota",
-    subtitle: "Agrega una calificación u observación.",
+    subtitle: "Agrega una calificacion u observacion.",
     icon: <ClipboardList className="w-5 h-5" />,
   },
   {
@@ -97,19 +97,31 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/mis-hijos"),
     title: () => "Mis hijos",
-    subtitle: "Seguimiento académico y comunicación.",
+    subtitle: "Seguimiento academico y comunicacion.",
     icon: <GraduationCap className="w-5 h-5" />,
   },
   {
     match: (p) => p.startsWith("/reportes"),
     title: () => "Reportes",
-    subtitle: "Dashboard de estadísticas de notas y asistencias.",
+    subtitle: "Dashboard de estadisticas de notas y asistencias.",
     icon: <BarChart3 className="w-5 h-5" />,
   },
   {
+    match: (p) => p.startsWith("/admin/colegio"),
+    title: () => "Admin colegio",
+    subtitle: "Herramientas operativas limitadas al colegio activo.",
+    icon: <Shield className="w-5 h-5" />,
+  },
+  {
+    match: (p) => p.startsWith("/admin/plataforma"),
+    title: () => "Admin plataforma",
+    subtitle: "",
+    icon: <Shield className="w-5 h-5" />,
+  },
+  {
     match: (p) => p.startsWith("/admin"),
-    title: () => "Administración",
-    subtitle: "Herramientas de control y configuración avanzada.",
+    title: () => "Administracion",
+    subtitle: "Herramientas de control y configuracion avanzada.",
     icon: <Shield className="w-5 h-5" />,
   },
   {
@@ -121,7 +133,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/perfil"),
     title: () => "Perfil",
-    subtitle: "Datos personales y configuración.",
+    subtitle: "Datos personales y configuracion.",
     icon: <User className="w-5 h-5" />,
   },
 ]
