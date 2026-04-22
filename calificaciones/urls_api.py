@@ -1,6 +1,6 @@
 # calificaciones/urls_api.py
 from django.urls import path, include
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 
 from .auth_api import (
@@ -162,8 +162,6 @@ def alumnos_por_curso_path(request, curso):
 
 
 urlpatterns = [
-    path("healthz/", lambda request: HttpResponse("ok", content_type="text/plain"), name="api_healthz"),
-    path("healthz", lambda request: HttpResponse("ok", content_type="text/plain"), name="api_healthz_noslash"),
     # ===== Auth (JWT) =====
     path("token/", SafeTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", SafeTokenRefreshView.as_view(), name="token_refresh"),
