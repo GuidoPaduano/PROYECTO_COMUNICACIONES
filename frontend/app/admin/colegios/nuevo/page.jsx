@@ -129,11 +129,11 @@ export default function NuevoColegioPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <Link
-            href="/admin"
+            href="/admin/plataforma"
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver al panel admin
+            Volver a admin plataforma
           </Link>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Nuevo colegio</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -255,7 +255,7 @@ export default function NuevoColegioPage() {
                   <Button type="submit" disabled={submitting}>
                     {submitting ? "Creando colegio..." : "Crear colegio"}
                   </Button>
-                  <Link href="/admin">
+                  <Link href="/admin/plataforma">
                     <Button type="button" variant="outline">
                       Cancelar
                     </Button>

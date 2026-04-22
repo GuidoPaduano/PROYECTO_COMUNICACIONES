@@ -17,7 +17,7 @@ from .models import (
     AlertaAcademica,
     AlertaInasistencia,
 )
-from .models_preceptores import PreceptorCurso, ProfesorCurso
+from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin as SchoolAdminAssignment
 from .schools import (
     DEFAULT_SCHOOL_ACCENT_COLOR,
     DEFAULT_SCHOOL_PRIMARY_COLOR,
@@ -321,6 +321,23 @@ class ProfesorCursoAdmin(admin.ModelAdmin):
         if db_field.name == "profesor":
             kwargs["queryset"] = User.objects.filter(
                 groups__name__in=["Profesores", "Profesor"]
+            ).distinct()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+@admin.register(SchoolAdminAssignment)
+class SchoolAdminAssignmentAdmin(admin.ModelAdmin):
+    list_display = ("school", "admin", "assigned_at")
+    list_filter = ("school",)
+    search_fields = ("school__name", "school__slug", "admin__username", "admin__first_name", "admin__last_name")
+    ordering = ("school__name", "admin__username", "id")
+    list_select_related = ("school", "admin")
+    autocomplete_fields = ("school", "admin")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "admin":
+            kwargs["queryset"] = User.objects.filter(
+                groups__name__in=["Administradores", "Administrador"]
             ).distinct()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 

@@ -1,11 +1,5 @@
-import StaffCourseAssignmentPage from "../_components/staff-course-assignment-page"
+import { redirect } from "next/navigation"
 
 export default function AdminAsignacionPreceptoresPage() {
-  return (
-    <StaffCourseAssignmentPage
-      role="Preceptores"
-      title="Asignacion a preceptores"
-      description="Asigna preceptores a los cursos del colegio activo desde una pantalla propia de la plataforma."
-    />
-  )
+  redirect("/admin/colegio/asignacion-preceptores")
 }

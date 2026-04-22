@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from .models import SchoolCourse
-from .models_preceptores import PreceptorCurso, ProfesorCurso
+from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
 from .schools import get_request_school, school_to_dict
 
 User = get_user_model()
@@ -18,8 +18,20 @@ User = get_user_model()
 STAFF_ROLE_NAMES = ("Profesores", "Preceptores", "Directivos")
 
 
-def _require_superuser(request):
-    if not getattr(request.user, "is_superuser", False):
+def _is_school_admin(user) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    groups = set(_get_user_group_names(user))
+    if not groups.intersection({"Administradores", "Administrador"}):
+        return False
+    try:
+        return SchoolAdmin.objects.filter(admin=user).exists()
+    except Exception:
+        return False
+
+
+def _require_school_admin(request):
+    if not _is_school_admin(getattr(request, "user", None)):
         return Response({"detail": "No autorizado."}, status=403)
     return None
 
@@ -266,7 +278,7 @@ def _remove_single_course_assignment(*, user, school, course: SchoolCourse, role
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def admin_staff_overview(request):
-    denied = _require_superuser(request)
+    denied = _require_school_admin(request)
     if denied is not None:
         return denied
 
@@ -304,7 +316,7 @@ def admin_staff_overview(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def admin_staff_update(request, user_id: int):
-    denied = _require_superuser(request)
+    denied = _require_school_admin(request)
     if denied is not None:
         return denied
 
@@ -361,7 +373,7 @@ def admin_staff_update(request, user_id: int):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def admin_staff_course_update(request, course_id: int):
-    denied = _require_superuser(request)
+    denied = _require_school_admin(request)
     if denied is not None:
         return denied
 

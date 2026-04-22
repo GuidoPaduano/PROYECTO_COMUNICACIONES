@@ -316,7 +316,16 @@ export default function DashboardPage() {
     } catch {}
     return ""
   })
-  const blockAdminDashboard = !!sessionContext?.isSuperuser && !previewRole
+  const blockAdminDashboard =
+    (
+      !!sessionContext?.isSuperuser ||
+      (Array.isArray(sessionContext?.groups) &&
+        sessionContext.groups.some((group) => {
+          const value = String(group || "").toLowerCase()
+          return value === "administradores" || value === "administrador"
+        }))
+    ) &&
+    !previewRole
   const adminRedirectStartedRef = useRef(false)
   const courseCatalogCacheKey = useMemo(
     () =>
@@ -434,7 +443,7 @@ const [mensajeSan, setMensajeSan] = useState("")
   useEffect(() => {
     if (!blockAdminDashboard || adminRedirectStartedRef.current) return
     adminRedirectStartedRef.current = true
-    router.replace("/admin")
+    router.replace("/admin/colegio")
   }, [blockAdminDashboard, router])
 
   useEffect(() => {

@@ -27,6 +27,24 @@ export default function LoginPage() {
   const nextPath = sanitizePostLoginPath(searchParams?.get("next") || "")
   const isAdminLogin = nextPath === "/admin" || nextPath.startsWith("/admin/")
 
+  const canAccessAdminPath = (me) => {
+    if (me?.is_superuser) return true
+    if (!nextPath?.startsWith("/admin/colegio")) return false
+    const groups = Array.isArray(me?.groups) ? me.groups : []
+    return groups.some((group) => {
+      const value = String(group || "").toLowerCase()
+      return value === "administradores" || value === "administrador"
+    })
+  }
+
+  const isSchoolAdminUser = (me) => {
+    const groups = Array.isArray(me?.groups) ? me.groups : []
+    return groups.some((group) => {
+      const value = String(group || "").toLowerCase()
+      return value === "administradores" || value === "administrador"
+    })
+  }
+
   useEffect(() => {
     setLogoSrc(branding.logo_url || DEFAULT_SCHOOL_LOGO_URL)
   }, [branding.logo_url])
@@ -56,14 +74,14 @@ export default function LoginPage() {
           })
           const me = await meRes.json().catch(() => ({}))
 
-          if (isAdminLogin && !me?.is_superuser) {
+          if (isAdminLogin && !canAccessAdminPath(me)) {
             syncSessionContext(me)
             router.replace("/dashboard")
             return
           }
 
           syncSessionContext(me)
-          router.replace(nextPath || (me?.is_superuser ? "/admin" : "/dashboard"))
+          router.replace(nextPath || (me?.is_superuser || isSchoolAdminUser(me) ? "/admin/colegio" : "/dashboard"))
         } catch {
           router.replace(nextPath || "/dashboard")
         }

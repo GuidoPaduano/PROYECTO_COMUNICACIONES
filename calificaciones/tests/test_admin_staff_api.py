@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from calificaciones.models import School, SchoolCourse
-from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso
+from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
 
 
 def _make_user(username: str, *, is_superuser: bool = False):
@@ -51,6 +51,7 @@ class AdminStaffApiTests(TestCase):
         self.prof_group, _ = Group.objects.get_or_create(name="Profesores")
         self.prec_group, _ = Group.objects.get_or_create(name="Preceptores")
         self.dir_group, _ = Group.objects.get_or_create(name="Directivos")
+        self.school_admin_group, _ = Group.objects.get_or_create(name="Administradores")
 
     def test_overview_lista_usuarios_y_asignaciones_del_colegio_activo(self):
         profesor = _make_user("profesor_norte")
@@ -180,3 +181,21 @@ class AdminStaffApiTests(TestCase):
         )
         self.assertEqual(assigned_ids, {profesor_b.id, profesor_c.id})
         self.assertFalse(ProfesorCurso.objects.filter(school=self.school, school_course=self.course_a, profesor=profesor_a).exists())
+
+    def test_directivo_sin_rol_admin_de_colegio_no_puede_usar_admin_staff(self):
+        directivo = _make_user("directivo_sin_admin")
+        directivo.groups.add(self.dir_group)
+        self.client.force_authenticate(user=directivo)
+
+        response = self.client.get("/api/admin/staff/", HTTP_X_SCHOOL=self.school.slug)
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_de_colegio_puede_usar_admin_staff_en_su_colegio(self):
+        school_admin = _make_user("admin_colegio")
+        school_admin.groups.add(self.school_admin_group)
+        SchoolAdmin.objects.create(school=self.school, admin=school_admin)
+        self.client.force_authenticate(user=school_admin)
+
+        response = self.client.get("/api/admin/staff/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["school"]["slug"], self.school.slug)

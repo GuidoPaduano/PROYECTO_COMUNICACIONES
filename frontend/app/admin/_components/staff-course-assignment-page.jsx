@@ -29,11 +29,23 @@ function singularRoleLabel(role) {
   return role === "Preceptores" ? "preceptor" : "profesor"
 }
 
-export default function StaffCourseAssignmentPage({ role, title, description }) {
+export default function StaffCourseAssignmentPage({
+  role,
+  title,
+  description,
+  backHref = "/admin/colegio",
+  backLabel = "Volver a admin colegio",
+}) {
   useAuthGuard()
   const sessionContext = useSessionContext()
   const loadingSession = !sessionContext
-  const allowed = !!sessionContext?.isSuperuser
+  const groups = Array.isArray(sessionContext?.groups) ? sessionContext.groups : []
+  const allowed =
+    !!sessionContext?.isSuperuser ||
+    groups.some((group) => {
+      const value = String(group || "").toLowerCase()
+      return value === "administradores" || value === "administrador"
+    })
   const activeSchoolName = sessionContext?.school?.short_name || sessionContext?.school?.name || "Colegio activo"
   const activeSchoolRef = useMemo(
     () =>
@@ -265,11 +277,11 @@ export default function StaffCourseAssignmentPage({ role, title, description }) 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
-            href="/admin"
+            href={backHref}
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
           >
             <ArrowLeft className="h-4 w-4" />
-            Volver al panel admin
+            {backLabel}
           </Link>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">{title}</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
