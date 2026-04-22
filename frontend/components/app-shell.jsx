@@ -184,11 +184,18 @@ export function AppShell({
     pathname?.startsWith("/alumnos") &&
     (fromParam === "mis-hijos" || fromParam === "/mis-hijos")
   const fallbackUnread = useUnreadMessages()
-  const adminOnlyMode = useMemo(() => isSuper && !getPreviewRole(), [isSuper])
   const roleSet = useMemo(() => {
     if (!Array.isArray(roles)) return new Set()
     return new Set(roles.map((role) => String(role || "").toLowerCase()).filter(Boolean))
   }, [roles])
+  const schoolAdminOnlyMode = useMemo(
+    () => rolesReady && (roleSet.has("administradores") || roleSet.has("administrador")),
+    [roleSet, rolesReady]
+  )
+  const adminOnlyMode = useMemo(
+    () => isSuper && !schoolAdminOnlyMode && !getPreviewRole(),
+    [isSuper, schoolAdminOnlyMode]
+  )
   const roleLabel = useMemo(() => {
     if (roleSet.has("administradores") || roleSet.has("administrador")) return "Admin colegio"
     if (roleSet.has("padres")) return "Padre"
@@ -239,7 +246,14 @@ export function AppShell({
     rolesReady && pathname?.startsWith("/perfil") && roleSet.has("padres")
   const hideHeaderForAlumnoDetail =
     pathname?.startsWith("/alumnos/") && pathname !== "/alumnos"
+  const canAccessAdminColegio = useMemo(
+    () => hasAdminColegioAccess({ roles: roleSet, isSuper }),
+    [roleSet, isSuper]
+  )
   const navItems = useMemo(() => {
+    if (schoolAdminOnlyMode) {
+      return NAV_ITEMS.filter((item) => item.href === "/admin/colegio")
+    }
     if (rolesReady && adminOnlyMode) {
       return NAV_ITEMS.filter(
         (item) =>
@@ -253,7 +267,7 @@ export function AppShell({
       if (!item.show) return true
       return item.show({ roles: roleSet, isSuper })
     })
-  }, [adminOnlyMode, roleSet, rolesReady, isSuper])
+  }, [adminOnlyMode, roleSet, rolesReady, isSuper, schoolAdminOnlyMode])
 
   const activeHref = useMemo(() => {
     if (!pathname) return ""
@@ -269,11 +283,6 @@ export function AppShell({
     )
     return match?.href || ""
   }, [pathname, fromParam])
-  const canAccessAdminColegio = useMemo(
-    () => hasAdminColegioAccess({ roles: roleSet, isSuper }),
-    [roleSet, isSuper]
-  )
-
   const handleLogout = () => {
     logout()
   }
