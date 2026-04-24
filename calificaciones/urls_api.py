@@ -98,7 +98,7 @@ from .api_password_reset import (
     password_reset_confirm,
 )
 from .api_schools import admin_create_school, public_school_branding, public_school_directory
-from .api_admin_staff import admin_staff_overview, admin_staff_update, admin_staff_course_update
+from .api_admin_staff import admin_staff_overview, admin_staff_update, admin_staff_course_update, admin_user_create
 from .utils_cursos import parse_school_course_id
 
 # APIs de eventos para padres (calendario filtrado por hijo/curso)
@@ -186,6 +186,8 @@ urlpatterns = [
     path("admin/schools", admin_create_school, name="admin_create_school_noslash"),
     path("admin/staff/", admin_staff_overview, name="admin_staff_overview"),
     path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
+    path("admin/users/create/", admin_user_create, name="admin_user_create"),
+    path("admin/users/create", admin_user_create, name="admin_user_create_noslash"),
     path("admin/staff/<int:user_id>/", admin_staff_update, name="admin_staff_update"),
     path("admin/staff/<int:user_id>", admin_staff_update, name="admin_staff_update_noslash"),
     path("admin/staff/course/<int:course_id>/", admin_staff_course_update, name="admin_staff_course_update"),

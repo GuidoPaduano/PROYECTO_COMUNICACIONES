@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -9,13 +11,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
-from .models import SchoolCourse
+from .models import Alumno, SchoolCourse
 from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
 from .schools import get_request_school, school_to_dict
 
 User = get_user_model()
 
 STAFF_ROLE_NAMES = ("Profesores", "Preceptores", "Directivos")
+USER_ROLE_NAMES = ("Alumnos", "Padres", "Profesores", "Preceptores", "Directivos", "Administradores")
 
 
 def _is_school_admin(user) -> bool:
@@ -36,9 +39,14 @@ def _require_school_admin(request):
     return None
 
 
-def _normalize_role(raw_value: str = "") -> str:
+def _normalize_staff_role(raw_value: str = "") -> str:
     value = str(raw_value or "").strip()
     return value if value in STAFF_ROLE_NAMES else ""
+
+
+def _normalize_user_role(raw_value: str = "") -> str:
+    value = str(raw_value or "").strip()
+    return value if value in USER_ROLE_NAMES else ""
 
 
 def _normalize_course_ids(raw_value) -> list[int]:
@@ -75,6 +83,14 @@ def _normalize_user_ids(raw_value) -> list[int]:
     return normalized
 
 
+def _normalize_single_id(raw_value):
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def _full_name(user) -> str:
     return " ".join(
         part for part in [str(getattr(user, "first_name", "") or "").strip(), str(getattr(user, "last_name", "") or "").strip()] if part
@@ -94,6 +110,36 @@ def _serialize_course(course) -> dict:
         "code": str(getattr(course, "code", "") or "").strip(),
         "name": str(getattr(course, "name", "") or "").strip(),
         "is_active": bool(getattr(course, "is_active", True)),
+    }
+
+
+def _serialize_student(student) -> dict:
+    school_course = getattr(student, "school_course", None)
+    return {
+        "id": student.id,
+        "id_alumno": str(getattr(student, "id_alumno", "") or "").strip(),
+        "nombre": str(getattr(student, "nombre", "") or "").strip(),
+        "apellido": str(getattr(student, "apellido", "") or "").strip(),
+        "full_name": " ".join(
+            part
+            for part in [
+                str(getattr(student, "nombre", "") or "").strip(),
+                str(getattr(student, "apellido", "") or "").strip(),
+            ]
+            if part
+        ).strip(),
+        "school_course_id": getattr(student, "school_course_id", None),
+        "school_course_label": " - ".join(
+            part
+            for part in [
+                str(getattr(school_course, "code", "") or "").strip(),
+                str(getattr(school_course, "name", "") or "").strip(),
+            ]
+            if part
+        ).strip()
+        or str(getattr(student, "curso", "") or "").strip(),
+        "has_user": bool(getattr(student, "usuario_id", None)),
+        "has_parent": bool(getattr(student, "padre_id", None)),
     }
 
 
@@ -191,6 +237,21 @@ def _set_staff_role_group(*, user, role: str):
         user.groups.add(group)
 
 
+def _set_user_role_group(*, user, role: str):
+    current = set(_get_user_group_names(user))
+    for group_name in USER_ROLE_NAMES:
+        if group_name in current and group_name != role:
+            try:
+                group = Group.objects.get(name=group_name)
+                user.groups.remove(group)
+            except Group.DoesNotExist:
+                continue
+
+    if role:
+        group, _ = Group.objects.get_or_create(name=role)
+        user.groups.add(group)
+
+
 def _replace_profesor_assignments(*, user, school, courses: list[SchoolCourse]):
     PreceptorCurso.objects.filter(preceptor=user, school=school).delete()
     desired_ids = {course.id for course in courses}
@@ -274,6 +335,87 @@ def _remove_single_course_assignment(*, user, school, course: SchoolCourse, role
         PreceptorCurso.objects.filter(preceptor=user, school=school, school_course=course).delete()
 
 
+def _validate_new_user_payload(payload) -> dict:
+    username = str(payload.get("username") or "").strip()
+    first_name = str(payload.get("first_name") or "").strip()
+    last_name = str(payload.get("last_name") or "").strip()
+    email = str(payload.get("email") or "").strip()
+    password = str(payload.get("password") or "")
+    password_confirm = str(payload.get("password_confirm") or "")
+    role = _normalize_user_role(payload.get("role") or "")
+    course_ids = _normalize_course_ids(payload.get("school_course_ids"))
+    alumno_id = _normalize_single_id(payload.get("alumno_id"))
+    alumno_ids = _normalize_user_ids(payload.get("alumno_ids"))
+
+    if not first_name:
+        raise ValueError("El nombre es obligatorio.")
+    if not last_name:
+        raise ValueError("El apellido es obligatorio.")
+    if not username:
+        raise ValueError("El nombre de usuario es obligatorio.")
+    if not role:
+        raise ValueError("Selecciona un tipo de usuario valido.")
+    if not password:
+        raise ValueError("La contraseña es obligatoria.")
+    if password != password_confirm:
+        raise ValueError("Las contraseñas no coinciden.")
+    if User.objects.filter(username__iexact=username).exists():
+        raise ValueError("Ya existe un usuario con ese nombre de usuario.")
+    if email and User.objects.filter(email__iexact=email).exists():
+        raise ValueError("Ya existe un usuario con ese correo.")
+    try:
+        validate_password(password)
+    except DjangoValidationError as exc:
+        raise ValueError(" ".join(str(message) for message in getattr(exc, "messages", []) if message))
+
+    return {
+        "username": username,
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "password": password,
+        "role": role,
+        "school_course_ids": course_ids,
+        "alumno_id": alumno_id,
+        "alumno_ids": alumno_ids,
+    }
+
+
+def _build_user_creation_payload(*, school):
+    courses = list(
+        SchoolCourse.objects.filter(school=school, is_active=True).order_by("sort_order", "name", "id")
+    )
+    students = list(
+        Alumno.objects.select_related("school_course")
+        .filter(school=school)
+        .order_by("school_course__sort_order", "apellido", "nombre", "id")
+    )
+    return {
+        "school": school_to_dict(school),
+        "courses": [_serialize_course(course) for course in courses],
+        "students": [_serialize_student(student) for student in students],
+        "role_options": [
+            {"value": "Alumnos", "label": "Alumno/a", "description": "Crea el acceso de un alumno y permite vincularlo a su legajo."},
+            {"value": "Padres", "label": "Padre, madre o tutor", "description": "Crea un acceso familiar y permite asociarlo a uno o mas alumnos."},
+            {"value": "Profesores", "label": "Profesor/a", "description": "Alta de docente con asignacion opcional a cursos del colegio."},
+            {"value": "Preceptores", "label": "Preceptor/a", "description": "Alta de preceptor con asignacion opcional a cursos del colegio."},
+            {"value": "Directivos", "label": "Directivo/a", "description": "Alta de personal institucional sin cursos obligatorios."},
+            {"value": "Administradores", "label": "Administrador/a de colegio", "description": "Habilita el acceso al admin del colegio activo."},
+        ],
+    }
+
+
+def _serialize_created_user(*, user, school):
+    preceptor_map = _build_assignment_map(school=school, role="Preceptores")
+    profesor_map = _build_assignment_map(school=school, role="Profesores")
+    return _serialize_staff_user(
+        user=user,
+        school=school,
+        preceptor_map=preceptor_map,
+        profesor_map=profesor_map,
+    )
+
+
 @api_view(["GET"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
@@ -312,6 +454,94 @@ def admin_staff_overview(request):
     )
 
 
+@api_view(["GET", "POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_user_create(request):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school = get_request_school(request)
+    if active_school is None:
+        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+
+    if request.method == "GET":
+        return Response(_build_user_creation_payload(school=active_school))
+
+    payload = request.data or {}
+    try:
+        data = _validate_new_user_payload(payload)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+
+    linked_student = None
+    if data["role"] == "Alumnos":
+        if data["alumno_id"] is None:
+            return Response({"detail": "Selecciona el alumno que se va a vincular al usuario."}, status=400)
+        linked_student = (
+            Alumno.objects.select_related("school_course")
+            .filter(pk=data["alumno_id"], school=active_school)
+            .first()
+        )
+        if linked_student is None:
+            return Response({"detail": "El alumno seleccionado no pertenece al colegio activo."}, status=400)
+        if getattr(linked_student, "usuario_id", None):
+            return Response({"detail": "Ese alumno ya tiene un usuario vinculado."}, status=400)
+
+    parent_students = []
+    if data["role"] == "Padres" and data["alumno_ids"]:
+        parent_students = list(
+            Alumno.objects.filter(pk__in=data["alumno_ids"], school=active_school).order_by("apellido", "nombre", "id")
+        )
+        if len(parent_students) != len(data["alumno_ids"]):
+            return Response({"detail": "Uno o mas alumnos seleccionados no pertenecen al colegio activo."}, status=400)
+        occupied = [student.id_alumno for student in parent_students if getattr(student, "padre_id", None)]
+        if occupied:
+            return Response(
+                {"detail": f"Uno o mas alumnos ya tienen tutor vinculado ({', '.join(occupied[:3])})."},
+                status=400,
+            )
+
+    selected_courses = []
+    if data["school_course_ids"]:
+        selected_courses = list(
+            SchoolCourse.objects.filter(school=active_school, is_active=True, id__in=data["school_course_ids"]).order_by("sort_order", "name", "id")
+        )
+        if len(selected_courses) != len(data["school_course_ids"]):
+            return Response({"detail": "Uno o mas cursos no pertenecen al colegio activo."}, status=400)
+
+    with transaction.atomic():
+        created_user = User.objects.create_user(
+            username=data["username"],
+            email=data["email"],
+            password=data["password"],
+            first_name=data["first_name"],
+            last_name=data["last_name"],
+        )
+        _set_user_role_group(user=created_user, role=data["role"])
+
+        if data["role"] == "Administradores":
+            SchoolAdmin.objects.get_or_create(school=active_school, admin=created_user)
+        elif data["role"] == "Profesores":
+            _replace_profesor_assignments(user=created_user, school=active_school, courses=selected_courses)
+        elif data["role"] == "Preceptores":
+            _replace_preceptor_assignments(user=created_user, school=active_school, courses=selected_courses)
+        elif data["role"] == "Alumnos" and linked_student is not None:
+            linked_student.usuario = created_user
+            linked_student.save(update_fields=["usuario"])
+        elif data["role"] == "Padres" and parent_students:
+            Alumno.objects.filter(pk__in=[student.id for student in parent_students]).update(padre=created_user)
+
+    return Response(
+        {
+            "detail": "Usuario creado correctamente.",
+            "user": _serialize_created_user(user=created_user, school=active_school),
+        },
+        status=201,
+    )
+
+
 @api_view(["PATCH"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
@@ -329,7 +559,7 @@ def admin_staff_update(request, user_id: int):
         return Response({"detail": "Usuario no encontrado."}, status=404)
 
     payload = request.data or {}
-    role = _normalize_role(payload.get("staff_role") or "")
+    role = _normalize_staff_role(payload.get("staff_role") or "")
     course_ids = _normalize_course_ids(payload.get("school_course_ids"))
 
     if role in {"Profesores", "Preceptores"} and not course_ids:
@@ -386,7 +616,7 @@ def admin_staff_course_update(request, course_id: int):
         return Response({"detail": "Curso no encontrado en el colegio activo."}, status=404)
 
     payload = request.data or {}
-    role = _normalize_role(payload.get("staff_role") or "")
+    role = _normalize_staff_role(payload.get("staff_role") or "")
     user_ids = _normalize_user_ids(payload.get("user_ids"))
 
     if role not in {"Profesores", "Preceptores"}:
