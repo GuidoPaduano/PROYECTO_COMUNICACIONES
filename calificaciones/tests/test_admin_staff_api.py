@@ -3,7 +3,7 @@ from django.contrib.auth.models import Group
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-from calificaciones.models import School, SchoolCourse
+from calificaciones.models import Alumno, School, SchoolCourse
 from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
 
 
@@ -119,6 +119,87 @@ class AdminStaffApiTests(TestCase):
             ),
             [self.course_a.id, self.course_b.id],
         )
+
+    def test_post_crea_profesor_con_asignaciones_iniciales(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "Luz",
+                "last_name": "Docente",
+                "username": "luz_docente",
+                "email": "luz@example.com",
+                "password": "ClaveSegura123!",
+                "password_confirm": "ClaveSegura123!",
+                "role": "Profesores",
+                "school_course_ids": [self.course_a.id, self.course_b.id],
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 201)
+
+        docente = get_user_model().objects.get(username="luz_docente")
+        self.assertTrue(docente.groups.filter(name="Profesores").exists())
+        self.assertEqual(
+            list(
+                ProfesorCurso.objects.filter(profesor=docente, school=self.school)
+                .order_by("school_course__sort_order")
+                .values_list("school_course_id", flat=True)
+            ),
+            [self.course_a.id, self.course_b.id],
+        )
+
+    def test_post_crea_alumno_y_lo_vincula_a_legajo_existente(self):
+        alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            curso=self.course_a.code,
+            nombre="Eva",
+            apellido="Suarez",
+            id_alumno="LEG100",
+        )
+
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "Eva",
+                "last_name": "Suarez",
+                "username": "LEG100",
+                "email": "",
+                "password": "ClaveSegura123!",
+                "password_confirm": "ClaveSegura123!",
+                "role": "Alumnos",
+                "alumno_id": alumno.id,
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 201)
+
+        alumno.refresh_from_db()
+        self.assertIsNotNone(alumno.usuario_id)
+        self.assertEqual(alumno.usuario.username, "LEG100")
+
+    def test_post_crea_admin_de_colegio_y_asigna_schooladmin(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "Ada",
+                "last_name": "Admin",
+                "username": "ada_admin",
+                "email": "ada@example.com",
+                "password": "ClaveSegura123!",
+                "password_confirm": "ClaveSegura123!",
+                "role": "Administradores",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 201)
+
+        usuario = get_user_model().objects.get(username="ada_admin")
+        self.assertTrue(usuario.groups.filter(name="Administradores").exists())
+        self.assertTrue(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
 
     def test_patch_directivo_limpia_asignaciones_del_colegio_activo(self):
         usuario = _make_user("usuario_directivo")
