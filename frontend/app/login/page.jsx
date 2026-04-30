@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 
 import {
   API_BASE,
+  clearTokens,
   DEFAULT_SCHOOL_LOGO_URL,
   authFetch,
   getRequestedSchoolIdentifierFromWindow,
@@ -55,11 +56,21 @@ export default function LoginPage() {
     setError("")
 
     try {
+      const schoolParam = getRequestedSchoolIdentifierFromWindow()
+      clearTokens()
+      await fetch(`${API_BASE}/auth/logout/`, {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {})
+
       const res = await fetch(`${API_BASE}/token/`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(schoolParam ? { "X-School": schoolParam } : {}),
+        },
         credentials: "include",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, school: schoolParam }),
       })
 
       if (!res.ok) {
@@ -68,11 +79,15 @@ export default function LoginPage() {
       } else {
         setTokens()
         try {
-          const schoolParam = getRequestedSchoolIdentifierFromWindow()
           const meRes = await authFetch("/auth/whoami/", {
             headers: schoolParam ? { "X-School": schoolParam } : undefined,
           })
           const me = await meRes.json().catch(() => ({}))
+          if (!meRes.ok) {
+            clearTokens()
+            setError(me?.detail || "El usuario no pertenece al colegio seleccionado.")
+            return
+          }
 
           if (isAdminLogin && !canAccessAdminPath(me)) {
             syncSessionContext(me)
@@ -83,7 +98,8 @@ export default function LoginPage() {
           syncSessionContext(me)
           router.replace(nextPath || (me?.is_superuser || isSchoolAdminUser(me) ? "/admin/colegio" : "/dashboard"))
         } catch {
-          router.replace(nextPath || "/dashboard")
+          clearTokens()
+          setError("No se pudo validar el colegio seleccionado.")
         }
       }
     } catch {
