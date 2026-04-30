@@ -9,6 +9,7 @@ import {
   clearTokens,
   DEFAULT_SCHOOL_LOGO_URL,
   authFetch,
+  getLastSchoolLoginHref,
   getRequestedSchoolIdentifierFromWindow,
   sanitizePostLoginPath,
   setTokens,
@@ -27,6 +28,14 @@ export default function LoginPage() {
   const [logoSrc, setLogoSrc] = useState(branding.logo_url || DEFAULT_SCHOOL_LOGO_URL)
   const nextPath = sanitizePostLoginPath(searchParams?.get("next") || "")
   const isAdminLogin = nextPath === "/admin" || nextPath.startsWith("/admin/")
+
+  useEffect(() => {
+    if (getRequestedSchoolIdentifierFromWindow()) return
+    const lastSchoolLoginHref = getLastSchoolLoginHref()
+    if (lastSchoolLoginHref) {
+      router.replace(lastSchoolLoginHref)
+    }
+  }, [router])
 
   const canAccessAdminPath = (me) => {
     if (me?.is_superuser) return true
