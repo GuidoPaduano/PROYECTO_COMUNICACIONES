@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { Building2, Layers3, Settings2, ShieldCheck, UserPlus } from "lucide-react"
+import { Building2, FileSpreadsheet, Layers3, Settings2, ShieldCheck, UserPlus } from "lucide-react"
 
 import { API_BASE, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
@@ -31,6 +31,13 @@ export default function AdminPlataformaPage() {
           description: "Alta asistida de un colegio nuevo con branding inicial y catalogo base de cursos.",
           href: "/admin/plataforma/colegios/nuevo",
           icon: <Building2 className="h-6 w-6" />,
+          external: false,
+        },
+        {
+          title: "Importar alumnos",
+          description: "Carga alumnos por colegio desde un Excel o CSV con validacion previa de cursos y legajos.",
+          href: "/admin/plataforma/alumnos/importar",
+          icon: <FileSpreadsheet className="h-6 w-6" />,
           external: false,
         },
         {

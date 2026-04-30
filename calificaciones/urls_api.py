@@ -127,7 +127,7 @@ from .api_asistencias import (
 )
 
 # API para crear alumnos (preceptor)
-from .api_alumnos import crear_alumno, vincular_mi_legajo, transferir_alumno, cursos_disponibles
+from .api_alumnos import admin_importar_alumnos, crear_alumno, vincular_mi_legajo, transferir_alumno, cursos_disponibles
 
 router = DefaultRouter()
 
@@ -192,6 +192,8 @@ urlpatterns = [
     path("admin/staff/<int:user_id>", admin_staff_update, name="admin_staff_update_noslash"),
     path("admin/staff/course/<int:course_id>/", admin_staff_course_update, name="admin_staff_course_update"),
     path("admin/staff/course/<int:course_id>", admin_staff_course_update, name="admin_staff_course_update_noslash"),
+    path("admin/alumnos/import/", admin_importar_alumnos, name="admin_importar_alumnos"),
+    path("admin/alumnos/import", admin_importar_alumnos, name="admin_importar_alumnos_noslash"),
 
     # Rutas “oficiales”
     path("mi-perfil/", mi_perfil, name="mi_perfil_api"),

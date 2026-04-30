@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -474,6 +475,73 @@ class AlumnoLegajoPorSchoolTests(TestCase):
 
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.json()["alumno"]["id_alumno"], "1A001")
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class ImportarAlumnosApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = _make_superuser("admin_importar_alumnos")
+        self.regular = _make_user("regular_importar_alumnos")
+        self.school = School.objects.create(name="Colegio Import", slug="colegio-import")
+        self.course = SchoolCourse.objects.create(school=self.school, code="1A", name="Primero A", sort_order=1)
+
+    def _csv_file(self, content: str):
+        return SimpleUploadedFile(
+            "alumnos.csv",
+            content.encode("utf-8"),
+            content_type="text/csv",
+        )
+
+    def test_superuser_previsualiza_importacion_csv(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "file": self._csv_file("legajo,nombre,apellido,curso\nIMP001,Luz,Perez,1A\n"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["summary"]["valid"], 1)
+        self.assertEqual(body["summary"]["created"], 0)
+        self.assertFalse(Alumno.objects.filter(school=self.school, id_alumno="IMP001").exists())
+
+    def test_superuser_confirma_importacion_csv(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "commit": "true",
+                "file": self._csv_file("legajo,nombre,apellido,curso\nIMP002,Noa,Diaz,1A\n"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 201)
+        alumno = Alumno.objects.get(school=self.school, id_alumno="IMP002")
+        self.assertEqual(alumno.school_course_id, self.course.id)
+        self.assertEqual(alumno.nombre, "Noa")
+
+    def test_importacion_rechaza_usuario_no_superuser(self):
+        self.client.force_authenticate(user=self.regular)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "file": self._csv_file("legajo,nombre,apellido,curso\nIMP003,Lia,Ruiz,1A\n"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 403)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
