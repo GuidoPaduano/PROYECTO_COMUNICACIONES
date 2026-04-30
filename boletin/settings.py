@@ -6,10 +6,12 @@ from dotenv import load_dotenv
 import dj_database_url  # 👉 Asegurate de tenerlo en requirements.txt
 from corsheaders.defaults import default_headers  # ✅ para extender headers permitidos en CORS
 
-# ⚠️ Cargar el archivo .env antes de usar cualquier os.environ
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# ⚠️ Cargar el .env del proyecto sin depender del directorio desde donde se
+# arranca Django.
+load_dotenv(BASE_DIR / ".env")
+
 STATIC_BUILD = (
     os.environ.get("RAILWAY_STATIC_BUILD", "").strip() == "1"
     or any(arg == "collectstatic" for arg in sys.argv[1:])

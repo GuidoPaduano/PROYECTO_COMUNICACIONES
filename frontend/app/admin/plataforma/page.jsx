@@ -3,7 +3,7 @@
 import { useMemo } from "react"
 import { Building2, FileSpreadsheet, Layers3, Settings2, ShieldCheck, UserPlus } from "lucide-react"
 
-import { API_BASE, useAuthGuard, useSessionContext } from "../../_lib/auth"
+import { buildBackendUrl, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -14,9 +14,7 @@ export default function AdminPlataformaPage() {
   const isSuper = !!sessionContext?.isSuperuser
 
   const djangoAdminHref = useMemo(() => {
-    const base = String(API_BASE || "").replace(/\/+$/, "")
-    if (/\/api$/i.test(base)) return `${base.replace(/\/api$/i, "")}/admin/`
-    return "/admin/"
+    return buildBackendUrl("/admin/")
   }, [])
 
   const djangoAdminModelHref = useMemo(

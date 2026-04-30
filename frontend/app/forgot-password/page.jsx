@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { API_BASE, DEFAULT_SCHOOL_LOGO_URL, usePublicSchoolBranding } from "../_lib/auth"
+import { DEFAULT_SCHOOL_LOGO_URL, buildApiUrl, usePublicSchoolBranding } from "../_lib/auth"
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
@@ -16,7 +16,7 @@ export default function ForgotPasswordPage() {
     setError("")
     setMessage("")
     try {
-      const res = await fetch(`${API_BASE.replace(/\/+$/, "")}/auth/password-reset/`, {
+      const res = await fetch(buildApiUrl("/auth/password-reset/"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ email }),

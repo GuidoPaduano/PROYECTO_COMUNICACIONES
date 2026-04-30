@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
 import {
-  API_BASE,
+  buildApiUrl,
   clearTokens,
   DEFAULT_SCHOOL_LOGO_URL,
   authFetch,
@@ -58,12 +58,12 @@ export default function LoginPage() {
     try {
       const schoolParam = getRequestedSchoolIdentifierFromWindow()
       clearTokens()
-      await fetch(`${API_BASE}/auth/logout/`, {
+      await fetch(buildApiUrl("/auth/logout/"), {
         method: "POST",
         credentials: "include",
       }).catch(() => {})
 
-      const res = await fetch(`${API_BASE}/token/`, {
+      const res = await fetch(buildApiUrl("/token/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

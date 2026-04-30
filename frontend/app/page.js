@@ -6,9 +6,9 @@ import { useEffect, useState } from "react"
 import { Search, ArrowRight, Building2 } from "lucide-react"
 
 import {
-  API_BASE,
   DEFAULT_PUBLIC_BRANDING,
   DEFAULT_SCHOOL_LOGO_URL,
+  buildApiUrl,
   buildSchoolLoginHref,
   getHostSchoolSlugFromWindow,
   usePublicSchoolBranding,
@@ -94,7 +94,7 @@ export default function HomePage() {
     let alive = true
     ;(async () => {
       try {
-        const url = new URL(`${API_BASE}/public/schools/`)
+        const url = new URL(buildApiUrl("/public/schools/"))
         const res = await fetch(url.toString(), {
           method: "GET",
           credentials: "include",

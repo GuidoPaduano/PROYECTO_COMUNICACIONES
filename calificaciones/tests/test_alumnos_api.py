@@ -493,6 +493,29 @@ class ImportarAlumnosApiTests(TestCase):
             content_type="text/csv",
         )
 
+    def _xlsx_file(self, rows: list[list[str]], *, sheets: dict[str, list[list[str]]] | None = None):
+        from io import BytesIO
+
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Hoja1"
+        for row in rows:
+            sheet.append(row)
+        for title, sheet_rows in (sheets or {}).items():
+            extra_sheet = workbook.create_sheet(title=title)
+            for row in sheet_rows:
+                extra_sheet.append(row)
+        payload = BytesIO()
+        workbook.save(payload)
+        payload.seek(0)
+        return SimpleUploadedFile(
+            "alumnos.xlsx",
+            payload.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     def test_superuser_previsualiza_importacion_csv(self):
         self.client.force_authenticate(user=self.admin)
 
@@ -542,6 +565,65 @@ class ImportarAlumnosApiTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 403)
+
+    def test_superuser_previsualiza_xlsx_con_solo_apellidos(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "file": self._xlsx_file(
+                    [
+                        ["apellidos", "curso"],
+                        ["Perez", "1A"],
+                        ["Diaz", "1A"],
+                    ]
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["summary"]["valid"], 2)
+        self.assertEqual(body["summary"]["errors"], 0)
+        self.assertEqual(body["preview"][0]["apellido"], "Perez")
+        self.assertEqual(body["preview"][0]["nombre"], body["preview"][0]["legajo"])
+
+    def test_superuser_previsualiza_xlsx_con_curso_en_nombre_de_hoja(self):
+        self.client.force_authenticate(user=self.admin)
+        SchoolCourse.objects.create(school=self.school, code="1B", name="Primero B", sort_order=2)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "file": self._xlsx_file(
+                    [
+                        ["Nombre", "Apellido"],
+                        ["Resumen", "General"],
+                    ],
+                    sheets={
+                        "1A": [
+                            ["Nombre", "Apellido"],
+                            ["Luz", "Perez"],
+                        ],
+                        "1B": [
+                            ["Nombre", "Apellido"],
+                            ["Noa", "Diaz"],
+                        ],
+                    },
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["summary"]["valid"], 2)
+        self.assertEqual(body["summary"]["errors"], 0)
+        self.assertEqual([item["curso"] for item in body["preview"]], ["1A", "1B"])
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
