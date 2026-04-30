@@ -193,6 +193,35 @@ class SchoolContextApiTests(TestCase):
         self.assertIn("access_token", res.cookies)
         self.assertIn("refresh_token", res.cookies)
 
+    def test_login_regular_sin_colegio_explicito_falla_en_entorno_multicolegios(self):
+        res = self.client.post(
+            "/api/token/",
+            {
+                "username": self.alumno_user.username,
+                "password": "test1234",
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.json()["detail"], "Selecciona un colegio antes de iniciar sesion.")
+        self.assertNotIn("access_token", res.cookies)
+        self.assertNotIn("refresh_token", res.cookies)
+
+    def test_login_superuser_sin_colegio_explicito_sigue_permitido(self):
+        res = self.client.post(
+            "/api/token/",
+            {
+                "username": self.superuser.username,
+                "password": "test1234",
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("access_token", res.cookies)
+        self.assertIn("refresh_token", res.cookies)
+
     def test_whoami_rechaza_header_de_otro_colegio_para_usuario_regular(self):
         self.client.force_authenticate(user=self.alumno_user)
 
