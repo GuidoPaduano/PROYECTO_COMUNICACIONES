@@ -1,4 +1,6 @@
 # calificaciones/api_alumnos.py
+import csv
+import io
 import re
 
 from django.db import IntegrityError, transaction
@@ -12,12 +14,12 @@ from rest_framework.decorators import (
 )
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.parsers import JSONParser
+from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from .course_access import build_course_ref, course_ref_matches, get_assignment_course_refs
-from .models import Alumno
-from .schools import get_request_school, scope_queryset_to_school
+from .models import Alumno, School, SchoolCourse
+from .schools import get_request_school, get_school_by_identifier, school_to_dict, scope_queryset_to_school
 from .user_groups import get_user_group_names
 from .utils_cursos import get_school_course_dicts, is_curso_valido, resolve_course_reference
 
@@ -354,6 +356,258 @@ def crear_alumno(request):
             "alumno": _alumno_to_dict(a),
         },
         status=201,
+    )
+
+
+def _truthy(value) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "si", "sí", "on"}
+
+
+def _normalize_import_header(value) -> str:
+    raw = str(value or "").strip().lower()
+    replacements = {
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "ñ": "n",
+    }
+    for src, dst in replacements.items():
+        raw = raw.replace(src, dst)
+    return re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+
+
+def _first_import_value(row: dict, *keys: str) -> str:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _parse_import_file(uploaded):
+    filename = str(getattr(uploaded, "name", "") or "").lower()
+    raw_rows = []
+
+    if filename.endswith(".csv"):
+        content = uploaded.read().decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(content))
+        for row in reader:
+            raw_rows.append({_normalize_import_header(k): v for k, v in (row or {}).items()})
+        return raw_rows
+
+    if filename.endswith(".xlsx"):
+        try:
+            from openpyxl import load_workbook
+        except Exception as exc:
+            raise ValueError("El servidor no tiene soporte para Excel .xlsx instalado.") from exc
+
+        workbook = load_workbook(uploaded, read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        headers = [_normalize_import_header(value) for value in (next(rows, None) or [])]
+        if not any(headers):
+            return []
+        for values in rows:
+            item = {}
+            for index, header in enumerate(headers):
+                if not header:
+                    continue
+                value = values[index] if index < len(values) else ""
+                item[header] = "" if value is None else str(value).strip()
+            raw_rows.append(item)
+        return raw_rows
+
+    raise ValueError("Formato no soportado. Subí un archivo .xlsx o .csv.")
+
+
+def _build_import_plan(*, rows: list[dict], school: School):
+    courses_by_code = {
+        str(course.code or "").strip().upper(): course
+        for course in SchoolCourse.objects.filter(school=school, is_active=True).order_by("sort_order", "code", "id")
+    }
+    existing_legajos = {
+        str(value or "").strip().upper()
+        for value in Alumno.objects.filter(school=school).values_list("id_alumno", flat=True)
+        if str(value or "").strip()
+    }
+
+    plan = []
+    errors = []
+    skipped = []
+    seen_legajos = set()
+
+    for index, row in enumerate(rows, start=2):
+        nombre = _first_import_value(row, "nombre", "name", "nombres")
+        apellido = _first_import_value(row, "apellido", "apellidos", "last_name")
+        legajo = _first_import_value(row, "id_alumno", "legajo", "matricula", "id", "dni")
+        curso = _first_import_value(row, "curso", "course", "grado", "division", "school_course").upper()
+
+        if not any([nombre, apellido, legajo, curso]):
+            continue
+
+        row_errors = []
+        if not nombre and not apellido:
+            row_errors.append("Falta nombre o apellido.")
+        if not curso:
+            row_errors.append("Falta curso.")
+
+        school_course = courses_by_code.get(curso)
+        if curso and school_course is None:
+            row_errors.append(f"Curso inexistente para {school.name}: {curso}.")
+
+        generated_legajo = False
+        if not legajo and school_course is not None:
+            legajo = _generar_id_alumno_para_curso(curso, school=school, school_course=school_course)
+            generated_legajo = True
+            base_match = re.match(r"^(.*?)(\d+)$", legajo)
+            while str(legajo or "").strip().upper() in seen_legajos:
+                if not base_match:
+                    legajo = f"{legajo}1"
+                    base_match = re.match(r"^(.*?)(\d+)$", legajo)
+                    continue
+                prefix, number = base_match.groups()
+                legajo = f"{prefix}{int(number) + 1:0{len(number)}d}"
+                base_match = re.match(r"^(.*?)(\d+)$", legajo)
+
+        legajo_key = str(legajo or "").strip().upper()
+        if not legajo_key:
+            row_errors.append("Falta legajo.")
+        elif legajo_key in existing_legajos:
+            skipped.append(
+                {
+                    "row": index,
+                    "legajo": legajo,
+                    "nombre": nombre,
+                    "apellido": apellido,
+                    "curso": curso,
+                    "reason": "Ya existe un alumno con ese legajo en este colegio.",
+                }
+            )
+            continue
+        elif legajo_key in seen_legajos:
+            row_errors.append("Legajo duplicado dentro del archivo.")
+
+        if row_errors:
+            errors.append(
+                {
+                    "row": index,
+                    "legajo": legajo,
+                    "nombre": nombre,
+                    "apellido": apellido,
+                    "curso": curso,
+                    "errors": row_errors,
+                }
+            )
+            continue
+
+        seen_legajos.add(legajo_key)
+        plan.append(
+            {
+                "row": index,
+                "legajo": legajo,
+                "nombre": nombre or legajo,
+                "apellido": apellido,
+                "curso": curso,
+                "school_course": school_course,
+                "school_course_id": school_course.id,
+                "school_course_name": school_course.name,
+                "generated_legajo": generated_legajo,
+            }
+        )
+
+    return plan, errors, skipped
+
+
+@csrf_exempt
+@api_view(["POST"])
+@parser_classes([MultiPartParser, FormParser])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_importar_alumnos(request):
+    if not getattr(request.user, "is_superuser", False):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    school_ref = (
+        request.data.get("school")
+        or request.data.get("school_id")
+        or request.data.get("school_slug")
+        or request.headers.get("X-School")
+        or ""
+    )
+    school = get_school_by_identifier(school_ref)
+    if school is None:
+        return Response({"detail": "Seleccioná un colegio válido."}, status=400)
+
+    uploaded = request.FILES.get("file")
+    if uploaded is None:
+        return Response({"detail": "Subí un archivo .xlsx o .csv."}, status=400)
+
+    commit = _truthy(request.data.get("commit"))
+    try:
+        rows = _parse_import_file(uploaded)
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+
+    plan, errors, skipped = _build_import_plan(rows=rows, school=school)
+    created = []
+
+    if commit and errors:
+        return Response(
+            {
+                "detail": "Corregí los errores antes de importar.",
+                "school": school_to_dict(school),
+                "summary": {
+                    "valid": len(plan),
+                    "errors": len(errors),
+                    "skipped": len(skipped),
+                    "created": 0,
+                },
+                "errors": errors[:100],
+                "skipped": skipped[:100],
+                "preview": [
+                    {k: v for k, v in item.items() if k != "school_course"}
+                    for item in plan[:100]
+                ],
+            },
+            status=400,
+        )
+
+    if commit:
+        try:
+            with transaction.atomic():
+                for item in plan:
+                    alumno = Alumno.objects.create(
+                        school=school,
+                        school_course=item["school_course"],
+                        curso=item["curso"],
+                        id_alumno=item["legajo"],
+                        nombre=item["nombre"],
+                        apellido=item["apellido"],
+                    )
+                    created.append(_alumno_to_dict(alumno))
+        except IntegrityError:
+            return Response({"detail": "La importación encontró legajos duplicados. Volvé a previsualizar."}, status=400)
+
+    return Response(
+        {
+            "school": school_to_dict(school),
+            "summary": {
+                "valid": len(plan),
+                "errors": len(errors),
+                "skipped": len(skipped),
+                "created": len(created),
+            },
+            "errors": errors[:100],
+            "skipped": skipped[:100],
+            "preview": [
+                {k: v for k, v in item.items() if k != "school_course"}
+                for item in plan[:100]
+            ],
+            "created": created[:100],
+        },
+        status=201 if commit else 200,
     )
 
 
