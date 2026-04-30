@@ -5,7 +5,10 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
+const apiBase =
+  process.env.BACKEND_API_BASE_URL ||
+  process.env.DJANGO_API_BASE_URL ||
+  "http://127.0.0.1:8000/api";
 const normalizedApiBase = apiBase.replace(/\/+$/g, "");
 const backendOrigin = normalizedApiBase.replace(/\/api$/i, "");
 

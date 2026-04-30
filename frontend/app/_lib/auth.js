@@ -10,6 +10,10 @@ export const SCHOOL_PARENT_DOMAIN =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PARENT_DOMAIN)
     ? String(process.env.NEXT_PUBLIC_PARENT_DOMAIN).trim().toLowerCase()
     : ""
+export const BACKEND_BASE_URL =
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_BACKEND_BASE_URL)
+    ? process.env.NEXT_PUBLIC_BACKEND_BASE_URL.replace(/\/+$/, "")
+    : ""
 
 const API_BASE_HAS_API = /\/api\/?$/.test(String(API_BASE))
 const AUTH_MARKER_KEY = "auth_session"
@@ -26,6 +30,33 @@ export const DEFAULT_PUBLIC_BRANDING = {
   logo_url: DEFAULT_SCHOOL_LOGO_URL,
   primary_color: DEFAULT_SCHOOL_PRIMARY_COLOR,
   accent_color: DEFAULT_SCHOOL_ACCENT_COLOR,
+}
+
+export function buildApiUrl(path = "") {
+  const base = String(API_BASE || "/api").replace(/\/+$/, "")
+  const suffix = String(path || "").replace(/^\/+/, "")
+  const url = `${base}/${suffix}`
+
+  if (/^https?:\/\//i.test(url)) return url
+
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return new URL(url, window.location.origin).toString()
+  }
+
+  return url
+}
+
+export function buildBackendUrl(path = "") {
+  const suffix = String(path || "").replace(/^\/+/, "")
+  if (BACKEND_BASE_URL) return `${BACKEND_BASE_URL}/${suffix}`
+
+  const base = String(API_BASE || "").replace(/\/+$/, "")
+  if (/^https?:\/\//i.test(base)) {
+    const origin = base.replace(/\/api$/i, "")
+    return `${origin}/${suffix}`
+  }
+
+  return `/${suffix}`
 }
 
 let sessionProfileCache = null
@@ -233,7 +264,7 @@ export function usePublicSchoolBranding(options = {}) {
     ;(async () => {
       try {
         const schoolParam = getRequestedSchoolIdentifierFromWindow()
-        const url = new URL(`${API_BASE}/public/school-branding/`)
+        const url = new URL(buildApiUrl("/public/school-branding/"))
         if (schoolParam) url.searchParams.set("school", schoolParam)
         const res = await fetch(url.toString(), {
           method: "GET",
@@ -744,7 +775,7 @@ export async function authFetch(path, opts = {}) {
   const normalized = normalizeApiPath(path)
   const url = /^https?:\/\//i.test(String(normalized))
     ? String(normalized)
-    : `${API_BASE.replace(/\/+$/, "")}/${String(normalized).replace(/^\/+/, "")}`
+    : buildApiUrl(normalized)
 
   const headers = new Headers(opts.headers || {})
   if (!headers.has("Accept")) headers.set("Accept", "application/json")
@@ -800,7 +831,7 @@ export async function authFetch(path, opts = {}) {
 
 export async function tryRefresh() {
   try {
-    const res = await fetch(`${API_BASE}/token/refresh/`, {
+    const res = await fetch(buildApiUrl("/token/refresh/"), {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       credentials: "include",
@@ -817,7 +848,7 @@ export async function tryRefresh() {
 export async function logout() {
   try {
     try {
-      await fetch(`${API_BASE}/token/blacklist/`, {
+      await fetch(buildApiUrl("/token/blacklist/"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         credentials: "include",
@@ -826,7 +857,7 @@ export async function logout() {
     } catch {}
 
     try {
-      await fetch(`${API_BASE}/auth/logout/`, {
+      await fetch(buildApiUrl("/auth/logout/"), {
         method: "POST",
         credentials: "include",
       })
@@ -866,7 +897,7 @@ export function useAuthGuard(options = {}) {
       try {
         const headers = new Headers({ Accept: "application/json" })
         applySchoolHeader(headers)
-        const res = await fetch(`${API_BASE}/auth/whoami/`, {
+        const res = await fetch(buildApiUrl("/auth/whoami/"), {
           method: "GET",
           credentials: "include",
           headers,

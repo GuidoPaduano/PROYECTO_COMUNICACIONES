@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft, FileSpreadsheet, Upload } from "lucide-react"
 
-import { API_BASE, authFetch, useAuthGuard, useSessionContext } from "../../../../_lib/auth"
+import { authFetch, buildApiUrl, normalizeSchool, useAuthGuard, useSessionContext } from "../../../../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -30,6 +30,25 @@ function formatSummary(summary) {
   return `${summary.valid || 0} validos, ${summary.errors || 0} con error, ${summary.skipped || 0} omitidos`
 }
 
+function schoolValue(item) {
+  return String(item?.slug || item?.id || "").trim()
+}
+
+function mergeSchools(...groups) {
+  const merged = []
+  const seen = new Set()
+  for (const group of groups) {
+    for (const rawItem of Array.isArray(group) ? group : []) {
+      const item = normalizeSchool(rawItem)
+      const value = schoolValue(item)
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      merged.push(item)
+    }
+  }
+  return merged
+}
+
 export default function ImportarAlumnosPage() {
   useAuthGuard()
   const sessionContext = useSessionContext()
@@ -42,16 +61,32 @@ export default function ImportarAlumnosPage() {
   const [error, setError] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
+  const sessionSchool = useMemo(() => normalizeSchool(sessionContext?.school), [sessionContext?.school])
+  const sessionSchools = useMemo(
+    () => mergeSchools(sessionContext?.availableSchools, sessionSchool ? [sessionSchool] : []),
+    [sessionContext?.availableSchools, sessionSchool]
+  )
+  const sessionSchoolValue = schoolValue(sessionSchool)
+
   const selectedSchool = useMemo(
     () => schools.find((item) => String(item.slug || item.id) === school) || null,
     [schools, school]
   )
 
   useEffect(() => {
+    if (sessionSchools.length) {
+      setSchools((current) => mergeSchools(sessionSchools, current))
+    }
+    if (!school && sessionSchoolValue) {
+      setSchool(sessionSchoolValue)
+    }
+  }, [school, sessionSchoolValue, sessionSchools])
+
+  useEffect(() => {
     let alive = true
     ;(async () => {
       try {
-        const res = await fetch(`${API_BASE}/public/schools/`, {
+        const res = await fetch(buildApiUrl("/public/schools/"), {
           method: "GET",
           credentials: "include",
           headers: { Accept: "application/json" },
@@ -59,14 +94,14 @@ export default function ImportarAlumnosPage() {
         const data = await res.json().catch(() => ({}))
         if (!alive) return
         const items = Array.isArray(data?.schools) ? data.schools : []
-        setSchools(items)
-        if (!school && items.length) setSchool(String(items[0].slug || items[0].id))
+        setSchools((current) => mergeSchools(current, items))
+        if (!school && !sessionSchoolValue && items.length) setSchool(schoolValue(items[0]))
       } catch {}
     })()
     return () => {
       alive = false
     }
-  }, [school])
+  }, [school, sessionSchoolValue])
 
   const runImport = async ({ commit }) => {
     setError("")

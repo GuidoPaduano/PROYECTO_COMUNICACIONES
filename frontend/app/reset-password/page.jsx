@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { API_BASE, DEFAULT_SCHOOL_LOGO_URL, usePublicSchoolBranding } from "../_lib/auth"
+import { DEFAULT_SCHOOL_LOGO_URL, buildApiUrl, usePublicSchoolBranding } from "../_lib/auth"
 
 export default function ResetPasswordPage() {
   const params = useSearchParams()
@@ -36,7 +36,7 @@ export default function ResetPasswordPage() {
     }
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE.replace(/\/+$/, "")}/auth/password-reset/confirm/`, {
+      const res = await fetch(buildApiUrl("/auth/password-reset/confirm/"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ uid, token, password }),
