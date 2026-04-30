@@ -91,11 +91,15 @@ class SafeTokenObtainPairView(APIView):
             if school_identifier:
                 school = get_school_by_identifier(school_identifier)
                 if school is None:
-                    return Response({"detail": "Colegio no encontrado."}, status=status.HTTP_401_UNAUTHORIZED)
+                    return clear_auth_cookies(
+                        Response({"detail": "Colegio no encontrado."}, status=status.HTTP_401_UNAUTHORIZED)
+                    )
                 if not user_can_access_school(user, school):
-                    return Response(
-                        {"detail": "El usuario no pertenece al colegio seleccionado."},
-                        status=status.HTTP_401_UNAUTHORIZED,
+                    return clear_auth_cookies(
+                        Response(
+                            {"detail": "El usuario no pertenece al colegio seleccionado."},
+                            status=status.HTTP_401_UNAUTHORIZED,
+                        )
                     )
             response = Response({}, status=status.HTTP_200_OK)
             return _set_token_cookies(
