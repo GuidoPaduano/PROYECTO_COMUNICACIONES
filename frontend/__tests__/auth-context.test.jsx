@@ -1,6 +1,7 @@
 import {
   buildSchoolLoginHref,
   clearTokens,
+  getLastSchoolLoginHref,
   getPreviewRole,
   getSchoolSlugFromHost,
   getSessionContext,
@@ -119,6 +120,7 @@ describe("auth session context", () => {
 
     expect(getSessionContext()).toBeNull()
     expect(getPreviewRole()).toBe("")
+    expect(getLastSchoolLoginHref()).toBe("/login?school=escuela-tecnova")
   })
 
   it("acepta solo rutas internas seguras para volver despues del login", () => {

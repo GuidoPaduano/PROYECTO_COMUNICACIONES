@@ -18,6 +18,7 @@ export const BACKEND_BASE_URL =
 const API_BASE_HAS_API = /\/api\/?$/.test(String(API_BASE))
 const AUTH_MARKER_KEY = "auth_session"
 const SESSION_CONTEXT_KEY = "auth_context"
+const LAST_SCHOOL_KEY = "auth_last_school"
 const SESSION_CONTEXT_EVENT = "auth_context_changed"
 const SESSION_PROFILE_MAX_AGE_MS = 30000
 const PROFILE_API_MAX_AGE_MS = 15000
@@ -103,6 +104,13 @@ export function getSchoolSlugFromHost(rawHost = "") {
 function sessionStore() {
   try {
     if (typeof window !== "undefined" && window.sessionStorage) return window.sessionStorage
+  } catch {}
+  return null
+}
+
+function localStore() {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) return window.localStorage
   } catch {}
   return null
 }
@@ -228,6 +236,29 @@ export function getHostSchoolSlugFromWindow() {
 
 export function getRequestedSchoolIdentifierFromWindow() {
   return getSchoolParamFromWindow() || getHostSchoolSlugFromWindow() || ""
+}
+
+export function getLastSessionSchool() {
+  try {
+    const raw = localStore()?.getItem(LAST_SCHOOL_KEY)
+    if (!raw) return null
+    return normalizeSchool(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function rememberLastSessionSchool(rawSchool) {
+  const school = normalizeSchool(rawSchool)
+  if (!school?.slug && school?.id == null) return
+  try {
+    localStore()?.setItem(LAST_SCHOOL_KEY, JSON.stringify(school))
+  } catch {}
+}
+
+export function getLastSchoolLoginHref() {
+  const school = getLastSessionSchool()
+  return school ? buildSchoolLoginHref(school) : ""
 }
 
 export function buildSchoolLoginHref(school) {
@@ -362,6 +393,7 @@ export function setSessionContext(context) {
     }
 
     store.setItem(SESSION_CONTEXT_KEY, JSON.stringify(context))
+    rememberLastSessionSchool(context?.school)
     dispatchSessionContext(context)
     return context
   } catch {
@@ -655,6 +687,8 @@ function getLogoutRedirectHref() {
     const school = normalizeSchool(context?.school)
     if (school?.slug) return buildSchoolLoginHref(school)
   } catch {}
+  const lastSchoolHref = getLastSchoolLoginHref()
+  if (lastSchoolHref) return lastSchoolHref
   return "/"
 }
 
