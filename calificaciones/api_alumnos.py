@@ -386,6 +386,15 @@ def _first_import_value(row: dict, *keys: str) -> str:
     return ""
 
 
+def _course_from_import_sheet_title(title: str) -> str:
+    normalized = _normalize_import_header(title)
+    if not normalized or normalized in {"todo", "todos", "all", "alumnos", "resumen", "base"}:
+        return ""
+    if re.search(r"\d", normalized):
+        return re.sub(r"[^A-Za-z0-9]", "", str(title or "")).upper()
+    return ""
+
+
 def _parse_import_file(uploaded):
     filename = str(getattr(uploaded, "name", "") or "").lower()
     raw_rows = []
@@ -404,19 +413,33 @@ def _parse_import_file(uploaded):
             raise ValueError("El servidor no tiene soporte para Excel .xlsx instalado.") from exc
 
         workbook = load_workbook(uploaded, read_only=True, data_only=True)
-        sheet = workbook.active
-        rows = sheet.iter_rows(values_only=True)
-        headers = [_normalize_import_header(value) for value in (next(rows, None) or [])]
-        if not any(headers):
-            return []
-        for values in rows:
-            item = {}
-            for index, header in enumerate(headers):
-                if not header:
-                    continue
-                value = values[index] if index < len(values) else ""
-                item[header] = "" if value is None else str(value).strip()
-            raw_rows.append(item)
+        for sheet in workbook.worksheets:
+            implicit_course = _course_from_import_sheet_title(sheet.title)
+            rows = iter(sheet.iter_rows(values_only=True))
+            headers = []
+            for raw_headers in rows:
+                candidate = [_normalize_import_header(value) for value in (raw_headers or [])]
+                candidate_set = set(candidate)
+                has_student_name = bool(
+                    candidate_set.intersection({"nombre", "nombres", "name", "apellido", "apellidos", "last_name"})
+                )
+                has_course = bool(candidate_set.intersection({"curso", "course", "grado", "division", "school_course"}))
+                has_identifier = bool(candidate_set.intersection({"id_alumno", "legajo", "matricula", "id", "dni"}))
+                if has_student_name and (has_course or has_identifier or implicit_course):
+                    headers = candidate
+                    break
+            if not any(headers):
+                continue
+            for values in rows:
+                item = {}
+                for index, header in enumerate(headers):
+                    if not header:
+                        continue
+                    value = values[index] if index < len(values) else ""
+                    item[header] = "" if value is None else str(value).strip()
+                if implicit_course and not _first_import_value(item, "curso", "course", "grado", "division", "school_course"):
+                    item["curso"] = implicit_course
+                raw_rows.append(item)
         return raw_rows
 
     raise ValueError("Formato no soportado. Subí un archivo .xlsx o .csv.")
