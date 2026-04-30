@@ -55,11 +55,15 @@ export default function LoginPage() {
     setError("")
 
     try {
+      const schoolParam = getRequestedSchoolIdentifierFromWindow()
       const res = await fetch(`${API_BASE}/token/`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(schoolParam ? { "X-School": schoolParam } : {}),
+        },
         credentials: "include",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, school: schoolParam }),
       })
 
       if (!res.ok) {
@@ -68,7 +72,6 @@ export default function LoginPage() {
       } else {
         setTokens()
         try {
-          const schoolParam = getRequestedSchoolIdentifierFromWindow()
           const meRes = await authFetch("/auth/whoami/", {
             headers: schoolParam ? { "X-School": schoolParam } : undefined,
           })

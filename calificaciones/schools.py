@@ -180,6 +180,79 @@ def get_school_by_identifier(raw_value) -> Optional[School]:
         return None
 
 
+def get_requested_school_identifier(request) -> str:
+    if request is None:
+        return ""
+
+    try:
+        payload = getattr(request, "data", {}) or {}
+        value = payload.get("school") or payload.get("school_id") or payload.get("school_slug") or ""
+        if str(value or "").strip():
+            return str(value or "").strip()
+    except Exception:
+        pass
+
+    try:
+        value = (
+            request.GET.get("school")
+            or request.GET.get("school_id")
+            or request.headers.get("X-School")
+            or request.headers.get("X-School-Slug")
+            or ""
+        )
+        return str(value or "").strip()
+    except Exception:
+        return ""
+
+
+def user_can_access_school(user, school: Optional[School]) -> bool:
+    if school is None:
+        return False
+
+    try:
+        if user is None or not getattr(user, "is_authenticated", False):
+            return False
+        if getattr(user, "is_superuser", False):
+            return True
+    except Exception:
+        return False
+
+    school_id = getattr(school, "id", None)
+    if school_id is None:
+        return False
+
+    try:
+        if Alumno.objects.filter(usuario=user, school_id=school_id).exists():
+            return True
+        if Alumno.objects.filter(padre=user, school_id=school_id).exists():
+            return True
+        username = str(getattr(user, "username", "") or "").strip()
+        if username and Alumno.objects.filter(id_alumno__iexact=username, school_id=school_id).exists():
+            return True
+    except Exception:
+        pass
+
+    try:
+        from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
+    except Exception:
+        PreceptorCurso = None
+        ProfesorCurso = None
+        SchoolAdmin = None
+
+    try:
+        if SchoolAdmin is not None and SchoolAdmin.objects.filter(admin=user, school_id=school_id).exists():
+            return True
+        if PreceptorCurso is not None and PreceptorCurso.objects.filter(preceptor=user, school_id=school_id).exists():
+            return True
+        if ProfesorCurso is not None and ProfesorCurso.objects.filter(profesor=user, school_id=school_id).exists():
+            return True
+    except Exception:
+        pass
+
+    resolved = resolve_school_for_user(user)
+    return getattr(resolved, "id", None) == school_id
+
+
 def model_has_school(model_or_queryset) -> bool:
     model = getattr(model_or_queryset, "model", model_or_queryset)
     try:
@@ -395,22 +468,13 @@ def get_request_school(request) -> Optional[School]:
     user = getattr(request, "user", None)
     host_school = get_request_host_school(request)
 
-    raw_value = ""
-    try:
-        if getattr(user, "is_superuser", False):
-            raw_value = (
-                request.GET.get("school")
-                or request.GET.get("school_id")
-                or request.headers.get("X-School")
-                or request.headers.get("X-School-Slug")
-                or ""
-            ).strip()
-    except Exception:
-        raw_value = ""
+    raw_value = get_requested_school_identifier(request)
 
     if raw_value:
         school = get_school_by_identifier(raw_value)
-        if school is not None:
+        if school is not None and (
+            getattr(user, "is_superuser", False) or user_can_access_school(user, school)
+        ):
             request._cached_active_school = school
             request._cached_active_school_resolved = True
             return school
