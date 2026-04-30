@@ -162,6 +162,45 @@ class SchoolContextApiTests(TestCase):
         self.assertEqual(body["alumno"]["school_course_name"], "1A Sur")
         self.assertNotIn("curso", body["alumno"])
 
+    def test_login_rechaza_usuario_de_otro_colegio(self):
+        res = self.client.post(
+            "/api/token/",
+            {
+                "username": self.alumno_user.username,
+                "password": "test1234",
+                "school": self.school_a.slug,
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.json()["detail"], "El usuario no pertenece al colegio seleccionado.")
+        self.assertNotIn("access_token", res.cookies)
+        self.assertNotIn("refresh_token", res.cookies)
+
+    def test_login_permite_usuario_en_su_colegio(self):
+        res = self.client.post(
+            "/api/token/",
+            {
+                "username": self.alumno_user.username,
+                "password": "test1234",
+                "school": self.school_b.slug,
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("access_token", res.cookies)
+        self.assertIn("refresh_token", res.cookies)
+
+    def test_whoami_rechaza_header_de_otro_colegio_para_usuario_regular(self):
+        self.client.force_authenticate(user=self.alumno_user)
+
+        res = self.client.get("/api/auth/whoami/", HTTP_X_SCHOOL=self.school_a.slug)
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "El usuario no pertenece al colegio seleccionado.")
+
     def test_mi_perfil_no_expone_alias_legacy_de_alumno(self):
         self.client.force_login(self.alumno_user)
 

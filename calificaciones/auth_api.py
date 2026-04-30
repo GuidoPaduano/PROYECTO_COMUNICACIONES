@@ -19,6 +19,8 @@ from rest_framework_simplejwt.serializers import (
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .schools import get_requested_school_identifier, get_school_by_identifier, user_can_access_school
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,6 +86,17 @@ class SafeTokenObtainPairView(APIView):
             serializer = TokenObtainPairSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             tokens = serializer.validated_data
+            user = serializer.user
+            school_identifier = get_requested_school_identifier(request)
+            if school_identifier:
+                school = get_school_by_identifier(school_identifier)
+                if school is None:
+                    return Response({"detail": "Colegio no encontrado."}, status=status.HTTP_401_UNAUTHORIZED)
+                if not user_can_access_school(user, school):
+                    return Response(
+                        {"detail": "El usuario no pertenece al colegio seleccionado."},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
             response = Response({}, status=status.HTTP_200_OK)
             return _set_token_cookies(
                 response,

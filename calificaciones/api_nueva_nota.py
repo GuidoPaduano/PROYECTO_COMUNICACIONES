@@ -32,8 +32,11 @@ from .contexto import build_context_for_user, alumno_to_dict
 from .schools import (
     get_available_school_dicts_for_user,
     get_request_school,
+    get_requested_school_identifier,
+    get_school_by_identifier,
     school_to_dict,
     scope_queryset_to_school,
+    user_can_access_school,
 )
 from .utils_cursos import get_school_course_dicts, resolve_course_reference
 from .alerts import evaluar_alerta_nota
@@ -282,6 +285,16 @@ class WhoAmI(APIView):
     def get(self, request, *args, **kwargs):
         u = request.user
         groups = list(get_user_group_names(u))
+        requested_school_identifier = get_requested_school_identifier(request)
+        if requested_school_identifier and not getattr(u, "is_superuser", False):
+            requested_school = get_school_by_identifier(requested_school_identifier)
+            if requested_school is None:
+                return Response({"detail": "Colegio no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            if not user_can_access_school(u, requested_school):
+                return Response(
+                    {"detail": "El usuario no pertenece al colegio seleccionado."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         active_school = get_request_school(request)
 
         # Vista previa de rol para superusuario (respeta X-Preview-Role / ?view_as=)
