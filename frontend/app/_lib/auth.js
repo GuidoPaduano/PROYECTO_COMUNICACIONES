@@ -649,6 +649,15 @@ export function clearTokens() {
   setPreviewRole("")
 }
 
+function getLogoutRedirectHref() {
+  try {
+    const context = getSessionContext()
+    const school = normalizeSchool(context?.school)
+    if (school?.slug) return buildSchoolLoginHref(school)
+  } catch {}
+  return "/"
+}
+
 export const ALL_ROLES = ["Profesores", "Preceptores", "Directivos", "Padres", "Alumnos"]
 
 export function getPreviewRole() {
@@ -846,6 +855,7 @@ export async function tryRefresh() {
 }
 
 export async function logout() {
+  const redirectHref = getLogoutRedirectHref()
   try {
     try {
       await fetch(buildApiUrl("/token/blacklist/"), {
@@ -864,7 +874,7 @@ export async function logout() {
     } catch {}
   } finally {
     clearTokens()
-    if (typeof window !== "undefined") window.location.replace("/login")
+    if (typeof window !== "undefined") window.location.replace(redirectHref)
   }
 }
 
