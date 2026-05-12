@@ -18,7 +18,7 @@ from .schools import (
     school_to_dict,
     schools_to_dicts,
 )
-from .utils_cursos import get_school_course_choices
+from .utils_cursos import clear_school_course_cache, get_school_course_choices
 
 User = get_user_model()
 
@@ -92,6 +92,68 @@ def _normalize_admin_ids(raw_value) -> list[int]:
         seen.add(user_id)
         normalized.append(user_id)
     return normalized
+
+
+def _admin_course_to_dict(course: SchoolCourse) -> dict:
+    return {
+        "id": course.id,
+        "school_id": course.school_id,
+        "code": str(getattr(course, "code", "") or "").strip(),
+        "name": str(getattr(course, "name", "") or "").strip(),
+        "is_active": bool(getattr(course, "is_active", True)),
+        "sort_order": int(getattr(course, "sort_order", 0) or 0),
+        "students_count": int(getattr(course, "students_count", 0) or 0),
+    }
+
+
+def _school_courses_to_dict(school: School) -> dict:
+    data = _admin_school_to_dict(school)
+    courses = list(
+        SchoolCourse.objects.filter(school=school)
+        .annotate(students_count=Count("alumnos", distinct=True))
+        .order_by("sort_order", "name", "id")
+    )
+    data.update(
+        {
+            "courses": [_admin_course_to_dict(course) for course in courses],
+            "courses_count": len(courses),
+        }
+    )
+    return data
+
+
+def _course_payload_from_request(request, *, instance: SchoolCourse | None = None) -> dict:
+    raw = request.data.copy() if hasattr(request.data, "copy") else dict(request.data or {})
+    if hasattr(raw, "dict"):
+        raw = raw.dict()
+    elif not isinstance(raw, dict):
+        raw = dict(raw or {})
+
+    payload = {}
+    for field in ("code", "name", "sort_order", "is_active"):
+        if field in raw:
+            payload[field] = raw.get(field)
+
+    if instance is not None:
+        for field in ("code", "name", "sort_order", "is_active"):
+            payload.setdefault(field, getattr(instance, field))
+
+    payload["code"] = str(payload.get("code") or "").strip().upper()[:20]
+    payload["name"] = str(payload.get("name") or "").strip()[:120]
+    if not payload["name"]:
+        payload["name"] = payload["code"]
+    try:
+        payload["sort_order"] = int(payload.get("sort_order") or 0)
+    except (TypeError, ValueError):
+        payload["sort_order"] = 0
+    if payload["sort_order"] < 0:
+        payload["sort_order"] = 0
+    value = payload.get("is_active", True)
+    if isinstance(value, str):
+        payload["is_active"] = value.strip().lower() in {"1", "true", "yes", "on", "si", "sÃ­"}
+    else:
+        payload["is_active"] = bool(value)
+    return payload
 
 
 def _school_payload_from_request(request, *, instance: School | None = None) -> dict:
@@ -353,3 +415,92 @@ def admin_update_school_admins(request, school_id: int):
     school.courses_count = school.courses.count()
     school.students_count = school.alumnos.count()
     return Response({"school": _school_admins_to_dict(school)}, status=200)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_school_courses(request):
+    if not _require_platform_admin(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    query = str(request.GET.get("q") or "").strip()
+    schools_qs = School.objects.annotate(
+        courses_count=Count("courses", distinct=True),
+        students_count=Count("alumnos", distinct=True),
+    ).order_by("name", "id")
+    if query:
+        schools_qs = schools_qs.filter(
+            Q(name__icontains=query)
+            | Q(short_name__icontains=query)
+            | Q(slug__icontains=query)
+        )
+
+    return Response(
+        {
+            "schools": [_school_courses_to_dict(school) for school in schools_qs.distinct()],
+        },
+        status=200,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def admin_create_school_course(request, school_id: int):
+    if not _require_platform_admin(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    school = School.objects.filter(pk=school_id).first()
+    if school is None:
+        return Response({"detail": "Colegio no encontrado."}, status=404)
+
+    payload = _course_payload_from_request(request)
+    if not payload["code"]:
+        return Response({"detail": "El codigo del curso es obligatorio."}, status=400)
+    if SchoolCourse.objects.filter(school=school, code__iexact=payload["code"]).exists():
+        return Response({"detail": "Ya existe un curso con ese codigo en este colegio."}, status=400)
+
+    course = SchoolCourse.objects.create(school=school, **payload)
+    clear_school_course_cache(school)
+    school.courses_count = school.courses.count()
+    school.students_count = school.alumnos.count()
+    return Response(
+        {
+            "course": _admin_course_to_dict(course),
+            "school": _school_courses_to_dict(school),
+        },
+        status=201,
+    )
+
+
+@api_view(["PATCH", "PUT"])
+@permission_classes([IsAuthenticated])
+def admin_update_school_course(request, course_id: int):
+    if not _require_platform_admin(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    course = SchoolCourse.objects.select_related("school").filter(pk=course_id).first()
+    if course is None:
+        return Response({"detail": "Curso no encontrado."}, status=404)
+
+    payload = _course_payload_from_request(request, instance=course)
+    if not payload["code"]:
+        return Response({"detail": "El codigo del curso es obligatorio."}, status=400)
+    if (
+        SchoolCourse.objects.filter(school=course.school, code__iexact=payload["code"])
+        .exclude(pk=course.pk)
+        .exists()
+    ):
+        return Response({"detail": "Ya existe otro curso con ese codigo en este colegio."}, status=400)
+
+    for field, value in payload.items():
+        setattr(course, field, value)
+    course.save(update_fields=["code", "name", "sort_order", "is_active", "updated_at"])
+    clear_school_course_cache(course.school)
+    course.students_count = course.alumnos.count()
+    return Response(
+        {
+            "course": _admin_course_to_dict(course),
+            "school": _school_courses_to_dict(course.school),
+        },
+        status=200,
+    )

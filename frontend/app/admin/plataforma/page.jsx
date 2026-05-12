@@ -17,11 +17,6 @@ export default function AdminPlataformaPage() {
     return buildBackendUrl("/admin/")
   }, [])
 
-  const djangoAdminModelHref = useMemo(
-    () => (relativePath = "") => `${djangoAdminHref}${String(relativePath || "").replace(/^\/+/, "")}`,
-    [djangoAdminHref]
-  )
-
   const platformTools = isSuper
     ? [
         {
@@ -48,9 +43,9 @@ export default function AdminPlataformaPage() {
         {
           title: "Cursos por colegio",
           description: "Administra el catalogo SchoolCourse de cada colegio, con nombre, codigo y orden.",
-          href: djangoAdminModelHref("calificaciones/schoolcourse/"),
+          href: "/admin/plataforma/cursos",
           icon: <Layers3 className="h-6 w-6" />,
-          external: true,
+          external: false,
         },
         {
           title: "Admins por colegio",
