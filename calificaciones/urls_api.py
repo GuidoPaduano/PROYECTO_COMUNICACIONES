@@ -97,7 +97,14 @@ from .api_password_reset import (
     password_reset_request,
     password_reset_confirm,
 )
-from .api_schools import admin_create_school, public_school_branding, public_school_directory
+from .api_schools import (
+    admin_create_school,
+    admin_school_admins,
+    admin_update_school,
+    admin_update_school_admins,
+    public_school_branding,
+    public_school_directory,
+)
 from .api_admin_staff import admin_staff_overview, admin_staff_update, admin_staff_course_update, admin_user_create
 from .utils_cursos import parse_school_course_id
 
@@ -127,7 +134,14 @@ from .api_asistencias import (
 )
 
 # API para crear alumnos (preceptor)
-from .api_alumnos import admin_importar_alumnos, crear_alumno, vincular_mi_legajo, transferir_alumno, cursos_disponibles
+from .api_alumnos import (
+    admin_importar_alumnos,
+    admin_importar_alumnos_template,
+    crear_alumno,
+    vincular_mi_legajo,
+    transferir_alumno,
+    cursos_disponibles,
+)
 
 router = DefaultRouter()
 
@@ -164,9 +178,13 @@ def alumnos_por_curso_path(request, curso):
 urlpatterns = [
     # ===== Auth (JWT) =====
     path("token/", SafeTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token", SafeTokenObtainPairView.as_view(), name="token_obtain_pair_noslash"),
     path("token/refresh/", SafeTokenRefreshView.as_view(), name="token_refresh"),
+    path("token/refresh", SafeTokenRefreshView.as_view(), name="token_refresh_noslash"),
     path("token/verify/", SafeTokenVerifyView.as_view(), name="token_verify"),
+    path("token/verify", SafeTokenVerifyView.as_view(), name="token_verify_noslash"),
     path("token/blacklist/", SafeTokenBlacklistView.as_view(), name="token_blacklist"),
+    path("token/blacklist", SafeTokenBlacklistView.as_view(), name="token_blacklist_noslash"),
 
     # ===== Logout de sesión (cookies) =====
     path("auth/logout/", auth_logout, name="auth_logout"),
@@ -182,8 +200,15 @@ urlpatterns = [
     path("public/schools/", public_school_directory, name="public_school_directory"),
     path("public/schools", public_school_directory, name="public_school_directory_noslash"),
     path("auth/whoami/", WhoAmI.as_view(), name="api_whoami"),
+    path("auth/whoami", WhoAmI.as_view(), name="api_whoami_noslash"),
     path("admin/schools/", admin_create_school, name="admin_create_school"),
     path("admin/schools", admin_create_school, name="admin_create_school_noslash"),
+    path("admin/schools/<int:school_id>/", admin_update_school, name="admin_update_school"),
+    path("admin/schools/<int:school_id>", admin_update_school, name="admin_update_school_noslash"),
+    path("admin/school-admins/", admin_school_admins, name="admin_school_admins"),
+    path("admin/school-admins", admin_school_admins, name="admin_school_admins_noslash"),
+    path("admin/school-admins/<int:school_id>/", admin_update_school_admins, name="admin_update_school_admins"),
+    path("admin/school-admins/<int:school_id>", admin_update_school_admins, name="admin_update_school_admins_noslash"),
     path("admin/staff/", admin_staff_overview, name="admin_staff_overview"),
     path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
     path("admin/users/create/", admin_user_create, name="admin_user_create"),
@@ -194,6 +219,8 @@ urlpatterns = [
     path("admin/staff/course/<int:course_id>", admin_staff_course_update, name="admin_staff_course_update_noslash"),
     path("admin/alumnos/import/", admin_importar_alumnos, name="admin_importar_alumnos"),
     path("admin/alumnos/import", admin_importar_alumnos, name="admin_importar_alumnos_noslash"),
+    path("admin/alumnos/import/template/", admin_importar_alumnos_template, name="admin_importar_alumnos_template"),
+    path("admin/alumnos/import/template", admin_importar_alumnos_template, name="admin_importar_alumnos_template_noslash"),
 
     # Rutas “oficiales”
     path("mi-perfil/", mi_perfil, name="mi_perfil_api"),

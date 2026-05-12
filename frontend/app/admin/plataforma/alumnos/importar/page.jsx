@@ -2,11 +2,19 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, FileSpreadsheet, Upload } from "lucide-react"
+import { ArrowLeft, Download, FileSpreadsheet, Upload } from "lucide-react"
 
 import { authFetch, buildApiUrl, normalizeSchool, useAuthGuard, useSessionContext } from "../../../../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -27,7 +35,8 @@ import {
 
 function formatSummary(summary) {
   if (!summary) return "Sin previsualizacion"
-  return `${summary.valid || 0} validos, ${summary.errors || 0} con error, ${summary.skipped || 0} omitidos`
+  const coursesText = summary.courses_to_create ? `, ${summary.courses_to_create} cursos nuevos` : ""
+  return `${summary.valid || 0} validos, ${summary.errors || 0} con error, ${summary.skipped || 0} omitidos${coursesText}`
 }
 
 function schoolValue(item) {
@@ -60,6 +69,7 @@ export default function ImportarAlumnosPage() {
   const [result, setResult] = useState(null)
   const [error, setError] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const sessionSchool = useMemo(() => normalizeSchool(sessionContext?.school), [sessionContext?.school])
   const sessionSchools = useMemo(
@@ -72,6 +82,9 @@ export default function ImportarAlumnosPage() {
     () => schools.find((item) => String(item.slug || item.id) === school) || null,
     [schools, school]
   )
+  const importCount = Number(result?.summary?.valid || 0)
+  const coursesToCreateCount = Number(result?.summary?.courses_to_create || result?.courses_to_create?.length || 0)
+  const canImport = !!result?.summary && result.summary.errors <= 0 && importCount > 0
 
   useEffect(() => {
     if (sessionSchools.length) {
@@ -135,6 +148,41 @@ export default function ImportarAlumnosPage() {
       setError("No se pudo conectar con el servidor.")
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const openImportConfirmation = () => {
+    if (!canImport) return
+    setConfirmOpen(true)
+  }
+
+  const confirmImport = async () => {
+    setConfirmOpen(false)
+    await runImport({ commit: true })
+  }
+
+  const downloadTemplate = async () => {
+    setError("")
+    try {
+      const res = await authFetch("/admin/alumnos/import/template/", {
+        method: "GET",
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data?.detail || "No se pudo descargar la plantilla.")
+        return
+      }
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "plantilla-importacion-alumnos.xlsx"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      setError("No se pudo conectar con el servidor.")
     }
   }
 
@@ -207,17 +255,21 @@ export default function ImportarAlumnosPage() {
             ) : null}
 
             <div className="flex flex-wrap gap-3">
+              <Button type="button" variant="outline" disabled={submitting} onClick={downloadTemplate}>
+                <Download className="mr-2 h-4 w-4" />
+                Descargar plantilla
+              </Button>
               <Button type="button" variant="outline" disabled={submitting} onClick={() => runImport({ commit: false })}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />
                 {submitting ? "Procesando..." : "Previsualizar"}
               </Button>
               <Button
                 type="button"
-                disabled={submitting || !result?.summary || result?.summary?.errors > 0 || result?.summary?.valid < 1}
-                onClick={() => runImport({ commit: true })}
+                disabled={submitting || !canImport}
+                onClick={openImportConfirmation}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                Confirmar importacion
+                Importar
               </Button>
             </div>
 
@@ -226,6 +278,13 @@ export default function ImportarAlumnosPage() {
                 {selectedSchool ? `${selectedSchool.name}: ` : ""}
                 {formatSummary(result.summary)}
                 {result.summary.created ? `, ${result.summary.created} creados` : ""}
+                {result.summary.created_courses ? `, ${result.summary.created_courses} cursos creados` : ""}
+              </div>
+            ) : null}
+
+            {Array.isArray(result?.courses_to_create) && result.courses_to_create.length ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Se crearan estos cursos al importar: {result.courses_to_create.map((item) => item.code).join(", ")}.
               </div>
             ) : null}
 
@@ -285,12 +344,48 @@ export default function ImportarAlumnosPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
             <p>Usa encabezados simples. La herramienta reconoce:</p>
-            <p><span className="font-medium text-slate-900">nombre</span>, <span className="font-medium text-slate-900">apellido</span>, <span className="font-medium text-slate-900">legajo</span> o <span className="font-medium text-slate-900">id_alumno</span>, y <span className="font-medium text-slate-900">curso</span>.</p>
-            <p>El curso debe existir en el colegio elegido: 1A, 1B, 2A, 2B, 3A, 3B, 4ECO, 4NAT, 5ECO, 5NAT, 6ECO o 6NAT.</p>
-            <p>Si el legajo viene vacio, se genera automaticamente por curso.</p>
+            <p><span className="font-medium text-slate-900">apellido</span> y <span className="font-medium text-slate-900">nombre</span>.</p>
+            <p>La plantilla usa una hoja por curso. El nombre de la hoja sera el nombre del curso y, si no existe, se crea al importar.</p>
+            <p>El legajo se genera automaticamente por curso.</p>
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!submitting) setConfirmOpen(open)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar importacion</DialogTitle>
+            <DialogDescription>
+              ¿Esta seguro que desea importar {importCount} {importCount === 1 ? "alumno" : "alumnos"}?
+            </DialogDescription>
+          </DialogHeader>
+          {coursesToCreateCount ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Tambien se {coursesToCreateCount === 1 ? "creara" : "crearan"} {coursesToCreateCount}{" "}
+              {coursesToCreateCount === 1 ? "curso nuevo" : "cursos nuevos"}.
+            </div>
+          ) : null}
+          {selectedSchool ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              Colegio: <span className="font-medium text-slate-900">{selectedSchool.name}</span>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={submitting} onClick={() => setConfirmOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" disabled={submitting} onClick={confirmImport}>
+              <Upload className="mr-2 h-4 w-4" />
+              {submitting ? "Importando..." : "Importar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

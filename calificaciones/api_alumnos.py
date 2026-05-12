@@ -2,7 +2,9 @@
 import csv
 import io
 import re
+import unicodedata
 
+from django.http import HttpResponse
 from django.db import IntegrityError, transaction
 from django.views.decorators.csrf import csrf_exempt
 
@@ -21,7 +23,13 @@ from .course_access import build_course_ref, course_ref_matches, get_assignment_
 from .models import Alumno, School, SchoolCourse
 from .schools import get_request_school, get_school_by_identifier, school_to_dict, scope_queryset_to_school
 from .user_groups import get_user_group_names
-from .utils_cursos import get_school_course_dicts, is_curso_valido, resolve_course_reference
+from .utils_cursos import (
+    VALID_CURSOS,
+    clear_school_course_cache,
+    get_school_course_dicts,
+    is_curso_valido,
+    resolve_course_reference,
+)
 
 try:
     from .models_preceptores import PreceptorCurso  # type: ignore
@@ -255,6 +263,46 @@ def _alumno_matches_target_course(alumno: Alumno, *, school_course=None, curso: 
 
 
 @csrf_exempt
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_importar_alumnos_template(request):
+    if not getattr(request.user, "is_superuser", False):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        from openpyxl.utils import get_column_letter
+    except Exception:
+        return Response({"detail": "No se pudo generar la plantilla Excel."}, status=500)
+
+    workbook = Workbook()
+    header_fill = PatternFill(fill_type="solid", fgColor="E8EEF9")
+    headers = ["apellido", "nombre"]
+    for index, code in enumerate(VALID_CURSOS):
+        sheet = workbook.active if index == 0 else workbook.create_sheet(title=code)
+        sheet.title = code
+        sheet.append(headers)
+        sheet.freeze_panes = "A2"
+        for index, _header in enumerate(headers, start=1):
+            cell = sheet.cell(row=1, column=index)
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+            sheet.column_dimensions[get_column_letter(index)].width = 24
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="plantilla-importacion-alumnos.xlsx"'
+    return response
+
+
+@csrf_exempt
 @api_view(["POST"])
 @parser_classes([JSONParser])
 @authentication_classes([JWTAuthentication])
@@ -386,13 +434,50 @@ def _first_import_value(row: dict, *keys: str) -> str:
     return ""
 
 
+def _normalize_import_duplicate_value(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+
+def _import_duplicate_signature(*, nombre: str, apellido: str, legajo: str, curso: str) -> tuple[str, str, str, str]:
+    return (
+        _normalize_import_duplicate_value(nombre),
+        _normalize_import_duplicate_value(apellido),
+        _normalize_import_duplicate_value(legajo),
+        _normalize_import_duplicate_value(curso),
+    )
+
+
+IGNORED_IMPORT_SHEET_TITLES = {
+    "todo",
+    "todos",
+    "all",
+    "alumnos",
+    "estudiantes",
+    "resumen",
+    "base",
+    "instrucciones",
+    "instruccion",
+    "instructions",
+}
+
+
+def _course_code_for_import(value: str) -> str:
+    raw = str(value or "").strip()
+    folded = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    code = re.sub(r"[^A-Za-z0-9]", "", folded).upper()
+    return code[:20]
+
+
+def _course_name_for_import(value: str) -> str:
+    name = re.sub(r"\s+", " ", str(value or "").strip())
+    return name[:120]
+
+
 def _course_from_import_sheet_title(title: str) -> str:
     normalized = _normalize_import_header(title)
-    if not normalized or normalized in {"todo", "todos", "all", "alumnos", "resumen", "base"}:
+    if not normalized or normalized in IGNORED_IMPORT_SHEET_TITLES:
         return ""
-    if re.search(r"\d", normalized):
-        return re.sub(r"[^A-Za-z0-9]", "", str(title or "")).upper()
-    return ""
+    return _course_code_for_import(title)
 
 
 def _parse_import_file(uploaded):
@@ -415,6 +500,7 @@ def _parse_import_file(uploaded):
         workbook = load_workbook(uploaded, read_only=True, data_only=True)
         for sheet in workbook.worksheets:
             implicit_course = _course_from_import_sheet_title(sheet.title)
+            implicit_course_name = _course_name_for_import(sheet.title) if implicit_course else ""
             rows = iter(sheet.iter_rows(values_only=True))
             headers = []
             for raw_headers in rows:
@@ -439,6 +525,7 @@ def _parse_import_file(uploaded):
                     item[header] = "" if value is None else str(value).strip()
                 if implicit_course and not _first_import_value(item, "curso", "course", "grado", "division", "school_course"):
                     item["curso"] = implicit_course
+                    item["curso_nombre"] = implicit_course_name
                 raw_rows.append(item)
         return raw_rows
 
@@ -446,10 +533,14 @@ def _parse_import_file(uploaded):
 
 
 def _build_import_plan(*, rows: list[dict], school: School):
-    courses_by_code = {
-        str(course.code or "").strip().upper(): course
-        for course in SchoolCourse.objects.filter(school=school, is_active=True).order_by("sort_order", "code", "id")
-    }
+    courses_by_code = {}
+    for course in SchoolCourse.objects.filter(school=school, is_active=True).order_by("sort_order", "code", "id"):
+        raw_code = str(course.code or "").strip().upper()
+        if raw_code:
+            courses_by_code[raw_code] = course
+        normalized_code = _course_code_for_import(raw_code)
+        if normalized_code:
+            courses_by_code.setdefault(normalized_code, course)
     existing_legajos = {
         str(value or "").strip().upper()
         for value in Alumno.objects.filter(school=school).values_list("id_alumno", flat=True)
@@ -460,17 +551,37 @@ def _build_import_plan(*, rows: list[dict], school: School):
     errors = []
     skipped = []
     seen_legajos = set()
+    seen_rows = {}
+    courses_to_create = {}
 
     for index, row in enumerate(rows, start=2):
         nombre = _first_import_value(row, "nombre", "name", "nombres")
         apellido = _first_import_value(row, "apellido", "apellidos", "last_name")
         legajo = _first_import_value(row, "id_alumno", "legajo", "matricula", "id", "dni")
-        curso = _first_import_value(row, "curso", "course", "grado", "division", "school_course").upper()
+        raw_curso = _first_import_value(row, "curso", "course", "grado", "division", "school_course")
+        curso = _course_code_for_import(raw_curso)
+        curso_nombre = _course_name_for_import(
+            _first_import_value(row, "curso_nombre", "nombre_curso", "course_name", "school_course_name")
+            or raw_curso
+        )
 
         if not any([nombre, apellido, legajo, curso]):
             continue
 
         row_errors = []
+        row_signature = _import_duplicate_signature(
+            nombre=nombre,
+            apellido=apellido,
+            legajo=legajo,
+            curso=curso,
+        )
+        first_duplicate_row = seen_rows.get(row_signature)
+        duplicate_row = first_duplicate_row is not None
+        if first_duplicate_row is not None:
+            row_errors.append(f"Fila duplicada dentro del archivo. Ya aparece en la fila {first_duplicate_row}.")
+        else:
+            seen_rows[row_signature] = index
+
         if not nombre and not apellido:
             row_errors.append("Falta nombre o apellido.")
         if not curso:
@@ -478,10 +589,23 @@ def _build_import_plan(*, rows: list[dict], school: School):
 
         school_course = courses_by_code.get(curso)
         if curso and school_course is None:
-            row_errors.append(f"Curso inexistente para {school.name}: {curso}.")
+            courses_to_create.setdefault(curso, {"code": curso, "name": curso_nombre or curso})
+
+        if duplicate_row:
+            errors.append(
+                {
+                    "row": index,
+                    "legajo": legajo,
+                    "nombre": nombre,
+                    "apellido": apellido,
+                    "curso": curso,
+                    "errors": row_errors,
+                }
+            )
+            continue
 
         generated_legajo = False
-        if not legajo and school_course is not None:
+        if not legajo and curso:
             legajo = _generar_id_alumno_para_curso(curso, school=school, school_course=school_course)
             generated_legajo = True
             base_match = re.match(r"^(.*?)(\d+)$", legajo)
@@ -534,13 +658,14 @@ def _build_import_plan(*, rows: list[dict], school: School):
                 "apellido": apellido,
                 "curso": curso,
                 "school_course": school_course,
-                "school_course_id": school_course.id,
-                "school_course_name": school_course.name,
+                "school_course_id": getattr(school_course, "id", None),
+                "school_course_name": getattr(school_course, "name", None) or curso_nombre or curso,
+                "will_create_school_course": school_course is None,
                 "generated_legajo": generated_legajo,
             }
         )
 
-    return plan, errors, skipped
+    return plan, errors, skipped, list(courses_to_create.values())
 
 
 @csrf_exempt
@@ -573,8 +698,9 @@ def admin_importar_alumnos(request):
     except ValueError as exc:
         return Response({"detail": str(exc)}, status=400)
 
-    plan, errors, skipped = _build_import_plan(rows=rows, school=school)
+    plan, errors, skipped, courses_to_create = _build_import_plan(rows=rows, school=school)
     created = []
+    created_courses = []
 
     if commit and errors:
         return Response(
@@ -593,6 +719,8 @@ def admin_importar_alumnos(request):
                     {k: v for k, v in item.items() if k != "school_course"}
                     for item in plan[:100]
                 ],
+                "courses_to_create": courses_to_create[:100],
+                "created_courses": [],
             },
             status=400,
         )
@@ -600,16 +728,59 @@ def admin_importar_alumnos(request):
     if commit:
         try:
             with transaction.atomic():
+                course_map = {
+                    str(course.code or "").strip().upper(): course
+                    for course in SchoolCourse.objects.filter(school=school, is_active=True)
+                }
+                next_sort_order = (
+                    SchoolCourse.objects.filter(school=school)
+                    .order_by("-sort_order")
+                    .values_list("sort_order", flat=True)
+                    .first()
+                    or 0
+                )
+                for course_info in courses_to_create:
+                    code = course_info["code"]
+                    school_course = course_map.get(code)
+                    if school_course is None:
+                        next_sort_order += 1
+                        school_course, was_created = SchoolCourse.objects.get_or_create(
+                            school=school,
+                            code=code,
+                            defaults={
+                                "name": course_info["name"],
+                                "is_active": True,
+                                "sort_order": next_sort_order,
+                            },
+                        )
+                        if not was_created and not school_course.is_active:
+                            school_course.is_active = True
+                            school_course.save(update_fields=["is_active"])
+                        if was_created:
+                            created_courses.append(
+                                {
+                                    "id": school_course.id,
+                                    "code": school_course.code,
+                                    "name": school_course.name,
+                                }
+                            )
+                    course_map[code] = school_course
+
                 for item in plan:
+                    school_course = item["school_course"] or course_map.get(item["curso"])
+                    if school_course is None:
+                        raise IntegrityError("No se pudo resolver el curso de la fila importada.")
                     alumno = Alumno.objects.create(
                         school=school,
-                        school_course=item["school_course"],
+                        school_course=school_course,
                         curso=item["curso"],
                         id_alumno=item["legajo"],
                         nombre=item["nombre"],
                         apellido=item["apellido"],
                     )
                     created.append(_alumno_to_dict(alumno))
+                if created_courses:
+                    clear_school_course_cache(school)
         except IntegrityError:
             return Response({"detail": "La importación encontró legajos duplicados. Volvé a previsualizar."}, status=400)
 
@@ -621,6 +792,8 @@ def admin_importar_alumnos(request):
                 "errors": len(errors),
                 "skipped": len(skipped),
                 "created": len(created),
+                "courses_to_create": len(courses_to_create),
+                "created_courses": len(created_courses),
             },
             "errors": errors[:100],
             "skipped": skipped[:100],
@@ -628,6 +801,8 @@ def admin_importar_alumnos(request):
                 {k: v for k, v in item.items() if k != "school_course"}
                 for item in plan[:100]
             ],
+            "courses_to_create": courses_to_create[:100],
+            "created_courses": created_courses[:100],
             "created": created[:100],
         },
         status=201 if commit else 200,
@@ -719,7 +894,7 @@ def vincular_mi_legajo(request):
 def cursos_disponibles(request):
     """
     GET /alumnos/cursos/
-    Devuelve todos los cursos disponibles (catalogo Alumno.CURSOS).
+    Devuelve todos los cursos disponibles (catálogo Alumno.CURSOS).
     """
     active_school = get_request_school(request)
     # Preferimos los cursos reales en DB (para no listar cursos inexistentes).
