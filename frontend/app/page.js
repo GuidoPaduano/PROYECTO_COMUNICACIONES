@@ -8,8 +8,8 @@ import { Search, ArrowRight, Building2 } from "lucide-react"
 import {
   DEFAULT_PUBLIC_BRANDING,
   DEFAULT_SCHOOL_LOGO_URL,
-  buildApiUrl,
   buildSchoolLoginHref,
+  fetchPublicJson,
   getHostSchoolSlugFromWindow,
   usePublicSchoolBranding,
 } from "./_lib/auth"
@@ -94,14 +94,7 @@ export default function HomePage() {
     let alive = true
     ;(async () => {
       try {
-        const url = new URL(buildApiUrl("/public/schools/"))
-        const res = await fetch(url.toString(), {
-          method: "GET",
-          credentials: "include",
-          headers: { Accept: "application/json" },
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`)
+        const data = await fetchPublicJson("/public/schools/", { retries: 1, retryDelayMs: 300 })
         if (!alive) return
         setSchools(Array.isArray(data?.schools) ? data.schools : [])
         setError("")
