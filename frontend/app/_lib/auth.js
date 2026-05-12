@@ -60,6 +60,43 @@ export function buildBackendUrl(path = "") {
   return `/${suffix}`
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export async function fetchPublicJson(path, options = {}) {
+  const {
+    retries = 1,
+    retryDelayMs = 300,
+    ...fetchOptions
+  } = options || {}
+
+  let lastError = null
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const res = await fetch(buildApiUrl(path), {
+        method: "GET",
+        credentials: "include",
+        headers: { Accept: "application/json", ...(fetchOptions.headers || {}) },
+        ...fetchOptions,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const error = new Error(data?.detail || `HTTP ${res.status}`)
+        error.status = res.status
+        throw error
+      }
+      return data
+    } catch (error) {
+      lastError = error
+      if (attempt >= retries) break
+      await sleep(retryDelayMs)
+    }
+  }
+
+  throw lastError || new Error("No se pudo completar la solicitud.")
+}
+
 let sessionProfileCache = null
 let sessionProfilePromise = null
 let profileApiCache = null
@@ -295,15 +332,10 @@ export function usePublicSchoolBranding(options = {}) {
     ;(async () => {
       try {
         const schoolParam = getRequestedSchoolIdentifierFromWindow()
-        const url = new URL(buildApiUrl("/public/school-branding/"))
-        if (schoolParam) url.searchParams.set("school", schoolParam)
-        const res = await fetch(url.toString(), {
-          method: "GET",
-          credentials: "include",
-          headers: { Accept: "application/json" },
-        })
-        if (!res.ok) return
-        const data = await res.json().catch(() => ({}))
+        const path = schoolParam
+          ? `/public/school-branding/?school=${encodeURIComponent(schoolParam)}`
+          : "/public/school-branding/"
+        const data = await fetchPublicJson(path, { retries: 1, retryDelayMs: 300 })
         if (alive) {
           setBranding(buildPublicBranding(data?.school, fallback))
         }
