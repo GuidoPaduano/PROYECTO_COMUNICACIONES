@@ -231,8 +231,12 @@ export function AppShell({
     }
   }, [school])
   const showSchoolSwitcher = useMemo(
-    () => !!isSuper && Array.isArray(availableSchools) && availableSchools.length > 1,
-    [availableSchools, isSuper]
+    () =>
+      !!isSuper &&
+      !pathname?.startsWith("/admin/plataforma") &&
+      Array.isArray(availableSchools) &&
+      availableSchools.length > 1,
+    [availableSchools, isSuper, pathname]
   )
   const selectedSchoolValue = useMemo(() => {
     if (!school) return ""

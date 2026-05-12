@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { Building2, FileSpreadsheet, Layers3, Settings2, ShieldCheck, UserPlus } from "lucide-react"
+import { Building2, FileSpreadsheet, Layers3, Settings2, ShieldCheck } from "lucide-react"
 
 import { buildBackendUrl, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
@@ -41,9 +41,9 @@ export default function AdminPlataformaPage() {
         {
           title: "Colegios",
           description: "Gestiona branding, slugs y estado activo de cada colegio desde el modelo School.",
-          href: djangoAdminModelHref("calificaciones/school/"),
+          href: "/admin/plataforma/colegios",
           icon: <Building2 className="h-6 w-6" />,
-          external: true,
+          external: false,
         },
         {
           title: "Cursos por colegio",
@@ -53,18 +53,11 @@ export default function AdminPlataformaPage() {
           external: true,
         },
         {
-          title: "Usuarios",
-          description: "Alta, edicion y vinculo de usuarios del sistema desde el admin personalizado de User.",
-          href: djangoAdminModelHref("auth/user/"),
-          icon: <UserPlus className="h-6 w-6" />,
-          external: true,
-        },
-        {
           title: "Admins por colegio",
           description: "Asigna usuarios del grupo Administradores a un colegio especifico para habilitar su admin de escuela.",
-          href: djangoAdminModelHref("calificaciones/schooladmin/"),
+          href: "/admin/plataforma/admins",
           icon: <ShieldCheck className="h-6 w-6" />,
-          external: true,
+          external: false,
         },
         {
           title: "Django Admin",

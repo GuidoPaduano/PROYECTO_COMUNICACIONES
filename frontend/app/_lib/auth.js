@@ -848,7 +848,7 @@ export async function authFetch(path, opts = {}) {
 
   let res = await fetch(finalUrl, { credentials: "include", ...opts, headers })
   if (looksLikeLoginRedirect(res) || isProbablyLoginHtml(res)) {
-    forceRelogin("Sesion invalida o endpoint con redirect a login.")
+    forceRelogin("Sesión inválida o endpoint con redirect a login.")
   }
   captureSessionContext(path, res)
   if (res.status !== 401) return res
@@ -866,7 +866,7 @@ export async function authFetch(path, opts = {}) {
 
   res = await fetch(finalUrl, { credentials: "include", ...opts, headers: headers2 })
   if (looksLikeLoginRedirect(res) || isProbablyLoginHtml(res)) {
-    forceRelogin("Sesion invalida o endpoint con redirect a login.")
+    forceRelogin("Sesión inválida o endpoint con redirect a login.")
   }
   captureSessionContext(path, res)
   return res
@@ -874,7 +874,7 @@ export async function authFetch(path, opts = {}) {
 
 export async function tryRefresh() {
   try {
-    const res = await fetch(buildApiUrl("/token/refresh/"), {
+    const res = await fetch(buildApiUrl("/token/refresh"), {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       credentials: "include",
@@ -892,7 +892,7 @@ export async function logout() {
   const redirectHref = getLogoutRedirectHref()
   try {
     try {
-      await fetch(buildApiUrl("/token/blacklist/"), {
+      await fetch(buildApiUrl("/token/blacklist"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         credentials: "include",

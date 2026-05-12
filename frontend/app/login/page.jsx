@@ -72,7 +72,7 @@ export default function LoginPage() {
         credentials: "include",
       }).catch(() => {})
 
-      const res = await fetch(buildApiUrl("/token/"), {
+      const res = await fetch(buildApiUrl("/token"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

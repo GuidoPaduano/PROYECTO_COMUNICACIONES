@@ -85,6 +85,28 @@ def _course_dicts_cache_key(
     )
 
 
+def clear_school_course_cache(school=None):
+    for include_inactive in (False, True):
+        for fallback_to_defaults in (False, True):
+            for catalog_only in (False, True):
+                cache.delete(
+                    _course_choices_cache_key(
+                        school=school,
+                        include_inactive=include_inactive,
+                        fallback_to_defaults=fallback_to_defaults,
+                        catalog_only=catalog_only,
+                    )
+                )
+                cache.delete(
+                    _course_dicts_cache_key(
+                        school=school,
+                        include_inactive=include_inactive,
+                        fallback_to_defaults=fallback_to_defaults,
+                        catalog_only=catalog_only,
+                    )
+                )
+
+
 def _fallback_course_choices() -> list[tuple[str, str]]:
     try:
         from .models import Alumno
@@ -325,7 +347,7 @@ def is_curso_valido(value, school=None) -> bool:
 
 
 def filtrar_cursos_validos(cursos, school=None):
-    """Filtra listas de cursos (tuplas, dicts o strings) segun el catalogo disponible."""
+    """Filtra listas de cursos (tuplas, dicts o strings) según el catálogo disponible."""
     valid_ids = {
         _normalize_curso_id(code)
         for code, _name in get_school_course_choices(school=school)

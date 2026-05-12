@@ -591,6 +591,48 @@ class ImportarAlumnosApiTests(TestCase):
         self.assertEqual(body["preview"][0]["apellido"], "Perez")
         self.assertEqual(body["preview"][0]["nombre"], body["preview"][0]["legajo"])
 
+    def test_previsualizacion_rechaza_filas_identicas_sin_legajo(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "file": self._csv_file(
+                    "legajo,nombre,apellido,curso\n"
+                    ",Luz,Perez,1A\n"
+                    ",Luz,Perez,1A\n"
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["summary"]["valid"], 1)
+        self.assertEqual(body["summary"]["errors"], 1)
+        self.assertIn("Fila duplicada dentro del archivo", body["errors"][0]["errors"][0])
+
+    def test_confirmacion_rechaza_filas_identicas_sin_legajo(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "commit": "true",
+                "file": self._csv_file(
+                    "legajo,nombre,apellido,curso\n"
+                    ",Luz,Perez,1A\n"
+                    ",Luz,Perez,1A\n"
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(Alumno.objects.filter(school=self.school, nombre="Luz", apellido="Perez").count(), 0)
+
     def test_superuser_previsualiza_xlsx_con_curso_en_nombre_de_hoja(self):
         self.client.force_authenticate(user=self.admin)
         SchoolCourse.objects.create(school=self.school, code="1B", name="Primero B", sort_order=2)
