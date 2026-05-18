@@ -157,7 +157,7 @@ def _crear_notificaciones(
 
     alumno_nombre = _alumno_nombre(alumno)
     course_name = _course_display(alumno)
-    titulo = f"{alumno_nombre} necesita atencion por inasistencias"
+    titulo = f"{alumno_nombre} necesita atención por inasistencias"
     descripcion = (
         f"Se detectaron {consecutivas} ausencias consecutivas no justificadas. "
         f"Curso: {course_name}."
@@ -250,9 +250,9 @@ def _crear_alertas_faltas_acumuladas(
         if destinatarios:
             alumno_nombre = _alumno_nombre(alumno)
             course_name = _course_display(alumno)
-            titulo = f"{alumno_nombre} necesita atencion por inasistencias"
+            titulo = f"{alumno_nombre} necesita atención por inasistencias"
             descripcion = (
-                f"El alumno alcanzo {total} inasistencias totales a clases. "
+                f"El alumno alcanzó {total} inasistencias totales a clases. "
                 f"Curso: {course_name}."
             )
             notifs = []

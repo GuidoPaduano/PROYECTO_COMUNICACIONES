@@ -94,7 +94,7 @@ class SafeTokenObtainPairView(APIView):
                 if active_school_count > 1:
                     return clear_auth_cookies(
                         Response(
-                            {"detail": "Selecciona un colegio antes de iniciar sesion."},
+                            {"detail": "Seleccioná un colegio antes de iniciar sesión."},
                             status=status.HTTP_401_UNAUTHORIZED,
                         )
                     )
@@ -149,7 +149,7 @@ class SafeTokenRefreshView(APIView):
             response = Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
             return clear_auth_cookies(response)
         except (AuthenticationFailed, ValidationError) as exc:
-            detail = getattr(exc, "detail", None) or "Refresh token invalido"
+            detail = getattr(exc, "detail", None) or "Refresh token inválido"
             response = Response({"detail": detail}, status=status.HTTP_401_UNAUTHORIZED)
             return clear_auth_cookies(response)
         except Exception:
@@ -195,10 +195,10 @@ class SafeTokenBlacklistView(APIView):
             response = Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
             return clear_auth_cookies(response)
         except (AuthenticationFailed, ValidationError) as exc:
-            detail = getattr(exc, "detail", None) or "Refresh token invalido"
+            detail = getattr(exc, "detail", None) or "Refresh token inválido"
             response = Response({"detail": detail}, status=status.HTTP_401_UNAUTHORIZED)
             return clear_auth_cookies(response)
         except Exception:
             logger.exception("Error en /api/token/blacklist/")
-            response = Response({"detail": "Error interno al cerrar sesiÃ³n"}, status=500)
+            response = Response({"detail": "Error interno al cerrar sesión"}, status=500)
             return clear_auth_cookies(response)

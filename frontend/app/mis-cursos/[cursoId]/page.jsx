@@ -332,7 +332,7 @@ export default function CursoDetallePage({ params }) {
         return
       }
       if (!idAlumno && (!nombre || !apellido)) {
-        setFormError("Completa legajo o nombre y apellido.")
+        setFormError("Completá legajo o nombre y apellido.")
         setSaving(false)
         return
       }

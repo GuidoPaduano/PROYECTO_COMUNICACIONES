@@ -354,7 +354,7 @@ def _validate_new_user_payload(payload) -> dict:
     if not username:
         raise ValueError("El nombre de usuario es obligatorio.")
     if not role:
-        raise ValueError("Selecciona un tipo de usuario valido.")
+        raise ValueError("Seleccioná un tipo de usuario válido.")
     if not password:
         raise ValueError("La contraseña es obligatoria.")
     if password != password_confirm:
@@ -396,9 +396,9 @@ def _build_user_creation_payload(*, school):
         "students": [_serialize_student(student) for student in students],
         "role_options": [
             {"value": "Alumnos", "label": "Alumno/a", "description": "Crea el acceso de un alumno y permite vincularlo a su legajo."},
-            {"value": "Padres", "label": "Padre, madre o tutor", "description": "Crea un acceso familiar y permite asociarlo a uno o mas alumnos."},
-            {"value": "Profesores", "label": "Profesor/a", "description": "Alta de docente con asignacion opcional a cursos del colegio."},
-            {"value": "Preceptores", "label": "Preceptor/a", "description": "Alta de preceptor con asignacion opcional a cursos del colegio."},
+            {"value": "Padres", "label": "Padre, madre o tutor", "description": "Crea un acceso familiar y permite asociarlo a uno o más alumnos."},
+            {"value": "Profesores", "label": "Profesor/a", "description": "Alta de docente con asignación opcional a cursos del colegio."},
+            {"value": "Preceptores", "label": "Preceptor/a", "description": "Alta de preceptor con asignación opcional a cursos del colegio."},
             {"value": "Directivos", "label": "Directivo/a", "description": "Alta de personal institucional sin cursos obligatorios."},
             {"value": "Administradores", "label": "Administrador/a de colegio", "description": "Habilita el acceso al admin del colegio activo."},
         ],
@@ -495,11 +495,11 @@ def admin_user_create(request):
             Alumno.objects.filter(pk__in=data["alumno_ids"], school=active_school).order_by("apellido", "nombre", "id")
         )
         if len(parent_students) != len(data["alumno_ids"]):
-            return Response({"detail": "Uno o mas alumnos seleccionados no pertenecen al colegio activo."}, status=400)
+            return Response({"detail": "Uno o más alumnos seleccionados no pertenecen al colegio activo."}, status=400)
         occupied = [student.id_alumno for student in parent_students if getattr(student, "padre_id", None)]
         if occupied:
             return Response(
-                {"detail": f"Uno o mas alumnos ya tienen tutor vinculado ({', '.join(occupied[:3])})."},
+                {"detail": f"Uno o más alumnos ya tienen tutor vinculado ({', '.join(occupied[:3])})."},
                 status=400,
             )
 
@@ -509,7 +509,7 @@ def admin_user_create(request):
             SchoolCourse.objects.filter(school=active_school, is_active=True, id__in=data["school_course_ids"]).order_by("sort_order", "name", "id")
         )
         if len(selected_courses) != len(data["school_course_ids"]):
-            return Response({"detail": "Uno o mas cursos no pertenecen al colegio activo."}, status=400)
+            return Response({"detail": "Uno o más cursos no pertenecen al colegio activo."}, status=400)
 
     with transaction.atomic():
         created_user = User.objects.create_user(

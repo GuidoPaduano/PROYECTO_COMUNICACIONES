@@ -144,7 +144,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
                 attrs["resultado"] = calificacion
                 resultado = calificacion
 
-            # Si calificacion llega numerica, poblar nota_numerica
+            # Si calificacion llega numérica, poblar nota_numerica
             parsed_num = _parse_nota_numerica(calificacion)
             if parsed_num is not None and nota_numerica is None:
                 attrs["nota_numerica"] = parsed_num
@@ -156,7 +156,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
 
         if resultado is None and nota_numerica is None and not attrs.get("calificacion"):
             raise serializers.ValidationError(
-                "Debes informar resultado, nota_numerica o calificacion."
+                "Debés informar resultado, nota_numerica o calificacion."
             )
 
         # Mantener calificacion poblada para clientes que aun leen ese campo.
@@ -237,7 +237,7 @@ class NotaSerializer(serializers.ModelSerializer):
 class EventoSerializer(serializers.ModelSerializer):
     """
     Serializer para Evento (API de calendario).
-    - Normaliza valores vacios de la UI ("" -> None) para curso/tipo_evento/descripcion.
+    - Normaliza valores vacíos de la UI ("" -> None) para curso/tipo_evento/descripcion.
     - 'creado_por' solo lectura; lo setea la vista.
     """
 
@@ -265,7 +265,7 @@ class EventoSerializer(serializers.ModelSerializer):
             return None
         allowed = {str(c[0]) for c in Evento._meta.get_field("tipo_evento").choices}
         if v not in allowed:
-            raise serializers.ValidationError("tipo_evento invalido.")
+            raise serializers.ValidationError("tipo_evento inválido.")
         return v
 
     def validate_descripcion(self, v):

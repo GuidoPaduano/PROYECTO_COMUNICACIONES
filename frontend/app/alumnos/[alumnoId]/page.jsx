@@ -321,7 +321,7 @@ function asistenciaTipoFromAny(a) {
 /** Normaliza a: "clases" | "informatica" | "catequesis" | "" */
 function normalizeAsistenciaTipo(raw) {
   const s = normText(raw)
-  if (!s) return "" // vacio -> luego se trata como "clases" donde corresponda
+  if (!s) return "" // vacío -> luego se trata como "clases" donde corresponda
 
   // si backend ya manda el slug
   if (s === "clases" || s === "informatica" || s === "catequesis") return s

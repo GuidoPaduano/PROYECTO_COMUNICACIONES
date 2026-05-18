@@ -256,7 +256,7 @@ export default function CursoAlumnosPage({ params }) {
         return
       }
       if (!idAlumno && (!nombre || !apellido)) {
-        setFormError("Completa legajo o nombre y apellido.")
+        setFormError("Completá legajo o nombre y apellido.")
         setSaving(false)
         return
       }

@@ -347,7 +347,7 @@ export default function CargarNotasRapidas() {
     })
 
     if (invalid.length) {
-      setError("Completa materia, tipo, cuatrimestre y una calificación válida en cada fila.")
+      setError("Completá materia, tipo, cuatrimestre y una calificación válida en cada fila.")
       return
     }
 
@@ -554,7 +554,7 @@ export default function CargarNotasRapidas() {
               <Save className="mr-2 h-4 w-4" /> {saving ? "Guardando..." : "Guardar seleccionadas"}
             </Button>
             <div className="text-xs text-slate-500">
-              Debes completar una calificación válida en cada fila seleccionada.
+              Debés completar una calificación válida en cada fila seleccionada.
             </div>
           </div>
         </CardContent>

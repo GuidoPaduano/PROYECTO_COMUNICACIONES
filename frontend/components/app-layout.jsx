@@ -41,7 +41,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/alumnos"),
     title: () => "Alumnos",
-    subtitle: "Gestion de perfiles, notas, sanciones y asistencias.",
+    subtitle: "Gestión de perfiles, notas, sanciones y asistencias.",
     icon: <Users className="w-5 h-5" />,
   },
   {
@@ -73,7 +73,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/agregar_nota"),
     title: () => "Nueva nota",
-    subtitle: "Agrega una calificacion u observacion.",
+    subtitle: "Agrega una calificación u observación.",
     icon: <ClipboardList className="w-5 h-5" />,
   },
   {
@@ -97,7 +97,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/mis-hijos"),
     title: () => "Mis hijos",
-    subtitle: "Seguimiento academico y comunicacion.",
+    subtitle: "Seguimiento académico y comunicación.",
     icon: <GraduationCap className="w-5 h-5" />,
   },
   {
@@ -120,8 +120,8 @@ const ROUTE_META = [
   },
   {
     match: (p) => p.startsWith("/admin"),
-    title: () => "Administracion",
-    subtitle: "Herramientas de control y configuracion avanzada.",
+    title: () => "Administración",
+    subtitle: "Herramientas de control y configuración avanzada.",
     icon: <Shield className="w-5 h-5" />,
   },
   {
@@ -133,7 +133,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/perfil"),
     title: () => "Perfil",
-    subtitle: "Datos personales y configuracion.",
+    subtitle: "Datos personales y configuración.",
     icon: <User className="w-5 h-5" />,
   },
 ]
@@ -226,10 +226,11 @@ function ProtectedShell({ children, pathname }) {
 
   useEffect(() => {
     if (isPublic) return
+    if (sessionContext) return
     let alive = true
     ;(async () => {
       try {
-        const data = await getSessionProfile({ force: true })
+        const data = await getSessionProfile()
         const label = data?.full_name?.trim?.() ? data.full_name : data?.username || ""
         const rawGroups =
           (Array.isArray(data?.groups) && data.groups) ||
@@ -249,7 +250,7 @@ function ProtectedShell({ children, pathname }) {
     return () => {
       alive = false
     }
-  }, [isPublic, pathname])
+  }, [isPublic, pathname, sessionContext])
 
   const meta = useMemo(() => resolveMeta(pathname, userLabel), [pathname, userLabel])
   const hideHeader = useMemo(

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { ArrowLeft, Building2, CheckCircle2, Sparkles } from "lucide-react"
+import { ArrowLeft, CheckCircle2 } from "lucide-react"
 
 import {
   DEFAULT_SCHOOL_ACCENT_COLOR,
@@ -59,10 +59,7 @@ export default function NuevoColegioPage() {
   const [error, setError] = useState("")
   const [created, setCreated] = useState(null)
 
-  const generatedSlug = useMemo(
-    () => slugPreview(form.slug || form.name),
-    [form.name, form.slug]
-  )
+  const generatedSlug = useMemo(() => slugPreview(form.slug || form.name), [form.name, form.slug])
 
   const handleFieldChange = (field) => (event) => {
     const value = event?.target?.value ?? ""
@@ -137,17 +134,17 @@ export default function NuevoColegioPage() {
           </Link>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Nuevo colegio</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Crea un colegio nuevo, deja el branding inicial listo y siembra el catálogo base de cursos.
+            Crea un colegio nuevo, deja el branding inicial listo y siembra el catalogo base de cursos.
           </p>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div>
         <Card>
           <CardHeader>
             <CardTitle>Alta de colegio</CardTitle>
             <CardDescription>
-              Si dejás `slug` vacío, se genera automáticamente. Los colores también pueden quedar vacíos para usar el default de la plataforma.
+              Si dejas `slug` vacio, se genera automaticamente. Los colores tambien pueden quedar vacios para usar el default de la plataforma.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -158,9 +155,7 @@ export default function NuevoColegioPage() {
                     <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
                     <div className="space-y-1">
                       <p className="text-sm font-semibold">Colegio creado correctamente</p>
-                      <p className="text-sm">
-                        {created?.school?.name} ya quedó disponible en tu sesión.
-                      </p>
+                      <p className="text-sm">{created?.school?.name} ya quedo disponible en tu sesion.</p>
                       <p className="text-sm">
                         `slug`: {created?.school?.slug} · cursos creados: {created?.seeded_courses}
                       </p>
@@ -265,35 +260,6 @@ export default function NuevoColegioPage() {
             )}
           </CardContent>
         </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5" />
-                Qué hace esta herramienta
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
-              <p>Crea el registro del colegio.</p>
-              <p>Lo deja activo para que aparezca en tu selector de colegios.</p>
-              <p>Siembra automáticamente el catálogo base de cursos: 1A, 1B, 2A, 2B, 3A, 3B, 4ECO, 4NAT, 5ECO, 5NAT, 6ECO y 6NAT.</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5" />
-                Recomendación
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
-              <p>Después del alta, el siguiente paso sano es cargar usuarios y asignaciones dentro de ese colegio.</p>
-              <p>Si el colegio necesita un catálogo distinto de cursos, lo siguiente sería agregar una herramienta específica para editar esos `SchoolCourse`.</p>
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </div>
   )

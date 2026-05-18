@@ -27,7 +27,7 @@ from .schools import get_request_school, scope_queryset_to_school
 from .serializers import SancionPublicSerializer
 from .user_groups import get_user_group_names, get_user_group_names_lower
 from .utils_cursos import resolve_course_reference
-# âœ… FIX CLAVE: antes no existÃ­a User y las notificaciones fallaban silenciosamente
+# ✅ FIX CLAVE: antes no existía User y las notificaciones fallaban silenciosamente
 User = get_user_model()
 
 try:
@@ -52,9 +52,9 @@ def _resolver_alumno_id(valor: Any, school=None) -> Optional[Alumno]:
     Acepta PK (int), id_alumno (legajo) o string convertible.
 
     FIX SOLIDO:
-    - Si viene numÃ©rico, probamos primero como PK.
+    - Si viene numérico, probamos primero como PK.
     - Si ese PK no existe, caemos a id_alumno (legajo).
-    Esto evita que un legajo numÃ©rico se interprete como PK incorrecto.
+    Esto evita que un legajo numérico se interprete como PK incorrecto.
     """
     if valor is None:
         return None
@@ -65,7 +65,7 @@ def _resolver_alumno_id(valor: Any, school=None) -> Optional[Alumno]:
             return None
         alumnos_qs = _alumno_base_qs(school)
 
-        # 1) Intentar PK si es dÃ­gito
+        # 1) Intentar PK si es dígito
         if sv.isdigit():
             try:
                 return alumnos_qs.get(pk=int(sv))
@@ -264,7 +264,7 @@ def _authorize_reader_for_alumno(user, alumno: Alumno) -> bool:
 
 def _alumno_fullname(a: Alumno) -> str:
     nm = (getattr(a, "nombre", "") or "").strip()
-    # Fallback defensivo por si apellido no existe o viene vacio
+    # Fallback defensivo por si apellido no existe o viene vacío
     ap = (getattr(a, "apellido", "") or "").strip()
     full = (f"{ap}, {nm}").strip(", ").strip()
     return full or nm or str(getattr(a, "id_alumno", "")) or "Alumno"
@@ -300,7 +300,7 @@ def _get_payload(request) -> dict:
 def sanciones_lista_crear(request):
     """
     GET /api/sanciones/?alumno=ID|LEGAJO&school_course_id=14
-      â†’ lista filtrada
+      → lista filtrada
 
     POST /api/sanciones/
       JSON: { alumno | alumno_id | id_alumno, fecha?, asunto?, mensaje?, tipo? }
@@ -357,7 +357,7 @@ def sanciones_lista_crear(request):
     alumno_val = payload.get("alumno", payload.get("alumno_id", payload.get("id_alumno")))
     alumno = _resolver_alumno_id(alumno_val, school=active_school)
     if not alumno:
-        return Response({"detail": "DebÃ©s indicar un alumno vÃ¡lido."}, status=400)
+        return Response({"detail": "Debés indicar un alumno válido."}, status=400)
 
     if not _authorize_staff_for_alumno(request.user, alumno):
         return Response({"detail": "No autorizado para ese alumno."}, status=403)
@@ -373,7 +373,7 @@ def sanciones_lista_crear(request):
     if fecha_s:
         fecha = parse_date(fecha_s)
         if not fecha:
-            return Response({"detail": "fecha invÃ¡lida (formato YYYY-MM-DD)."}, status=400)
+            return Response({"detail": "fecha inválida (formato YYYY-MM-DD)."}, status=400)
     else:
         fecha = timezone.localdate()
 
@@ -386,12 +386,12 @@ def sanciones_lista_crear(request):
         fecha=fecha,
         motivo=mensaje,
         detalle=asunto or None,
-        tipo=tipo or getattr(Sancion, "TIPOS", [("AmonestaciÃ³n", "AmonestaciÃ³n")])[0][0],
+        tipo=tipo or getattr(Sancion, "TIPOS", [("Amonestación", "Amonestación")])[0][0],
         docente=docente or None,
     )
 
     # =========================================================
-    # NotificaciÃ³n a padre/alumno (campanita): SIN crear Mensaje
+    # Notificación a padre/alumno (campanita): SIN crear Mensaje
     # =========================================================
     notificado = False
     notif_error = None
@@ -414,14 +414,14 @@ def sanciones_lista_crear(request):
             except Exception:
                 pass
 
-        # Padre explÃ­cito
+        # Padre explícito
         _add(getattr(alumno, "padre", None))
 
-        # Alumno explÃ­cito (campo Alumno.usuario)
+        # Alumno explícito (campo Alumno.usuario)
         alumno_usuario = getattr(alumno, "usuario", None)
         _add(alumno_usuario)
 
-        # Alumno por convenciÃ³n username==legajo/id_alumno
+        # Alumno por convención username==legajo/id_alumno
         try:
             legajo = (getattr(alumno, "id_alumno", "") or "").strip()
             alumno_username = str(getattr(alumno_usuario, "username", "") or "").strip().lower()
@@ -448,10 +448,10 @@ def sanciones_lista_crear(request):
             detalle = getattr(sancion, "detalle", None) or ""
             detalle_line = detalle.strip()
 
-            asunto_msg = f"Nueva sanciÃ³n para {alumno_nombre}"
+            asunto_msg = f"Nueva sanción para {alumno_nombre}"
 
             contenido_msg = (
-                "Se registrÃ³ una sanciÃ³n disciplinaria.\n\n"
+                "Se registró una sanción disciplinaria.\n\n"
                 f"Alumno: {alumno_nombre}\n"
                 + (f"Curso: {course_name}\n" if course_name else "")
                 + f"Tipo: {getattr(sancion, 'tipo', '')}\n"
@@ -512,8 +512,8 @@ def sanciones_lista_crear(request):
 @permission_classes([IsAuthenticated])
 def sancion_detalle(request, pk: int):
     """
-    GET /api/sanciones/<id>/   â†’ detalle
-    DELETE /api/sanciones/<id>/ â†’ elimina
+    GET /api/sanciones/<id>/   → detalle
+    DELETE /api/sanciones/<id>/ → elimina
     """
     active_school = get_request_school(request)
     try:
@@ -550,7 +550,7 @@ def firmar_sancion(request, pk: int):
             active_school,
         ).get(pk=pk)
     except Sancion.DoesNotExist:
-        return Response({"detail": "SanciÃ³n no encontrada."}, status=404)
+        return Response({"detail": "Sanción no encontrada."}, status=404)
 
     if not _authorize_padre_or_admin(request.user, sanc.alumno):
         return Response({"detail": "No autorizado."}, status=403)
@@ -569,7 +569,7 @@ def firmar_sancion(request, pk: int):
     if bool(getattr(sanc, "firmada", False)):
         return Response(
             {
-                "detail": "La sanciÃ³n ya fue firmada.",
+                "detail": "La sanción ya fue firmada.",
                 "id": sanc.id,
                 "alumno_id": sanc.alumno_id,
                 "firmada": True,

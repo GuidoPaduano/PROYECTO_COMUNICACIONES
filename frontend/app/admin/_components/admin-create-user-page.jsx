@@ -262,7 +262,7 @@ export default function AdminCreateUserPage({
 
       {loading ? (
         <div className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-sm text-slate-600">
-          Cargando configuracion del colegio...
+          Cargando configuración del colegio...
         </div>
       ) : (
         <form className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_360px]" onSubmit={handleSubmit}>
@@ -335,8 +335,8 @@ export default function AdminCreateUserPage({
             {form.role === "Alumnos" ? (
               <Card>
                 <CardHeader>
-                  <CardTitle>Vinculo con alumno</CardTitle>
-                  <CardDescription>El usuario quedara asociado al alumno seleccionado para resolver su contexto automaticamente.</CardDescription>
+                  <CardTitle>Vínculo con alumno</CardTitle>
+                  <CardDescription>El usuario quedará asociado al alumno seleccionado para resolver su contexto automáticamente.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">

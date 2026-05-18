@@ -382,7 +382,7 @@ class AsistenciasAccessControlTests(TestCase):
 
         res = self.client.patch(
             f"/api/asistencias/{self.asistencia.id}/detalle/",
-            {"detalle": "Intento invalido"},
+            {"detalle": "Intento inválido"},
             format="json",
         )
 

@@ -135,7 +135,7 @@ class SancionesSchoolScopingTests(TestCase):
         self.sancion_a = Sancion.objects.create(
             school=self.school_a,
             alumno=self.alumno_a,
-            tipo="AmonestaciÃ³n",
+            tipo="Amonestación",
             motivo="Falta leve",
             fecha="2026-03-12",
             docente="Preceptor 1",
@@ -143,7 +143,7 @@ class SancionesSchoolScopingTests(TestCase):
         self.sancion_b = Sancion.objects.create(
             school=self.school_b,
             alumno=self.alumno_b,
-            tipo="AmonestaciÃ³n",
+            tipo="Amonestación",
             motivo="Falta grave",
             fecha="2026-03-13",
             docente="Preceptor 2",
@@ -307,7 +307,7 @@ class SancionesSchoolScopingTests(TestCase):
             "/api/sanciones/",
             {
                 "alumno": self.alumno_a.id,
-                "mensaje": "Observacion profesor sin asignacion",
+                "mensaje": "Observación profesor sin asignación",
             },
             format="json",
         )
@@ -315,7 +315,7 @@ class SancionesSchoolScopingTests(TestCase):
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["detail"], "No autorizado para ese alumno.")
         self.assertFalse(
-            Sancion.objects.filter(alumno=self.alumno_a, motivo="Observacion profesor sin asignacion").exists()
+            Sancion.objects.filter(alumno=self.alumno_a, motivo="Observación profesor sin asignación").exists()
         )
 
     def test_preceptor_no_puede_crear_sancion_en_otro_curso_del_mismo_colegio(self):
@@ -338,7 +338,7 @@ class SancionesSchoolScopingTests(TestCase):
         sancion_otro_curso = Sancion.objects.create(
             school=self.school_a,
             alumno=self.alumno_a_2,
-            tipo="AmonestaciÃƒÂ³n",
+            tipo="Amonestación",
             motivo="Interrupcion de clase",
             fecha="2026-03-14",
             docente="Preceptor 3",

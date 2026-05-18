@@ -24,7 +24,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from reportlab.pdfgen import canvas
 
-from django.db.models import Q, Count  # âœ… NUEVO (para filtros robustos de no leÃ­dos)
+from django.db.models import Q, Count  # ✅ NUEVO (para filtros robustos de no leídos)
 from functools import lru_cache
 
 from .course_access import (
@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 ASSIGNMENT_REFS_CACHE_TTL = 120
 
 try:
-    # âœ… NUEVO: si existen los modelos reales preceptor/profesorâ†’cursos, los usamos para permisos
+    # ✅ NUEVO: si existen los modelos reales preceptor/profesor→cursos, los usamos para permisos
     from .models_preceptores import PreceptorCurso, ProfesorCurso  # type: ignore
 except Exception:
     PreceptorCurso = None
@@ -72,7 +72,7 @@ except Exception:
 # =========================================================
 
 def _resolver_destinatario_padre(alumno):
-    """Destinatario para notificaciÃ³n.
+    """Destinatario para notificación.
 
     Preferencia: Alumno.padre (FK real)
     Fallback por username==id_alumno
@@ -122,10 +122,10 @@ def _resolver_destinatarios_notif(alumno):
     # Padre
     _add(getattr(alumno, "padre", None))
 
-    # Alumno (vÃ­nculo explÃ­cito)
+    # Alumno (vínculo explícito)
     _add(getattr(alumno, "usuario", None))
 
-    # Alumno por convenciÃ³n username==legajo
+    # Alumno por convención username==legajo
     try:
         User = get_user_model()
         legajo = (getattr(alumno, "id_alumno", "") or "").strip()
@@ -134,7 +134,7 @@ def _resolver_destinatarios_notif(alumno):
     except Exception:
         pass
 
-    # Ultimo intento: resolver destinatario por legajo
+    # Último intento: resolver destinatario por legajo
     if not destinatarios:
         try:
             u_fb, _src = _resolver_destinatario_padre(alumno)
@@ -177,7 +177,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
 
     Importante:
     - NO crea un Mensaje (bandeja de entrada).
-    - La bandeja queda solo para mensajerÃ­a real entre usuarios.
+    - La bandeja queda solo para mensajería real entre usuarios.
     """
     try:
         alumno = getattr(nota, "alumno", None)
@@ -204,9 +204,9 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
 
         titulo = f"Nueva nota para {nombre}"
 
-        # DescripciÃ³n compacta (no hace falta que parezca un email)
+        # Descripción compacta (no hace falta que parezca un email)
         parts = []
-        parts.append("Se registrÃ³ una nueva calificaciÃ³n.")
+        parts.append("Se registró una nueva calificación.")
         if course_name:
             parts.append(f"Curso: {course_name}")
         if materia:
@@ -214,7 +214,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
         if tipo:
             parts.append(f"Tipo: {tipo}")
         if calif:
-            parts.append(f"CalificaciÃ³n: {calif}")
+            parts.append(f"Calificación: {calif}")
         if cuatri:
             parts.append(f"Cuatrimestre: {cuatri}")
         if hasattr(fecha, "isoformat"):
@@ -222,7 +222,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
         if obs:
             parts.append(f"Obs: {obs}")
 
-        descripcion = " Â· ".join([p for p in parts if p]).strip()
+        descripcion = " · ".join([p for p in parts if p]).strip()
 
         # URL destino (Parte B/C usan esto)
         url = f"/alumnos/{alumno.id}/?tab=notas"
@@ -250,7 +250,7 @@ def _notify_padre_por_nota(remitente, nota, *, silent=True):
 
 
 def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
-    """NotificaciÃ³n optimizada: 1 Notificacion por ALUMNO (campanita), sin ensuciar bandeja.
+    """Notificación optimizada: 1 Notificacion por ALUMNO (campanita), sin ensuciar bandeja.
 
     Devuelve cantidad de notificaciones creadas.
     """
@@ -264,7 +264,7 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
             if not alumno:
                 continue
 
-            # âœ… Igual que en la API: notificamos a PADRE y ALUMNO (si existe vÃ­nculo)
+            # ✅ Igual que en la API: notificamos a PADRE y ALUMNO (si existe vínculo)
             destinatarios = _resolver_destinatarios_notif(alumno)
             if not destinatarios:
                 continue
@@ -320,16 +320,16 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
                 fecha = getattr(nn, "fecha", None)
                 fstr = fecha.isoformat() if hasattr(fecha, "isoformat") else ""
 
-                base = f"â€¢ {materia} ({tipo}): {calif}".strip()
+                base = f"• {materia} ({tipo}): {calif}".strip()
                 if fstr:
-                    base += f" â€” {fstr}"
+                    base += f" — {fstr}"
                 lines.append(base)
 
             descripcion = "Se registraron nuevas calificaciones."
             if course_name:
                 descripcion += f" Curso: {course_name}."
             if lines:
-                # Guardamos en texto (la UI lo truncarÃ¡ si hace falta)
+                # Guardamos en texto (la UI lo truncará si hace falta)
                 descripcion += " " + " ".join(lines)
 
             url = f"/alumnos/{alumno.id}/?tab=notas"
@@ -363,13 +363,13 @@ def _notify_padres_por_notas_bulk(remitente, notas, *, silent=True):
 
 
 # ============================================================
-# Helper: Vista previa de rol (â€œVista comoâ€¦â€) para superusuario
+# Helper: Vista previa de rol (“Vista como…”) para superusuario
 # ============================================================
 def _get_preview_role(request):
     """
-    Devuelve un rol de vista previa si el usuario es superusuario y pidiÃ³ simular un rol.
+    Devuelve un rol de vista previa si el usuario es superusuario y pidió simular un rol.
     Lee `view_as` (querystring) o el header `X-Preview-Role`.
-    Valores vÃ¡lidos: 'Profesores', 'Preceptores', 'Directivos', 'Padres', 'Alumnos'.
+    Valores válidos: 'Profesores', 'Preceptores', 'Directivos', 'Padres', 'Alumnos'.
     """
     try:
         role = (request.GET.get("view_as") or request.headers.get("X-Preview-Role") or "").strip()
@@ -392,7 +392,7 @@ class EventoForm(BaseEventoForm):
 #  Helpers
 # =========================================================
 def _coerce_json(request):
-    """Intenta parsear JSON manualmente si request.data viene vacÃ­o."""
+    """Intenta parsear JSON manualmente si request.data viene vacío."""
     if getattr(request, "data", None):
         return request.data
     try:
@@ -408,7 +408,7 @@ def _rol_principal(user):
     for g in ("Administradores", "Directivos", "Profesores", "Padres", "Alumnos", "Preceptores"):
         if g in group_names:
             return g
-    return "â€”"
+    return "—"
 
 
 def _alumno_to_dict(a: Alumno):
@@ -460,7 +460,7 @@ def _has_model_field(model, name: str) -> bool:
 
 
 # =========================================================
-#  âœ… NUEVO: permisos de PRECEPTOR por curso (PreceptorCurso real)
+#  ✅ NUEVO: permisos de PRECEPTOR por curso (PreceptorCurso real)
 # =========================================================
 def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     """
@@ -1024,7 +1024,7 @@ def _can_access_alumno_data(request, alumno: Alumno) -> bool:
 
 
 # =========================================================
-#  âœ… NUEVO: Compat Mensaje (emisor/receptor vs remitente/destinatario)
+#  ✅ NUEVO: Compat Mensaje (emisor/receptor vs remitente/destinatario)
 # =========================================================
 @lru_cache(maxsize=1)
 def _mensaje_sender_field() -> str:
@@ -1122,7 +1122,7 @@ def index(request):
 
 
 # =========================================================
-#  PERFIL API (GET+PATCH) para Next.js â€” JWT o sesiÃ³n
+#  PERFIL API (GET+PATCH) para Next.js — JWT o sesión
 # =========================================================
 @csrf_exempt
 @api_view(["GET", "PATCH"])
@@ -1136,7 +1136,7 @@ def perfil_api(request):
     user = request.user
     active_school = get_request_school(request)
 
-    # ===== Vista previa de rol (â€œVista comoâ€¦â€) para superusuario =====
+    # ===== Vista previa de rol (“Vista como…”) para superusuario =====
     try:
         preview_role = _get_preview_role(request)
     except Exception:
@@ -1150,7 +1150,7 @@ def perfil_api(request):
     try:
         rol_real = _rol_principal(user)
     except Exception:
-        rol_real = grupos_reales[0] if grupos_reales else "â€”"
+        rol_real = grupos_reales[0] if grupos_reales else "—"
     rol = preview_role if preview_role else rol_real
 
     # ===== Contextos =====
@@ -1211,7 +1211,7 @@ def perfil_api(request):
             try:
                 User = get_user_model()
                 if User.objects.filter(email__iexact=email).exclude(pk=user.pk).exists():
-                    return JsonResponse({"detail": "Ese correo ya estÃ¡ en uso."}, status=400)
+                    return JsonResponse({"detail": "Ese correo ya está en uso."}, status=400)
             except Exception:
                 pass
             user.email = email
@@ -1221,7 +1221,7 @@ def perfil_api(request):
             try:
                 user.full_clean(exclude=['password'])
             except Exception:
-                return JsonResponse({"detail": "Datos invÃ¡lidos"}, status=400)
+                return JsonResponse({"detail": "Datos inválidos"}, status=400)
             user.save()
 
     # ===== Stats =====
@@ -1284,7 +1284,7 @@ def mi_curso(request):
     - Alumno: curso del alumno vinculado (resolve_alumno_for_user)
     - Padre: curso del hijo (primero), o seleccionar por ?id_alumno=... o ?alumno_id=...
     - Preceptor: primer curso asignado real en PreceptorCurso
-    - Superuser: si estÃ¡ en vista previa, se comporta como ese rol; si no, devuelve el curso pedido por
+    - Superuser: si está en vista previa, se comporta como ese rol; si no, devuelve el curso pedido por
       `school_course_id`, o cae al primero disponible
     """
     user = request.user
@@ -1448,7 +1448,7 @@ def mi_curso(request):
 
 
 # =========================================================
-#  CatÃ¡logos/Alumnos para "Nueva nota"
+#  Catálogos/Alumnos para "Nueva nota"
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -1456,10 +1456,10 @@ def mi_curso(request):
 @permission_classes([IsAuthenticated])
 def notas_catalogos(request):
     """
-    Devuelve catÃ¡logos base para la pantalla de "Nueva nota".
+    Devuelve catálogos base para la pantalla de "Nueva nota".
     - cursos: lista normalizada de `SchoolCourse` para el colegio activo
     - materias: lista desde constants.MATERIAS
-    - tipos: (opcional) vacÃ­o por ahora; se puede poblar luego si definen choices
+    - tipos: (opcional) vacío por ahora; se puede poblar luego si definen choices
     """
     active_school = get_request_school(request)
     cursos = [
@@ -1573,7 +1573,7 @@ def alumnos_por_curso(request):
     if not _can_access_course_roster(request, curso, school_course=school_course):
         return Response({"detail": "No autorizado para ese curso."}, status=403)
 
-    # âœ… FIX: si Alumno no tiene apellido, no explota
+    # ✅ FIX: si Alumno no tiene apellido, no explota
     if _has_model_field(Alumno, "apellido"):
         qs = _alumnos_por_curso_qs(
             curso,
@@ -1662,9 +1662,9 @@ def alumno_detalle(request, alumno_id):
     """
     GET /api/alumnos/<alumno_id>/
 
-    Prioridad de resoluciÃ³n:
+    Prioridad de resolución:
       1) Buscar por legajo `id_alumno` (string exacto).
-      2) Si no existe y es numÃ©rico, intentar como PK (id interno).
+      2) Si no existe y es numérico, intentar como PK (id interno).
     """
     active_school = get_request_school(request)
     alumnos_qs = scope_queryset_to_school(
@@ -1676,7 +1676,7 @@ def alumno_detalle(request, alumno_id):
         # 1) intentar por legajo
         a = alumnos_qs.get(id_alumno=str(alumno_id))
     except Alumno.DoesNotExist:
-        # 2) fallback a PK si es numÃ©rico
+        # 2) fallback a PK si es numérico
         if str(alumno_id).isdigit():
             try:
                 a = alumnos_qs.get(pk=int(alumno_id))
@@ -1685,14 +1685,14 @@ def alumno_detalle(request, alumno_id):
         else:
             return Response({"detail": "No encontrado"}, status=404)
 
-    # âœ… NUEVO: autorizaciÃ³n consistente (incluye preceptor por curso)
+    # ✅ NUEVO: autorización consistente (incluye preceptor por curso)
     user = request.user
     is_padre = (getattr(a, "padre_id", None) == user.id)
     is_prof_ok = _has_role(request, "Profesores") and _profesor_can_access_alumno(user, a)
     is_prof_or_super = (user.is_superuser or is_prof_ok)
     # Alumno propio:
-    # - VÃ­nculo explÃ­cito Alumno.usuario (si existe)
-    # - Fallback robusto (username==legajo, padre con Ãºnico hijo, etc.)
+    # - Vínculo explícito Alumno.usuario (si existe)
+    # - Fallback robusto (username==legajo, padre con único hijo, etc.)
     is_alumno_mismo = False
     try:
         is_alumno_mismo = (getattr(a, "usuario_id", None) == user.id)
@@ -1727,9 +1727,9 @@ def alumno_notas(request, alumno_id):
     """
     GET /api/alumnos/<alumno_id>/notas/
 
-    Prioridad de resoluciÃ³n:
+    Prioridad de resolución:
       1) Buscar por legajo `id_alumno`.
-      2) Si no existe y es numÃ©rico, intentar como PK (id).
+      2) Si no existe y es numérico, intentar como PK (id).
     """
     active_school = get_request_school(request)
     alumnos_qs = scope_queryset_to_school(Alumno.objects.all(), active_school)
@@ -1757,14 +1757,14 @@ def alumno_notas(request, alumno_id):
         except Exception:
             pass
 
-    # âœ… NUEVO: sumar Preceptores (pero solo si tienen el curso asignado)
+    # ✅ NUEVO: sumar Preceptores (pero solo si tienen el curso asignado)
     is_preceptor_ok = (
         ("Directivos" in viewer_groups)
         or ("Preceptores" in viewer_groups and _preceptor_can_access_alumno(user, alumno))
     )
     is_prof_ok = ("Profesores" in viewer_groups and _profesor_can_access_alumno(user, alumno))
 
-    # AutorizaciÃ³n: superuser, profesores, preceptor por curso, padre o el propio alumno
+    # Autorización: superuser, profesores, preceptor por curso, padre o el propio alumno
     if not (
         user.is_superuser
         or is_prof_ok
@@ -1921,7 +1921,7 @@ def agregar_nota(request):
         except Alumno.DoesNotExist:
             messages.error(request, "Alumno no encontrado.")
         except ValidationError as e:
-            messages.error(request, f"Carga invalida: {e}")
+            messages.error(request, f"Carga inválida: {e}")
         except Exception as e:
             messages.error(request, f"No se pudo guardar la nota: {e}")
         return redirect("index")
@@ -2078,7 +2078,7 @@ def ver_notas(request):
         )
         alumnos = alumnos_qs.filter(padre=request.user)
 
-        # Fallback para vista previa: tomar un padre real y sus hijos si no hay vÃ­nculos
+        # Fallback para vista previa: tomar un padre real y sus hijos si no hay vínculos
         if not alumnos.exists() and _get_preview_role(request):
             a0 = alumnos_qs.filter(padre__isnull=False).order_by('padre_id').first()
             if a0 and a0.padre_id:
@@ -2094,12 +2094,12 @@ def ver_notas(request):
 
 
 # =========================================================
-#  MensajerÃ­a (HTML)
+#  Mensajería (HTML)
 # =========================================================
 @login_required
 def enviar_mensaje(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenÃ©s permiso.", status=403)
+        return HttpResponse("No tenés permiso.", status=403)
 
     active_school = get_request_school(request)
     cursos_disponibles = _school_course_options_for_ui(school=active_school)
@@ -2121,7 +2121,7 @@ def enviar_mensaje(request):
                 school_course_id=curso_seleccionado_id,
                 course_code=curso_seleccionado,
             ):
-                return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
+                return HttpResponse("No tenés permiso para ese curso.", status=403)
     alumnos = _alumnos_por_curso_qs(curso_seleccionado, school=active_school) if curso_seleccionado else []
 
     if request.method == 'POST':
@@ -2196,7 +2196,7 @@ def enviar_mensaje(request):
 @login_required
 def enviar_comunicado(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenÃ©s permiso.", status=403)
+        return HttpResponse("No tenés permiso.", status=403)
 
     active_school = get_request_school(request)
     cursos = _school_course_options_for_ui(school=active_school)
@@ -2222,7 +2222,7 @@ def enviar_comunicado(request):
                 school_course_id=curso_id,
                 course_code=curso,
             ):
-                return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
+                return HttpResponse("No tenés permiso para ese curso.", status=403)
         asunto = request.POST['asunto']
         contenido = request.POST['contenido']
         alumnos = scope_queryset_to_school(Alumno.objects.all(), active_school).filter(
@@ -2325,7 +2325,7 @@ def ver_mensajes(request):
 
 
 # =========================================================
-#  BoletÃ­n / Historial
+#  Boletín / Historial
 # =========================================================
 @login_required
 def generar_boletin_pdf(request, alumno_id):
@@ -2335,11 +2335,11 @@ def generar_boletin_pdf(request, alumno_id):
         id_alumno=alumno_id,
     )
     if not _can_access_alumno_data(request, alumno):
-        return HttpResponse("No tenÃ©s permiso para ver este boletÃ­n.", status=403)
+        return HttpResponse("No tenés permiso para ver este boletín.", status=403)
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="boletin_{alumno.nombre}.pdf'
     p = canvas.Canvas(response)
-    p.drawString(100, 800, f"BoletÃ­n de {alumno.nombre}")
+    p.drawString(100, 800, f"Boletín de {alumno.nombre}")
     y = 750
     notas = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school).order_by('cuatrimestre')
     for nota in notas:
@@ -2353,14 +2353,14 @@ def generar_boletin_pdf(request, alumno_id):
 @login_required
 def historial_notas_profesor(request, alumno_id):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenÃ©s permiso para ver esto.", status=403)
+        return HttpResponse("No tenés permiso para ver esto.", status=403)
 
     active_school = get_request_school(request)
     alumno = get_object_or_404(scope_queryset_to_school(Alumno.objects.all(), active_school), id_alumno=alumno_id)
     viewer_groups = set(_effective_groups(request))
     if "Profesores" in viewer_groups and not request.user.is_superuser:
         if not _profesor_can_access_alumno(request.user, alumno):
-            return HttpResponse("No tenÃ©s permiso para ese curso.", status=403)
+            return HttpResponse("No tenés permiso para ese curso.", status=403)
     notas_base_qs = scope_queryset_to_school(Nota.objects.filter(alumno=alumno), active_school)
     materias = set(notas_base_qs.values_list('materia', flat=True))
     materia_seleccionada = request.GET.get('materia')
@@ -2380,7 +2380,7 @@ def historial_notas_profesor(request, alumno_id):
 @login_required
 def historial_notas_padre(request):
     if not (_has_role(request, 'Padres') or request.user.is_superuser):
-        return HttpResponse("No tenÃ©s permiso para ver esto.", status=403)
+        return HttpResponse("No tenés permiso para ver esto.", status=403)
 
     active_school = get_request_school(request)
     alumnos_qs = scope_queryset_to_school(
@@ -2422,7 +2422,7 @@ def calendario_view(request):
 @login_required
 def crear_evento(request):
     if not (_has_role(request, 'Profesores') or request.user.is_superuser):
-        return HttpResponse("No tenÃ©s permiso para crear eventos.", status=403)
+        return HttpResponse("No tenés permiso para crear eventos.", status=403)
 
     active_school = get_request_school(request)
     assigned_refs = []
@@ -2469,7 +2469,7 @@ def editar_evento(request, evento_id):
     evento_owner = getattr(evento, "creado_por", None)
 
     if not (request.user == evento_owner or request.user.is_superuser):
-        return HttpResponse("No tenÃ©s permiso para editar este evento.", status=403)
+        return HttpResponse("No tenés permiso para editar este evento.", status=403)
 
     if request.method == 'POST':
         form = EventoForm(request.POST, instance=evento, school=active_school)
@@ -2506,7 +2506,7 @@ def eliminar_evento(request, evento_id):
     evento_owner = getattr(evento, "creado_por", None)
 
     if not (request.user == evento_owner or request.user.is_superuser):
-        return HttpResponse("No tenÃ©s permiso para eliminar este evento.", status=403)
+        return HttpResponse("No tenés permiso para eliminar este evento.", status=403)
 
     if request.method == 'POST':
         evento.delete()
@@ -2516,7 +2516,7 @@ def eliminar_evento(request, evento_id):
 
 
 # =========================================================
-#  Asistencias / Perfiles especÃ­ficos
+#  Asistencias / Perfiles específicos
 # =========================================================
 @login_required
 def pasar_asistencia(request):
@@ -2543,7 +2543,7 @@ def pasar_asistencia(request):
     else:
         allowed_refs = _preceptor_assignment_refs(usuario, school=active_school)
         if not allowed_refs:
-            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenÃ©s un curso asignado como preceptor.'})
+            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenés un curso asignado como preceptor.'})
         cursos = filter_course_options_by_refs(_school_course_options_for_ui(school=active_school), allowed_refs)
         selected_course = _resolve_request_course_selection(
             request,
@@ -2557,7 +2557,7 @@ def pasar_asistencia(request):
             school_course_id=selected_course["school_course_id"],
             course_code=selected_course["course_code"],
         ):
-            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenÃ©s permiso para ese curso.'})
+            return render(request, 'calificaciones/error.html', {'mensaje': 'No tenés permiso para ese curso.'})
         selected_option = None
         if selected_course["school_course_id"]:
             selected_option = next(
@@ -2615,7 +2615,7 @@ def pasar_asistencia(request):
                     alumno_nombre = getattr(alumno, "nombre", "") or str(getattr(alumno, "id_alumno", "")) or "Alumno"
                 titulo = f"Inasistencia registrada: {alumno_nombre}"
                 course_name = _notification_course_name(alumno=alumno)
-                descripcion = f"Alumno: {alumno_nombre} Â· Curso: {course_name or 's/d'} Â· Fecha: {fecha_actual.isoformat()}"
+                descripcion = f"Alumno: {alumno_nombre} · Curso: {course_name or 's/d'} · Fecha: {fecha_actual.isoformat()}"
                 for dest in destinatarios:
                     Notificacion.objects.create(
                         school=active_school or getattr(alumno, "school", None),
@@ -2674,16 +2674,16 @@ def perfil_alumno(request, alumno_id):
         except Exception:
             pass
 
-    # âœ… NUEVO: permitir preceptor si el curso coincide
+    # ✅ NUEVO: permitir preceptor si el curso coincide
     is_preceptor_ok = (
         ("Directivos" in viewer_groups)
         or (("Preceptores" in viewer_groups) and _preceptor_can_access_alumno(request.user, alumno))
     )
 
     if not (is_padre or is_prof_or_super or is_alumno_mismo or is_preceptor_ok):
-        return HttpResponse("No tenÃ©s permiso para ver este perfil.", status=403)
+        return HttpResponse("No tenés permiso para ver este perfil.", status=403)
 
-    # âœ… NUEVO: contamos ausentes como 1 y "tarde" como 0.5
+    # ✅ NUEVO: contamos ausentes como 1 y "tarde" como 0.5
     asistencias_base_qs = scope_queryset_to_school(Asistencia.objects.filter(alumno=alumno), active_school)
     asistencias_irregulares = asistencias_base_qs.filter(
         Q(presente=False) | Q(tarde=True)
@@ -2710,7 +2710,7 @@ def perfil_alumno(request, alumno_id):
 @login_required
 def mi_perfil(request):
     """
-    VersiÃ³n minimal del perfil del usuario autenticado.
+    Versión minimal del perfil del usuario autenticado.
     """
     user = request.user
     viewer_groups = set(_effective_groups(request))
@@ -2744,7 +2744,7 @@ def mi_perfil(request):
 
 
 # =========================================================
-#  Logout de sesiÃ³n (complementa blacklist de JWT)
+#  Logout de sesión (complementa blacklist de JWT)
 # =========================================================
 @csrf_exempt
 @api_view(["POST"])
@@ -2752,7 +2752,7 @@ def mi_perfil(request):
 @permission_classes([AllowAny])
 def auth_logout(request):
     """
-    Cierra la sesiÃ³n de Django si la hubiera (cookie sessionid) y limpia cookies.
+    Cierra la sesión de Django si la hubiera (cookie sessionid) y limpia cookies.
     Para JWT, complementamos con /api/token/blacklist/ desde el front.
     """
     try:
@@ -2761,14 +2761,14 @@ def auth_logout(request):
     except Exception:
         pass
     resp = HttpResponse(status=204)
-    # Limpieza defensiva de cookies tÃ­picas
+    # Limpieza defensiva de cookies típicas
     resp.delete_cookie("sessionid")
     resp.delete_cookie("csrftoken")
     return clear_auth_cookies(resp)
 
 
 # =========================================================
-#  Cambiar contraseÃ±a (autenticado)
+#  Cambiar contraseña (autenticado)
 # =========================================================
 @api_view(["POST"])
 @authentication_classes([JWTAuthentication])
@@ -2783,10 +2783,10 @@ def auth_change_password(request):
     new = (data.get("new_password") or data.get("password_nueva") or "").strip()
 
     if not current or not new:
-        return Response({"detail": "CompletÃ¡ la contraseÃ±a actual y la nueva."}, status=400)
+        return Response({"detail": "Completá la contraseña actual y la nueva."}, status=400)
 
     if not user.check_password(current):
-        return Response({"detail": "La contraseÃ±a actual no coincide."}, status=400)
+        return Response({"detail": "La contraseña actual no coincide."}, status=400)
 
     try:
         validate_password(new, user=user)
@@ -2796,7 +2796,7 @@ def auth_change_password(request):
     user.set_password(new)
     user.save(update_fields=["password"])
 
-    # Revocar refresh tokens existentes si blacklist estÃ¡ habilitado
+    # Revocar refresh tokens existentes si blacklist está habilitado
     try:
         from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
         tokens = OutstandingToken.objects.filter(user=user)
@@ -2805,17 +2805,17 @@ def auth_change_password(request):
     except Exception:
         pass
 
-    # Mantener la sesiÃ³n de Django si estuviera usando cookies
+    # Mantener la sesión de Django si estuviera usando cookies
     try:
         update_session_auth_hash(request, user)
     except Exception:
         pass
 
-    return Response({"detail": "ContraseÃ±a actualizada."})
+    return Response({"detail": "Contraseña actualizada."})
 
 
 # =========================================================
-#  âœ… NUEVO: contador de no leÃ­dos para el badge de la topbar
+#  ✅ NUEVO: contador de no leídos para el badge de la topbar
 # =========================================================
 @api_view(["GET"])
 @authentication_classes([JWTAuthentication])

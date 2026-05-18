@@ -6,7 +6,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator, RegexVa
 
 
 # ============================================================
-# âœ… FIX: Validator requerido por migraciones viejas (0014/0015)
+# ✅ FIX: Validator requerido por migraciones viejas (0014/0015)
 # ============================================================
 def validate_calificacion_ext(value):
     """
@@ -19,11 +19,11 @@ def validate_calificacion_ext(value):
       - NO ENTREGADO
     """
     if value is None:
-        raise ValidationError("La calificaciÃ³n no puede estar vacÃ­a.")
+        raise ValidationError("La calificación no puede estar vacía.")
 
     s = str(value).strip()
     if not s:
-        raise ValidationError("La calificaciÃ³n no puede estar vacÃ­a.")
+        raise ValidationError("La calificación no puede estar vacía.")
 
     up = s.upper()
 
@@ -36,16 +36,16 @@ def validate_calificacion_ext(value):
     try:
         num = float(num_str)
     except Exception:
-        raise ValidationError("CalificaciÃ³n invÃ¡lida. UsÃ¡ 1-10 o TEA/TEP/TED/NO ENTREGADO.")
+        raise ValidationError("Calificación inválida. Usá 1-10 o TEA/TEP/TED/NO ENTREGADO.")
 
     if not (1 <= num <= 10):
-        raise ValidationError("La calificaciÃ³n numÃ©rica debe estar entre 1 y 10.")
+        raise ValidationError("La calificación numérica debe estar entre 1 y 10.")
 
     # hasta 2 decimales
     if "." in num_str:
         dec = num_str.split(".", 1)[1]
         if len(dec) > 2:
-            raise ValidationError("La calificaciÃ³n puede tener como mÃ¡ximo 2 decimales.")
+            raise ValidationError("La calificación puede tener como máximo 2 decimales.")
 
 
 HEX_COLOR_VALIDATOR = RegexValidator(
@@ -340,7 +340,7 @@ def ensure_school_course_for_save(instance, kwargs, *, field_name: str = "school
 
 
 class Alumno(models.Model):
-    # âœ… No achicamos curso a 2 porque tu DB ya tiene valores tipo 5NAT/4ECO, etc.
+    # ✅ No achicamos curso a 2 porque tu DB ya tiene valores tipo 5NAT/4ECO, etc.
     CURSOS = [
         # Formato corto
         ('1A', '1A'), ('1B', '1B'),
@@ -355,7 +355,7 @@ class Alumno(models.Model):
 
     nombre = models.CharField(max_length=100)
     apellido = models.CharField(max_length=100, default="", blank=True)
-    id_alumno = models.CharField(max_length=20, db_index=True)  # ID/Legajo Ãºnico por colegio
+    id_alumno = models.CharField(max_length=20, db_index=True)  # ID/Legajo único por colegio
     school = models.ForeignKey(
         School,
         on_delete=models.PROTECT,
@@ -367,7 +367,7 @@ class Alumno(models.Model):
         related_name="alumnos",
     )
 
-    # âœ… clave: max_length grande para NO romper al migrar
+    # ✅ clave: max_length grande para NO romper al migrar
     curso = models.CharField(max_length=20, choices=CURSOS, db_index=True)
 
     padre = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="alumnos_como_padre")
@@ -436,7 +436,7 @@ class Nota(models.Model):
     materia = models.CharField(max_length=50, choices=MATERIAS)
     tipo = models.CharField(max_length=50, choices=TIPOS)
 
-    # âœ… CLAVE: CharField para permitir "TEA/TEP/TED/NO ENTREGADO" y tambiÃ©n "7" / "8.50"
+    # ✅ CLAVE: CharField para permitir "TEA/TEP/TED/NO ENTREGADO" y también "7" / "8.50"
     calificacion = models.CharField(
         max_length=15,
         validators=[validate_calificacion_ext],
@@ -515,7 +515,7 @@ class Mensaje(models.Model):
         related_name="mensajes",
     )
 
-    # âœ… default para evitar prompts si hay filas viejas
+    # ✅ default para evitar prompts si hay filas viejas
     tipo_remitente = models.CharField(max_length=20, choices=REMITENTE_TIPOS, default="Profesor")
 
     asunto = models.CharField(max_length=255)
@@ -555,7 +555,7 @@ class Comunicado(models.Model):
     )
     remitente = models.ForeignKey(User, on_delete=models.CASCADE)
 
-    # âœ… max_length grande
+    # ✅ max_length grande
     curso = models.CharField(max_length=20, blank=True, null=True, db_index=True)
 
     titulo = models.CharField(max_length=255)
@@ -575,9 +575,9 @@ class Comunicado(models.Model):
 
 class Sancion(models.Model):
     TIPOS = [
-        ('AmonestaciÃ³n', 'AmonestaciÃ³n'),
-        ('Llamado de atenciÃ³n', 'Llamado de atenciÃ³n'),
-        ('SuspensiÃ³n', 'SuspensiÃ³n'),
+        ('Amonestación', 'Amonestación'),
+        ('Llamado de atención', 'Llamado de atención'),
+        ('Suspensión', 'Suspensión'),
     ]
 
     school = models.ForeignKey(
@@ -587,8 +587,8 @@ class Sancion(models.Model):
     )
     alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE, related_name="sanciones")
 
-    # âœ… default para evitar prompts
-    tipo = models.CharField(max_length=50, choices=TIPOS, default="AmonestaciÃ³n")
+    # ✅ default para evitar prompts
+    tipo = models.CharField(max_length=50, choices=TIPOS, default="Amonestación")
 
     motivo = models.TextField()
     detalle = models.TextField(blank=True, null=True)
@@ -616,10 +616,10 @@ class Sancion(models.Model):
 
 
 TIPOS_EVENTO = [
-    ('EvaluaciÃ³n', 'EvaluaciÃ³n'),
+    ('Evaluación', 'Evaluación'),
     ('Entrega', 'Entrega'),
     ('Acto', 'Acto'),
-    ('ReuniÃ³n', 'ReuniÃ³n'),
+    ('Reunión', 'Reunión'),
     ('Otro', 'Otro'),
 ]
 
@@ -638,7 +638,7 @@ class Evento(models.Model):
     titulo = models.CharField(max_length=255)
     descripcion = models.TextField(blank=True, null=True)
 
-    # âœ… max_length grande (no varchar(2))
+    # ✅ max_length grande (no varchar(2))
     curso = models.CharField(max_length=20, choices=Alumno.CURSOS, db_index=True)
 
     fecha = models.DateField()
@@ -667,7 +667,7 @@ class Evento(models.Model):
 # =========================
 TIPOS_ASISTENCIA = (
     ("clases", "Clases"),
-    ("informatica", "InformÃ¡tica"),
+    ("informatica", "Informática"),
     ("catequesis", "Catequesis"),
 )
 
@@ -701,7 +701,7 @@ class Asistencia(models.Model):
         related_name="asistencias_firmadas",
     )
 
-    # âœ… default=timezone.now evita prompts de auto_now_add en tablas con filas existentes
+    # ✅ default=timezone.now evita prompts de auto_now_add en tablas con filas existentes
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -867,7 +867,7 @@ class AlertaInasistencia(models.Model):
 class Notificacion(models.Model):
     TIPO_CHOICES = [
         ("nota", "Nota"),
-        ("sancion", "SanciÃ³n"),
+        ("sancion", "Sanción"),
         ("inasistencia", "Inasistencia"),
         ("mensaje", "Mensaje"),
         ("evento", "Evento"),

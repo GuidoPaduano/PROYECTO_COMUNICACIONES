@@ -251,7 +251,7 @@ class AdminSchoolCourseConfigTests(TestCase):
         self.sancion = Sancion.objects.create(
             school=self.school,
             alumno=self.alumno,
-            tipo="AmonestaciÃ³n",
+            tipo="Amonestación",
             motivo="Observacion",
             fecha="2026-03-27",
             docente="Preceptor",

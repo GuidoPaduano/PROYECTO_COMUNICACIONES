@@ -569,7 +569,7 @@ def _resolver_destinatarios_notif(alumno: Alumno):
     except Exception:
         pass
 
-    # Ultimo intento si no hubo destinatarios
+    # Último intento si no hubo destinatarios
     if not destinatarios:
         try:
             u_fb, _src = _resolver_padre_destinatario(alumno)
@@ -925,19 +925,19 @@ class CrearNotasMasivo(APIView):
             if not materia:
                 row_err.setdefault('materia', []).append('Materia requerida.')
             elif allowed_materias_map and materia_canon is None:
-                row_err.setdefault('materia', []).append('Materia invalida.')
+                row_err.setdefault('materia', []).append('Materia inválida.')
             else:
                 materia = materia_canon or materia
 
             if not tipo:
                 row_err.setdefault('tipo', []).append('Tipo requerido.')
             elif allowed_tipos_map and tipo_canon is None:
-                row_err.setdefault('tipo', []).append('Tipo invalido.')
+                row_err.setdefault('tipo', []).append('Tipo inválido.')
             else:
                 tipo = tipo_canon or tipo
 
             if resultado and resultado not in {"TEA", "TEP", "TED"}:
-                row_err.setdefault("resultado", []).append("Resultado invalido. Usa TEA, TEP o TED.")
+                row_err.setdefault("resultado", []).append("Resultado inválido. Usá TEA, TEP o TED.")
 
             if nota_numerica_raw not in (None, "") and nota_numerica is None:
                 row_err.setdefault("nota_numerica", []).append("La nota_numerica debe estar entre 1 y 10.")
@@ -966,7 +966,7 @@ class CrearNotasMasivo(APIView):
 
             if (not calif) and (not resultado) and (nota_numerica is None):
                 row_err.setdefault("resultado", []).append(
-                    "Debes informar resultado, nota_numerica o calificacion."
+                    "Debés informar resultado, nota_numerica o calificacion."
                 )
 
             try:

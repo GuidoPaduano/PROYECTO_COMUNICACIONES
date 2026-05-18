@@ -204,7 +204,7 @@ class SchoolContextApiTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 401)
-        self.assertEqual(res.json()["detail"], "Selecciona un colegio antes de iniciar sesion.")
+        self.assertEqual(res.json()["detail"], "Seleccioná un colegio antes de iniciar sesión.")
         self.assertNotIn("access_token", res.cookies)
         self.assertNotIn("refresh_token", res.cookies)
 
@@ -324,3 +324,32 @@ class SchoolContextApiTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
         self.assertFalse(School.objects.filter(name="Colegio Bloqueado").exists())
+
+    def test_superuser_puede_borrar_colegio_sin_dependencias(self):
+        self.client.force_authenticate(user=self.superuser)
+        school = School.objects.create(
+            name="Colegio Borrable",
+            short_name="Borrable",
+            slug="colegio-borrable",
+            logo_url="",
+            primary_color="#112233",
+            accent_color="#445566",
+        )
+
+        res = self.client.delete(f"/api/admin/schools/{school.id}/")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(School.objects.filter(pk=school.id).exists())
+        self.assertEqual(res.json()["deleted_id"], school.id)
+
+    def test_superuser_no_puede_borrar_colegio_con_dependencias(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        res = self.client.delete(f"/api/admin/schools/{self.school_a.id}/")
+
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(School.objects.filter(pk=self.school_a.id).exists())
+        self.assertEqual(
+            res.json()["detail"],
+            "No se puede borrar el colegio porque tiene cursos, alumnos u otros datos asociados.",
+        )

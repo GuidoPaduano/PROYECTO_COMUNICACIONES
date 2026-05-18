@@ -282,7 +282,7 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_REFERRER_POLICY = "same-origin"
 
-# Alertas academicas por notas
+# Alertas académicas por notas
 ALERTAS_ACADEMICAS_VENTANA_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_VENTANA_DIAS", "45"))
 ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA = os.environ.get("ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", "False") == "True"
 # No hay worker diferido para inasistencias; si no se evalúan al guardar,
