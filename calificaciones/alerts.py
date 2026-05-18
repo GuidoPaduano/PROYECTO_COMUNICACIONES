@@ -353,9 +353,9 @@ def _crear_notificaciones_alerta(*, alumno, destinatarios, severidad: int, riesg
 
     triggers_txt = ", ".join(k for k, v in trigger_map.items() if k.startswith(("A_", "B_", "C_", "D_")) and v) or "sin trigger"
     course_name = _course_display(alumno)
-    titulo = f"{alumno_nombre} necesita atencion academica"
+    titulo = f"{alumno_nombre} necesita atención académica"
     descripcion = (
-        f"Riesgo academico en {course_name}"
+        f"Riesgo académico en {course_name}"
         f" - Materia: {trigger_map.get('materia', '') or 'N/A'}"
         f" - R={riesgo:.2f}"
         f" - Triggers: {triggers_txt}"
@@ -400,7 +400,7 @@ def _enviar_email_alerta(*, alumno, destinatarios, severidad: int, riesgo: float
 
     triggers_txt = ", ".join(k for k, v in trigger_map.items() if k.startswith(("A_", "B_", "C_", "D_")) and v) or "sin trigger"
     course_name = _course_display(alumno)
-    subject = f"[Alerta academica] {alumno_nombre}"
+    subject = f"[Alerta académica] {alumno_nombre}"
     text = (
         f"Alumno: {alumno_nombre}\n"
         f"Curso: {course_name}\n"

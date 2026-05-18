@@ -1234,7 +1234,7 @@ setMensajeSan("")
 
   if (blockAdminDashboard) {
     return (
-      <div className="surface-card surface-card-pad">Redirigiendo al panel de administracion...</div>
+      <div className="surface-card surface-card-pad">Redirigiendo al panel de administración...</div>
     )
   }
 
@@ -1553,7 +1553,7 @@ setMensajeSan("")
       <Dialog open={openSan} onOpenChange={setOpenSan}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Nueva sancion disciplinaria</DialogTitle>
+            <DialogTitle>Nueva sanción disciplinaria</DialogTitle>
             <DialogDescription>
               Seleccioná curso y alumno, y escribí el motivo.
             </DialogDescription>
@@ -1938,7 +1938,7 @@ function ProfesorInicio({
                   }}
                 >
                   <Gavel className="h-4 w-4 mr-2" />
-                  Nueva sancion
+                  Nueva sanción
                 </Button>
               </div>
             </CardContent>
@@ -2031,7 +2031,7 @@ function AlertasAcademicasCard({ alertas, loading }) {
             <ClipboardList className="h-6 w-6 text-amber-700" />
           </div>
           <div>
-            <h3 className="tile-title">Atencion academica</h3>
+            <h3 className="tile-title">Atención académica</h3>
             <p className="tile-subtitle">Alumnos detectados en alerta</p>
           </div>
         </div>
@@ -2039,7 +2039,7 @@ function AlertasAcademicasCard({ alertas, loading }) {
         {loading ? (
           <p className="text-sm text-slate-500">Cargando alertas...</p>
         ) : !Array.isArray(alertas) || alertas.length === 0 ? (
-          <p className="text-sm text-slate-500">No hay alumnos en alerta academica.</p>
+          <p className="text-sm text-slate-500">No hay alumnos en alerta académica.</p>
         ) : (
           <div className="space-y-3">
             {visibleAlertas.map((it, idx) => {

@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.db.models import Count, Q
 from django.utils.text import slugify
 from django.contrib.auth import get_user_model
@@ -13,18 +14,70 @@ from .models_preceptores import SchoolAdmin
 from .schools import (
     get_available_school_dicts_for_user,
     get_default_school,
+    get_request_school,
     get_school_by_identifier,
     get_request_host_school,
     school_to_dict,
     schools_to_dicts,
 )
 from .utils_cursos import clear_school_course_cache, get_school_course_choices
+from .user_groups import get_user_group_names
 
 User = get_user_model()
 
 
 def _require_platform_admin(user):
     return bool(getattr(user, "is_authenticated", False) and getattr(user, "is_superuser", False))
+
+
+def _is_school_admin(user) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    groups = set(get_user_group_names(user))
+    if not groups.intersection({"Administradores", "Administrador"}):
+        return False
+    try:
+        from .models_preceptores import SchoolAdmin
+    except Exception:
+        return False
+    try:
+        return SchoolAdmin.objects.filter(admin=user).exists()
+    except Exception:
+        return False
+
+
+def _require_school_course_admin(user):
+    return bool(getattr(user, "is_authenticated", False) and _is_school_admin(user))
+
+
+def _user_can_manage_school_courses(user, school: School | None) -> bool:
+    if school is None:
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    try:
+        return SchoolAdmin.objects.filter(admin=user, school=school).exists()
+    except Exception:
+        return False
+
+
+def _resolve_course_admin_scope(request):
+    if not _require_school_course_admin(getattr(request, "user", None)):
+        return None, Response({"detail": "No autorizado."}, status=403)
+
+    active_school = get_request_school(request)
+    if active_school is None and getattr(request.user, "is_superuser", False):
+        active_school = (
+            School.objects.filter(is_active=True).order_by("name", "id").first()
+            or School.objects.order_by("name", "id").first()
+        )
+    if active_school is None:
+        return None, Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+
+    if not _user_can_manage_school_courses(request.user, active_school):
+        return None, Response({"detail": "No autorizado para el colegio activo."}, status=403)
+
+    return active_school, None
 
 
 def _admin_school_to_dict(school: School) -> dict:
@@ -117,6 +170,22 @@ def _school_courses_to_dict(school: School) -> dict:
         {
             "courses": [_admin_course_to_dict(course) for course in courses],
             "courses_count": len(courses),
+        }
+    )
+    return data
+
+
+def _school_with_courses_to_dict(school: School) -> dict:
+    school.courses_count = int(getattr(school, "courses_count", 0) or 0)
+    school.students_count = int(getattr(school, "students_count", 0) or 0)
+    data = _admin_school_to_dict(school)
+    prefetched_courses = getattr(school, "_prefetched_admin_courses", None)
+    if prefetched_courses is None:
+        return _school_courses_to_dict(school)
+    data.update(
+        {
+            "courses": [_admin_course_to_dict(course) for course in prefetched_courses],
+            "courses_count": len(prefetched_courses),
         }
     )
     return data
@@ -309,7 +378,7 @@ def admin_create_school(request):
     )
 
 
-@api_view(["PATCH", "PUT"])
+@api_view(["PATCH", "PUT", "DELETE"])
 @permission_classes([IsAuthenticated])
 def admin_update_school(request, school_id: int):
     if not _require_platform_admin(request.user):
@@ -318,6 +387,32 @@ def admin_update_school(request, school_id: int):
     school = School.objects.filter(pk=school_id).first()
     if school is None:
         return Response({"detail": "Colegio no encontrado."}, status=404)
+
+    if request.method == "DELETE":
+        try:
+            school.delete()
+        except ProtectedError:
+            return Response(
+                {
+                    "detail": "No se puede borrar el colegio porque tiene cursos, alumnos u otros datos asociados."
+                },
+                status=400,
+            )
+
+        next_active_school = (
+            School.objects.filter(is_active=True).order_by("name", "id").first()
+            or School.objects.order_by("name", "id").first()
+        )
+        return Response(
+            {
+                "deleted_id": school_id,
+                "available_schools": get_available_school_dicts_for_user(
+                    request.user,
+                    active_school=next_active_school,
+                ),
+            },
+            status=200,
+        )
 
     payload = _school_payload_from_request(request, instance=school)
     if not payload.get("slug"):
@@ -420,14 +515,35 @@ def admin_update_school_admins(request, school_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def admin_school_courses(request):
-    if not _require_platform_admin(request.user):
-        return Response({"detail": "No autorizado."}, status=403)
+    active_school, denied = _resolve_course_admin_scope(request)
+    if denied is not None:
+        return denied
+
+    if not getattr(request.user, "is_superuser", False):
+        school = (
+            School.objects.filter(pk=getattr(active_school, "id", None))
+            .annotate(
+                courses_count=Count("courses", distinct=True),
+                students_count=Count("alumnos", distinct=True),
+            )
+            .first()
+        )
+        if school is None:
+            return Response({"detail": "Colegio no encontrado."}, status=404)
+
+        school._prefetched_admin_courses = list(
+            SchoolCourse.objects.filter(school=school)
+            .annotate(students_count=Count("alumnos", distinct=True))
+            .order_by("sort_order", "name", "id")
+        )
+        return Response({"schools": [_school_with_courses_to_dict(school)]}, status=200)
 
     query = str(request.GET.get("q") or "").strip()
     schools_qs = School.objects.annotate(
         courses_count=Count("courses", distinct=True),
         students_count=Count("alumnos", distinct=True),
     ).order_by("name", "id")
+
     if query:
         schools_qs = schools_qs.filter(
             Q(name__icontains=query)
@@ -446,12 +562,15 @@ def admin_school_courses(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def admin_create_school_course(request, school_id: int):
-    if not _require_platform_admin(request.user):
-        return Response({"detail": "No autorizado."}, status=403)
+    active_school, denied = _resolve_course_admin_scope(request)
+    if denied is not None:
+        return denied
 
     school = School.objects.filter(pk=school_id).first()
     if school is None:
         return Response({"detail": "Colegio no encontrado."}, status=404)
+    if not getattr(request.user, "is_superuser", False) and getattr(active_school, "id", None) != school.id:
+        return Response({"detail": "Solo podes crear cursos en el colegio activo."}, status=403)
 
     payload = _course_payload_from_request(request)
     if not payload["code"]:
@@ -475,12 +594,15 @@ def admin_create_school_course(request, school_id: int):
 @api_view(["PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def admin_update_school_course(request, course_id: int):
-    if not _require_platform_admin(request.user):
-        return Response({"detail": "No autorizado."}, status=403)
+    active_school, denied = _resolve_course_admin_scope(request)
+    if denied is not None:
+        return denied
 
     course = SchoolCourse.objects.select_related("school").filter(pk=course_id).first()
     if course is None:
         return Response({"detail": "Curso no encontrado."}, status=404)
+    if not getattr(request.user, "is_superuser", False) and getattr(active_school, "id", None) != getattr(course.school, "id", None):
+        return Response({"detail": "Solo podes editar cursos del colegio activo."}, status=403)
 
     payload = _course_payload_from_request(request, instance=course)
     if not payload["code"]:

@@ -1,6 +1,6 @@
 "use client"
 
-import { FolderCog, KeyRound, UserPlus } from "lucide-react"
+import { FolderCog, KeyRound, Layers3, UserPlus } from "lucide-react"
 
 import { useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
@@ -38,6 +38,13 @@ export default function AdminColegioPage() {
           description: "Crea usuarios reales para el colegio activo y vincula alumnos, tutores o personal institucional.",
           href: "/admin/colegio/nuevo-usuario",
           icon: <UserPlus className="h-6 w-6" />,
+          external: false,
+        },
+        {
+          title: "Cursos por colegio",
+          description: "Administra el catalogo de cursos del colegio activo, sin salir del alcance de esta sesion.",
+          href: "/admin/colegio/cursos",
+          icon: <Layers3 className="h-6 w-6" />,
           external: false,
         },
       ]

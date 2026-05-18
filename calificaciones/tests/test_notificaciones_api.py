@@ -24,7 +24,7 @@ class NotificacionesApiContractTests(TestCase):
             destinatario=self.user,
             tipo="mensaje",
             titulo="Mensaje 1",
-            descripcion="Primera notificacion",
+            descripcion="Primera notificación",
             leida=False,
         )
         self.notif_2 = Notificacion.objects.create(
@@ -32,7 +32,7 @@ class NotificacionesApiContractTests(TestCase):
             destinatario=self.user,
             tipo="evento",
             titulo="Evento 1",
-            descripcion="Segunda notificacion",
+            descripcion="Segunda notificación",
             leida=False,
         )
         Notificacion.objects.create(

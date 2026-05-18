@@ -41,7 +41,7 @@ class CustomUserCreationForm(UserCreationForm):
 
 
 class NotaForm(forms.ModelForm):
-    """Formulario HTML de carga de notas con esquema TEA/TEP/TED + numerica opcional."""
+    """Formulario HTML de carga de notas con esquema TEA/TEP/TED + numérica opcional."""
 
     resultado = forms.ChoiceField(
         required=False,
@@ -114,7 +114,7 @@ class NotaForm(forms.ModelForm):
                 calificacion = str(nota_numerica).rstrip("0").rstrip(".")
 
         if not resultado and nota_numerica in (None, "") and not calificacion:
-            raise forms.ValidationError("Debes cargar resultado o nota numerica.")
+            raise forms.ValidationError("Debés cargar resultado o nota numérica.")
 
         cleaned["calificacion"] = calificacion
         return cleaned
@@ -150,7 +150,7 @@ class EventoForm(forms.ModelForm):
         model = Evento
         fields = ["titulo", "descripcion", "fecha", "tipo_evento"]
         widgets = {
-            "titulo": forms.TextInput(attrs={"class": "form-control", "placeholder": "Ej. Examen de Matematica"}),
+            "titulo": forms.TextInput(attrs={"class": "form-control", "placeholder": "Ej. Examen de Matemática"}),
             "descripcion": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "fecha": forms.DateInput(attrs={"type": "date", "class": "form-control"}),
             "tipo_evento": forms.Select(attrs={"class": "form-control"}),

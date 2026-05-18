@@ -391,7 +391,7 @@ def alumno_enviar(request):
     with transaction.atomic():
         msg = Mensaje.objects.create(**kwargs)
 
-    # Notificacion campanita para el docente/preceptor receptor
+    # Notificación campanita para el docente/preceptor receptor
     try:
         contenido_corto = (contenido[:160] + "...") if len(contenido) > 160 else contenido
         url = "/mensajes"

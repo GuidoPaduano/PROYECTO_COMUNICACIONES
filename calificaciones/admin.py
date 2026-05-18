@@ -60,7 +60,7 @@ class SchoolAdmin(admin.ModelAdmin):
             "Branding",
             {
                 "fields": ("logo_url", "logo_preview", "primary_color", "accent_color", "branding_palette_preview"),
-                "description": "Configuracion visual usada por login, sidebar y encabezados.",
+                "description": "Configuración visual usada por login, sidebar y encabezados.",
             },
         ),
     )

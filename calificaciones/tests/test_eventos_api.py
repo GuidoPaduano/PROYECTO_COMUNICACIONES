@@ -197,9 +197,9 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.post(
             "/api/eventos/",
             {
-                "titulo": "Reunion Norte bloqueada",
+                "titulo": "Reunión Norte bloqueada",
                 "fecha": "2026-03-30",
-                "descripcion": "Sin asignacion",
+                "descripcion": "Sin asignación",
                 "school_course_id": self.school_course_a.id,
                 "tipo_evento": "Acto",
             },
@@ -208,7 +208,7 @@ class EventosSchoolScopingTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["detail"], "No tenés permiso para crear eventos en este curso.")
-        self.assertFalse(Evento.objects.filter(titulo="Reunion Norte bloqueada").exists())
+        self.assertFalse(Evento.objects.filter(titulo="Reunión Norte bloqueada").exists())
 
     def test_staff_sin_rol_no_puede_crear_evento(self):
         self.client.force_authenticate(user=self.staff_sin_rol)
@@ -216,7 +216,7 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.post(
             "/api/eventos/",
             {
-                "titulo": "Evento staff invalido",
+                "titulo": "Evento staff inválido",
                 "fecha": "2026-03-30",
                 "descripcion": "Sin rol",
                 "school_course_id": self.school_course_a.id,
@@ -228,7 +228,7 @@ class EventosSchoolScopingTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["detail"], "No autorizado.")
-        self.assertFalse(Evento.objects.filter(titulo="Evento staff invalido").exists())
+        self.assertFalse(Evento.objects.filter(titulo="Evento staff inválido").exists())
 
     def test_crear_evento_asigna_school_y_notifica_solo_destinatarios_del_school(self):
         self.client.force_authenticate(user=self.profesor)
@@ -236,9 +236,9 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.post(
             "/api/eventos/",
             {
-                "titulo": "Reunion Norte",
+                "titulo": "Reunión Norte",
                 "fecha": "2026-03-21",
-                "descripcion": "Reunion de curso",
+                "descripcion": "Reunión de curso",
                 "school_course_id": self.school_course_a.id,
                 "tipo_evento": "Acto",
             },
@@ -246,7 +246,7 @@ class EventosSchoolScopingTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 201)
-        evento = Evento.objects.get(titulo="Reunion Norte")
+        evento = Evento.objects.get(titulo="Reunión Norte")
         self.assertEqual(evento.school_id, self.school_a.id)
         self.assertEqual(evento.school_course_id, self.school_course_a.id)
         self.assertEqual(evento.creado_por_id, self.profesor.id)
@@ -267,9 +267,9 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.post(
             "/api/eventos/",
             {
-                "titulo": "Reunion Legacy",
+                "titulo": "Reunión Legacy",
                 "fecha": "2026-03-21",
-                "descripcion": "Reunion con curso legacy",
+                "descripcion": "Reunión con curso legacy",
                 "curso": "1A",
                 "tipo_evento": "Acto",
             },
@@ -288,9 +288,9 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.post(
             "/api/eventos/",
             {
-                "titulo": "Reunion Norte por id",
+                "titulo": "Reunión Norte por id",
                 "fecha": "2026-03-24",
-                "descripcion": "Reunion de curso por school_course_id",
+                "descripcion": "Reunión de curso por school_course_id",
                 "school_course_id": self.school_course_a.id,
                 "tipo_evento": "Acto",
             },
@@ -298,7 +298,7 @@ class EventosSchoolScopingTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 201)
-        evento = Evento.objects.get(titulo="Reunion Norte por id")
+        evento = Evento.objects.get(titulo="Reunión Norte por id")
         self.assertEqual(evento.curso, "1A")
         self.assertEqual(evento.school_course_id, self.school_course_a.id)
 
@@ -413,7 +413,7 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.post(
             "/api/eventos/",
             {
-                "titulo": "Reunion 2A",
+                "titulo": "Reunión 2A",
                 "fecha": "2026-03-26",
                 "descripcion": "Evento fuera de curso",
                 "school_course_id": self.school_course_a_2.id,
@@ -423,8 +423,8 @@ class EventosSchoolScopingTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenÃ©s permiso para crear eventos en este curso.")
-        self.assertFalse(Evento.objects.filter(titulo="Reunion 2A").exists())
+        self.assertEqual(res.json()["detail"], "No tenés permiso para crear eventos en este curso.")
+        self.assertFalse(Evento.objects.filter(titulo="Reunión 2A").exists())
 
     def test_preceptor_sin_asignacion_no_puede_listar_eventos(self):
         Evento.objects.create(
@@ -462,7 +462,7 @@ class EventosSchoolScopingTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenÃ©s permiso para editar eventos de este curso.")
+        self.assertEqual(res.json()["detail"], "No tenés permiso para editar eventos de este curso.")
         evento.refresh_from_db()
         self.assertEqual(evento.titulo, "Evento 2A")
 
@@ -538,7 +538,7 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.delete(f"/api/eventos/eliminar/{evento.id}/")
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenÃ©s permiso para eliminar eventos de este curso.")
+        self.assertEqual(res.json()["detail"], "No tenés permiso para eliminar eventos de este curso.")
         self.assertTrue(Evento.objects.filter(id=evento.id).exists())
 
 
@@ -578,7 +578,7 @@ class EventoSerializerContractTests(TestCase):
             school=school,
             school_course=school_course,
             titulo="Acto",
-            descripcion="Descripcion",
+            descripcion="Descripción",
             curso="1A",
             fecha="2026-03-28",
             tipo_evento="Acto",

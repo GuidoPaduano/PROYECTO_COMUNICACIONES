@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Building2, CheckCircle2, RefreshCw, Save, Search } from "lucide-react"
+import { ArrowLeft, Building2, CheckCircle2, MoreHorizontal, RefreshCw, Save, Search, Trash2 } from "lucide-react"
 
 import {
   DEFAULT_SCHOOL_ACCENT_COLOR,
@@ -17,6 +17,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Table,
   TableBody,
@@ -78,6 +92,9 @@ export default function ColegiosPage() {
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState("")
+  const [openMenuId, setOpenMenuId] = useState("")
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
 
@@ -187,6 +204,44 @@ export default function ColegiosPage() {
     }
   }
 
+  const deleteSchool = async (school) => {
+    if (!school?.id) return
+
+    setDeletingId(String(school.id))
+    setError("")
+    setSuccess("")
+
+    try {
+      const res = await authFetch(`/admin/schools/${school.id}`, {
+        method: "DELETE",
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        setError(data?.detail || "No se pudo borrar el colegio.")
+        return
+      }
+
+      setSchools((current) => current.filter((item) => String(item.id) !== String(school.id)))
+      if (String(selectedId) === String(school.id)) {
+        setSelectedId("")
+        setForm(EMPTY_FORM)
+      }
+      syncSessionContext({
+        school: data?.available_schools?.[0] || null,
+        available_schools: data?.available_schools || [],
+        is_superuser: true,
+      })
+      setDeleteTarget(null)
+      setSuccess("Colegio borrado.")
+      await loadSchools({ keepSelection: true })
+    } catch {
+      setError("No se pudo conectar con el servidor.")
+    } finally {
+      setDeletingId("")
+    }
+  }
+
   if (loadingSession || !allowed) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
@@ -244,6 +299,7 @@ export default function ColegiosPage() {
                     <TableHead>Slug</TableHead>
                     <TableHead>Datos</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead className="w-[56px] text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -279,12 +335,51 @@ export default function ColegiosPage() {
                             {active ? "Activo" : "Inactivo"}
                           </span>
                         </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu
+                            open={openMenuId === String(school.id)}
+                            onOpenChange={(open) => {
+                              setOpenMenuId(open ? String(school.id) : "")
+                            }}
+                          >
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 cursor-pointer focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  if (!selected) setSelectedId(String(school.id))
+                                }}
+                                disabled={deletingId === String(school.id)}
+                                aria-label={`Acciones para ${school.name}`}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setOpenMenuId("")
+                                  setTimeout(() => setDeleteTarget(school), 0)
+                                }}
+                                disabled={deletingId === String(school.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                {deletingId === String(school.id) ? "Borrando..." : "Borrar colegio"}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
                       </TableRow>
                     )
                   })}
                   {!visibleSchools.length ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-8 text-center text-sm text-slate-500">
+                      <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
                         No hay colegios para mostrar.
                       </TableCell>
                     </TableRow>
@@ -400,6 +495,33 @@ export default function ColegiosPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => (!open ? setDeleteTarget(null) : null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Seguro que quiere borrar este colegio?</DialogTitle>
+            <DialogDescription>Esta accion es irreversible.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={!!deletingId}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => deleteSchool(deleteTarget)}
+              disabled={!deleteTarget || !!deletingId}
+            >
+              {deletingId ? "Borrando..." : "Borrar colegio"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

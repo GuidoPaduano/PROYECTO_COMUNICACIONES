@@ -13,31 +13,31 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='asistencia',
             name='tipo_asistencia',
-            field=models.CharField(choices=[('clases', 'Clases'), ('informatica', 'InformÃ¡tica'), ('catequesis', 'Catequesis')], db_index=True, default='clases', max_length=20),
+            field=models.CharField(choices=[('clases', 'Clases'), ('informatica', 'Informática'), ('catequesis', 'Catequesis')], db_index=True, default='clases', max_length=20),
         ),
         migrations.AlterField(
             model_name='evento',
             name='tipo_evento',
-            field=models.CharField(choices=[('EvaluaciÃ³n', 'EvaluaciÃ³n'), ('Entrega', 'Entrega'), ('Acto', 'Acto'), ('ReuniÃ³n', 'ReuniÃ³n'), ('Otro', 'Otro')], default='Otro', max_length=50),
+            field=models.CharField(choices=[('Evaluación', 'Evaluación'), ('Entrega', 'Entrega'), ('Acto', 'Acto'), ('Reunión', 'Reunión'), ('Otro', 'Otro')], default='Otro', max_length=50),
         ),
         migrations.AlterField(
             model_name='nota',
             name='materia',
-            field=models.CharField(choices=[('Lengua', 'Lengua'), ('MatemÃ¡tica', 'MatemÃ¡tica'), ('Ciencias', 'Ciencias'), ('Historia', 'Historia'), ('GeografÃ\xada', 'GeografÃ\xada'), ('InglÃ©s', 'InglÃ©s'), ('EducaciÃ³n FÃ\xadsica', 'EducaciÃ³n FÃ\xadsica'), ('MÃºsica', 'MÃºsica'), ('PlÃ¡stica', 'PlÃ¡stica'), ('Catequesis', 'Catequesis'), ('InformÃ¡tica', 'InformÃ¡tica')], max_length=50),
+            field=models.CharField(choices=[('Lengua', 'Lengua'), ('Matemática', 'Matemática'), ('Ciencias', 'Ciencias'), ('Historia', 'Historia'), ('Geografía', 'Geografía'), ('Inglés', 'Inglés'), ('Educación Física', 'Educación Física'), ('Música', 'Música'), ('Plástica', 'Plástica'), ('Catequesis', 'Catequesis'), ('Informática', 'Informática')], max_length=50),
         ),
         migrations.AlterField(
             model_name='nota',
             name='tipo',
-            field=models.CharField(choices=[('Examen', 'Examen'), ('Trabajo PrÃ¡ctico', 'Trabajo PrÃ¡ctico'), ('ParticipaciÃ³n', 'ParticipaciÃ³n'), ('Tarea', 'Tarea')], max_length=50),
+            field=models.CharField(choices=[('Examen', 'Examen'), ('Trabajo Práctico', 'Trabajo Práctico'), ('Participación', 'Participación'), ('Tarea', 'Tarea')], max_length=50),
         ),
         migrations.AlterField(
             model_name='notificacion',
             name='tipo',
-            field=models.CharField(choices=[('nota', 'Nota'), ('sancion', 'SanciÃ³n'), ('inasistencia', 'Inasistencia'), ('mensaje', 'Mensaje'), ('evento', 'Evento'), ('otro', 'Otro')], db_index=True, max_length=30),
+            field=models.CharField(choices=[('nota', 'Nota'), ('sancion', 'Sanción'), ('inasistencia', 'Inasistencia'), ('mensaje', 'Mensaje'), ('evento', 'Evento'), ('otro', 'Otro')], db_index=True, max_length=30),
         ),
         migrations.AlterField(
             model_name='sancion',
             name='tipo',
-            field=models.CharField(choices=[('AmonestaciÃ³n', 'AmonestaciÃ³n'), ('Llamado de atenciÃ³n', 'Llamado de atenciÃ³n'), ('SuspensiÃ³n', 'SuspensiÃ³n')], default='AmonestaciÃ³n', max_length=50),
+            field=models.CharField(choices=[('Amonestación', 'Amonestación'), ('Llamado de atención', 'Llamado de atención'), ('Suspensión', 'Suspensión')], default='Amonestación', max_length=50),
         ),
     ]

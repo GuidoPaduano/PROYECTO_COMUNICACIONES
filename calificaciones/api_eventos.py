@@ -784,7 +784,7 @@ def eventos_listar(request):
             include_all_markers=True,
         )
         if course_q is None:
-            return Response({"detail": "Curso invÃ¡lido."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Curso inválido."}, status=status.HTTP_400_BAD_REQUEST)
         qs = qs.filter(course_q)
 
     qs = qs.order_by("fecha", "id")
@@ -856,7 +856,7 @@ def eventos_crear(request):
             )
             if not cursos_all:
                 return Response(
-                    {"detail": "No tenÃ©s cursos asignados para crear eventos."},
+                    {"detail": "No tenés cursos asignados para crear eventos."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
         elif not _preceptor_puede_ver_curso(
@@ -866,7 +866,7 @@ def eventos_crear(request):
             school_course=school_course,
         ):
             return Response(
-                {"detail": "No tenÃ©s permiso para crear eventos en este curso."},
+                {"detail": "No tenés permiso para crear eventos en este curso."},
                 status=status.HTTP_403_FORBIDDEN,
             )
     if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
@@ -954,7 +954,7 @@ def eventos_editar(request, pk: int):
             school_course=getattr(ev, "school_course", None),
         ):
             return Response(
-                {"detail": "No tenÃ©s permiso para editar eventos de este curso."},
+                {"detail": "No tenés permiso para editar eventos de este curso."},
                 status=status.HTTP_403_FORBIDDEN,
             )
     if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
@@ -1008,7 +1008,7 @@ def eventos_editar(request, pk: int):
                 school_course=school_course_nuevo,
             ):
                 return Response(
-                    {"detail": "No tenÃ©s permiso para asignar este curso al evento."},
+                    {"detail": "No tenés permiso para asignar este curso al evento."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
         if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
@@ -1061,7 +1061,7 @@ def eventos_eliminar(request, pk: int):
             school_course=getattr(ev, "school_course", None),
         ):
             return Response(
-                {"detail": "No tenÃ©s permiso para eliminar eventos de este curso."},
+                {"detail": "No tenés permiso para eliminar eventos de este curso."},
                 status=status.HTTP_403_FORBIDDEN,
             )
     if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):

@@ -851,7 +851,7 @@ def reportes_materia_curso(request, id_materia: str, curso: str):
 
     materia = _resolve_materia(id_materia)
     if not materia:
-        return Response({"detail": "Materia invalida."}, status=404)
+        return Response({"detail": "Materia inválida."}, status=404)
 
     if role != "Superuser":
         cursos_habilitados = _resolve_profesor_cursos(user, school=active_school)

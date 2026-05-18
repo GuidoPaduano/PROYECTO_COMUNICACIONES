@@ -250,7 +250,7 @@ export default function ComposeComunicadoFamilia({
     return () => { alive = false }
   }, [open, cursoSel, schoolCourseIdSel])
 
-  // En modo "alumno", aseguramos que haya una seleccion valida si hay alumnos cargados.
+  // En modo "alumno", aseguramos que haya una selección válida si hay alumnos cargados.
   useEffect(() => {
     if (modo !== "alumno") return
     if (!alumnos.length) {

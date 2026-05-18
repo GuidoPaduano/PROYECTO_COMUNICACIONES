@@ -233,6 +233,7 @@ export function AppShell({
   const showSchoolSwitcher = useMemo(
     () =>
       !!isSuper &&
+      !pathname?.startsWith("/admin/colegio") &&
       !pathname?.startsWith("/admin/plataforma") &&
       Array.isArray(availableSchools) &&
       availableSchools.length > 1,

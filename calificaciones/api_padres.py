@@ -63,7 +63,7 @@ def _serialize_notas_public(qs):
 def mis_hijos(request):
     """
     Devuelve los alumnos vinculados al usuario padre autenticado.
-    Compatible con JWT (authFetch) y sesion.
+    Compatible con JWT (authFetch) y sesión.
     """
     active_school = get_request_school(request)
     cache_key = _mis_hijos_cache_key(
