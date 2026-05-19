@@ -201,6 +201,28 @@ class AdminStaffApiTests(TestCase):
         self.assertTrue(usuario.groups.filter(name="Administradores").exists())
         self.assertTrue(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
 
+    def test_post_permite_crear_usuario_con_contrasena_corta(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "Ana",
+                "last_name": "Corta",
+                "username": "ana_corta",
+                "email": "ana.corta@example.com",
+                "password": "1",
+                "password_confirm": "1",
+                "role": "Administradores",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 201)
+
+        usuario = get_user_model().objects.get(username="ana_corta")
+        self.assertTrue(usuario.check_password("1"))
+        self.assertTrue(usuario.groups.filter(name="Administradores").exists())
+        self.assertTrue(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
+
     def test_patch_directivo_limpia_asignaciones_del_colegio_activo(self):
         usuario = _make_user("usuario_directivo")
         usuario.groups.add(self.prof_group)

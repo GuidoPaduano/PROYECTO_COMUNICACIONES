@@ -317,10 +317,6 @@ export default function Profile() {
       showToast("error", "Completá la contraseña actual y la nueva.");
       return;
     }
-    if (newPassword.length < 6) {
-      showToast("error", "La contraseña nueva debe tener al menos 6 caracteres.");
-      return;
-    }
     if (newPassword !== confirmPassword) {
       showToast("error", "Las contraseñas nuevas no coinciden.");
       return;
