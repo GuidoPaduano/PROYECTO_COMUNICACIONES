@@ -313,6 +313,50 @@ class SchoolContextApiTests(TestCase):
         available_ids = {item["id"] for item in body["available_schools"]}
         self.assertIn(school.id, available_ids)
 
+    def test_superuser_no_puede_crear_colegio_con_nombre_duplicado_sin_importar_mayusculas(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        res = self.client.post(
+            "/api/admin/schools/",
+            {
+                "name": "colegio contexto norte",
+                "short_name": "Contexto Norte 2",
+                "logo_url": "/imagenes/contexto-norte-2.png",
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["errors"]["name"], ["Ya existe un colegio con ese nombre."])
+
+    def test_superuser_no_puede_crear_colegio_con_nombre_corto_duplicado_sin_importar_mayusculas(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        res = self.client.post(
+            "/api/admin/schools/",
+            {
+                "name": "Colegio Contexto Oeste",
+                "short_name": "contexto norte",
+                "logo_url": "/imagenes/contexto-oeste.png",
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["errors"]["short_name"], ["Ya existe un colegio con ese nombre corto."])
+
+    def test_superuser_no_puede_renombrar_colegio_con_nombre_existente_sin_importar_mayusculas(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        res = self.client.patch(
+            f"/api/admin/schools/{self.school_b.id}/",
+            {"name": "colegio contexto norte"},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["errors"]["name"], ["Ya existe un colegio con ese nombre."])
+
     def test_usuario_regular_no_puede_crear_colegio(self):
         self.client.force_authenticate(user=self.alumno_user)
 
@@ -353,3 +397,16 @@ class SchoolContextApiTests(TestCase):
             res.json()["detail"],
             "No se puede borrar el colegio porque tiene cursos, alumnos u otros datos asociados.",
         )
+
+    def test_superuser_admin_school_courses_respeta_colegio_solicitado(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        res = self.client.get("/api/admin/school-courses/", {"school": self.school_b.slug})
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(len(body["schools"]), 1)
+        self.assertEqual(body["schools"][0]["id"], self.school_b.id)
+        self.assertEqual(body["schools"][0]["name"], self.school_b.name)
+        self.assertEqual(body["schools"][0]["courses"][0]["name"], "1A Sur")
+        self.assertEqual(body["schools"][0]["courses"][0]["students_count"], 1)

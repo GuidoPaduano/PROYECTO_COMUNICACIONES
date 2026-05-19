@@ -201,8 +201,26 @@ class SchoolAdminForm(forms.ModelForm):
         self.fields["primary_color"].help_text = "Color principal en formato #RRGGBB."
         self.fields["accent_color"].help_text = "Color de acento en formato #RRGGBB."
 
+    def _existing_school_with_field(self, field_name, value):
+        normalized = str(value or "").strip()
+        if not normalized:
+            return None
+        queryset = School.objects.filter(**{f"{field_name}__iexact": normalized})
+        if getattr(self.instance, "pk", None):
+            queryset = queryset.exclude(pk=self.instance.pk)
+        return queryset.first()
+
+    def clean_name(self):
+        value = (self.cleaned_data.get("name") or "").strip()
+        if self._existing_school_with_field("name", value):
+            raise forms.ValidationError("Ya existe un colegio con ese nombre.")
+        return value
+
     def clean_short_name(self):
-        return (self.cleaned_data.get("short_name") or "").strip()
+        value = (self.cleaned_data.get("short_name") or "").strip()
+        if value and self._existing_school_with_field("short_name", value):
+            raise forms.ValidationError("Ya existe un colegio con ese nombre corto.")
+        return value
 
     def clean_logo_url(self):
         return (self.cleaned_data.get("logo_url") or "").strip()

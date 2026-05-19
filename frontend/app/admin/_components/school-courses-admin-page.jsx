@@ -4,7 +4,13 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft, Building2, Layers3, Plus, RefreshCw, Save, Search } from "lucide-react"
 
-import { DEFAULT_SCHOOL_PRIMARY_COLOR, authFetch, useAuthGuard, useSessionContext } from "../../_lib/auth"
+import {
+  DEFAULT_SCHOOL_PRIMARY_COLOR,
+  authFetch,
+  getRequestedSchoolIdentifierFromWindow,
+  useAuthGuard,
+  useSessionContext,
+} from "../../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -29,13 +35,41 @@ function getCoursesCacheKey(mode, schoolRef) {
   return `admin_school_courses:${mode}:${scope}`
 }
 
+function getSchoolIdentityTokens(school) {
+  const tokens = new Set()
+  const push = (value) => {
+    const normalized = String(value || "").trim().toLowerCase()
+    if (normalized) tokens.add(normalized)
+  }
+  push(school?.slug)
+  push(school?.id)
+  push(school?.name)
+  push(school?.short_name)
+  return tokens
+}
+
+function matchesSchoolRef(school, schoolRefs) {
+  const refs = Array.isArray(schoolRefs) ? schoolRefs : [schoolRefs]
+  const normalizedRefs = refs
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+  if (!normalizedRefs.length) return true
+  const schoolTokens = getSchoolIdentityTokens(school)
+  return normalizedRefs.some((ref) => schoolTokens.has(ref))
+}
+
 function readCoursesCache(mode, schoolRef) {
   try {
     if (typeof window === "undefined") return null
     const raw = window.sessionStorage.getItem(getCoursesCacheKey(mode, schoolRef))
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed?.schools) ? parsed : null
+    if (!Array.isArray(parsed?.schools)) return null
+    if (mode !== "platform") {
+      const scoped = parsed.schools.filter((school) => matchesSchoolRef(school, schoolRef))
+      return scoped.length ? { schools: scoped } : null
+    }
+    return parsed
   } catch {
     return null
   }
@@ -92,13 +126,27 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
   const loadingSession = !sessionContext
   const isPlatformMode = mode === "platform"
   const allowed = isPlatformMode ? !!sessionContext?.isSuperuser : isSchoolAdminContext(sessionContext)
-  const sessionSchoolRef = useMemo(
-    () => sessionContext?.school?.slug || sessionContext?.school?.id || "",
-    [sessionContext]
+  const sessionSchoolRefs = useMemo(
+    () => {
+      if (isPlatformMode) return []
+      const requested = getRequestedSchoolIdentifierFromWindow()
+      const values = [
+        requested,
+        sessionContext?.school?.slug,
+        sessionContext?.school?.id,
+        sessionContext?.school?.name,
+        sessionContext?.school?.short_name,
+      ]
+      return values
+        .map((value) => String(value || "").trim())
+        .filter((value, index, array) => value && array.indexOf(value) === index)
+    },
+    [isPlatformMode, sessionContext]
   )
 
   const [schools, setSchools] = useState(() => {
-    const cached = readCoursesCache(mode, sessionSchoolRef)
+    const cacheRef = sessionSchoolRefs[0] || ""
+    const cached = readCoursesCache(mode, cacheRef)
     return Array.isArray(cached?.schools) ? cached.schools : []
   })
   const [selectedId, setSelectedId] = useState("")
@@ -141,19 +189,35 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
     try {
       const params = new URLSearchParams()
       if (isPlatformMode && query.trim()) params.set("q", query.trim())
-      if (!isPlatformMode && sessionSchoolRef) params.set("school", String(sessionSchoolRef))
+      if (!isPlatformMode && sessionSchoolRefs[0]) params.set("school", String(sessionSchoolRefs[0]))
       const suffix = params.toString() ? `?${params.toString()}` : ""
-      const res = await authFetch(`/admin/school-courses/${suffix}`)
+      const res = await authFetch(`/admin/school-courses/${suffix}`, {
+        headers: !isPlatformMode && sessionSchoolRefs[0] ? { "X-School": String(sessionSchoolRefs[0]) } : undefined,
+      })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         setError(data?.detail || "No se pudieron cargar los cursos.")
         return
       }
-      const items = Array.isArray(data?.schools) ? data.schools : []
+      const rawItems = Array.isArray(data?.schools) ? data.schools : []
+      const items = !isPlatformMode ? rawItems.filter((school) => matchesSchoolRef(school, sessionSchoolRefs)) : rawItems
+      if (!isPlatformMode && rawItems.length && !items.length) {
+        setSchools([])
+        setSelectedId("")
+        setError("La herramienta recibio cursos de un colegio distinto al activo. Recarga la sesion antes de editar.")
+        return
+      }
       setSchools(items)
-      writeCoursesCache(mode, sessionSchoolRef, { schools: items })
+      writeCoursesCache(mode, sessionSchoolRefs[0] || "", { schools: items })
       const previous = keepSelection ? selectedId : ""
+      const sessionSelectedId =
+        !isPlatformMode
+          ? String(
+              items.find((school) => matchesSchoolRef(school, sessionSchoolRefs))?.id ?? ""
+            )
+          : ""
       const nextSelected =
+        (sessionSelectedId && items.some((school) => String(school.id) === String(sessionSelectedId)) && sessionSelectedId) ||
         (previous && items.some((school) => String(school.id) === String(previous)) && previous) ||
         (items[0]?.id != null ? String(items[0].id) : "")
       setSelectedId(nextSelected)
@@ -165,21 +229,21 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
   }
 
   useEffect(() => {
-    const cached = readCoursesCache(mode, sessionSchoolRef)
+    const cached = readCoursesCache(mode, sessionSchoolRefs[0] || "")
     if (!Array.isArray(cached?.schools) || !cached.schools.length) return
     setSchools(cached.schools)
     setSelectedId((current) => {
       if (current && cached.schools.some((school) => String(school.id) === String(current))) return current
       return cached.schools[0]?.id != null ? String(cached.schools[0].id) : ""
     })
-  }, [mode, sessionSchoolRef])
+  }, [mode, sessionSchoolRefs])
 
   useEffect(() => {
     if (!allowed) return
-    if (!isPlatformMode && !sessionSchoolRef) return
+    if (!isPlatformMode && !sessionSchoolRefs.length) return
     loadData({ keepSelection: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowed, isPlatformMode, sessionSchoolRef])
+  }, [allowed, isPlatformMode, sessionSchoolRefs])
 
   useEffect(() => {
     const nextForms = {}
@@ -214,6 +278,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
     try {
       const res = await authFetch(`/admin/school-courses/course/${courseId}`, {
         method: "PATCH",
+        headers: !isPlatformMode && sessionSchoolRefs[0] ? { "X-School": String(sessionSchoolRefs[0]) } : undefined,
         body: JSON.stringify({
           name: form.name,
           is_active: !!form.is_active,
@@ -227,7 +292,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
       const updated = data?.school
       setSchools((current) => {
         const next = current.map((school) => (String(school.id) === String(updated?.id) ? updated : school))
-        writeCoursesCache(mode, sessionSchoolRef, { schools: next })
+        writeCoursesCache(mode, sessionSchoolRefs[0] || "", { schools: next })
         return next
       })
       setSuccess("Curso actualizado.")
@@ -247,6 +312,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
     try {
       const res = await authFetch(`/admin/school-courses/${selectedSchool.id}`, {
         method: "POST",
+        headers: !isPlatformMode && sessionSchoolRefs[0] ? { "X-School": String(sessionSchoolRefs[0]) } : undefined,
         body: JSON.stringify({
           code: buildCourseCodeFromName(newCourse.name),
           name: newCourse.name,
@@ -262,7 +328,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
       const updated = data?.school
       setSchools((current) => {
         const next = current.map((school) => (String(school.id) === String(updated?.id) ? updated : school))
-        writeCoursesCache(mode, sessionSchoolRef, { schools: next })
+        writeCoursesCache(mode, sessionSchoolRefs[0] || "", { schools: next })
         return next
       })
       setNewCourse(EMPTY_COURSE)
