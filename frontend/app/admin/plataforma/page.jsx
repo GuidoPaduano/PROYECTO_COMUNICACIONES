@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { Building2, FileSpreadsheet, Layers3, Settings2, ShieldCheck } from "lucide-react"
+import { Building2, FileSpreadsheet, HardDriveDownload, Layers3, Settings2, ShieldCheck } from "lucide-react"
 
 import { buildBackendUrl, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
@@ -31,6 +31,13 @@ export default function AdminPlataformaPage() {
           description: "Carga alumnos por colegio desde un Excel o CSV con validacion previa de cursos y legajos.",
           href: "/admin/plataforma/alumnos/importar",
           icon: <FileSpreadsheet className="h-6 w-6" />,
+          external: false,
+        },
+        {
+          title: "Backups manuales",
+          description: "Genera un backup completo de la base PostgreSQL de Railway y descarga el archivo al momento.",
+          href: "/admin/plataforma/backups",
+          icon: <HardDriveDownload className="h-6 w-6" />,
           external: false,
         },
         {

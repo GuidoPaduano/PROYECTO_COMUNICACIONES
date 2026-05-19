@@ -108,6 +108,7 @@ from .api_schools import (
     public_school_branding,
     public_school_directory,
 )
+from .api_backups import admin_manual_platform_backup
 from .api_admin_staff import admin_staff_overview, admin_staff_update, admin_staff_course_update, admin_user_create
 from .utils_cursos import parse_school_course_id
 
@@ -230,6 +231,8 @@ urlpatterns = [
     path("admin/alumnos/import", admin_importar_alumnos, name="admin_importar_alumnos_noslash"),
     path("admin/alumnos/import/template/", admin_importar_alumnos_template, name="admin_importar_alumnos_template"),
     path("admin/alumnos/import/template", admin_importar_alumnos_template, name="admin_importar_alumnos_template_noslash"),
+    path("admin/backups/manual/", admin_manual_platform_backup, name="admin_manual_platform_backup"),
+    path("admin/backups/manual", admin_manual_platform_backup, name="admin_manual_platform_backup_noslash"),
 
     # Rutas “oficiales”
     path("mi-perfil/", mi_perfil, name="mi_perfil_api"),
