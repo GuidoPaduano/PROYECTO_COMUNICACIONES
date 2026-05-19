@@ -26,8 +26,8 @@ export default function ResetPasswordPage() {
       setError("El link es inválido o está incompleto.")
       return
     }
-    if (!password || password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres.")
+    if (!password) {
+      setError("Ingresa una contraseña.")
       return
     }
     if (password !== confirm) {
