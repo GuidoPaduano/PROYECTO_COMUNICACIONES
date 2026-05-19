@@ -5,6 +5,11 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# Cliente de PostgreSQL para generar backups manuales con pg_dump
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 # Establece el directorio de trabajo
 WORKDIR /app
 
