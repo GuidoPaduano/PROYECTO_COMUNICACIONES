@@ -9,11 +9,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .forms import SchoolAdminForm
-from .models import School, SchoolCourse
+from .models import Alumno, School, SchoolCourse
 from .models_preceptores import SchoolAdmin
 from .schools import (
     get_available_school_dicts_for_user,
     get_default_school,
+    get_requested_school_identifier,
     get_request_school,
     get_school_by_identifier,
     get_request_host_school,
@@ -159,13 +160,48 @@ def _admin_course_to_dict(course: SchoolCourse) -> dict:
     }
 
 
+def _attach_school_course_student_counts(school: School, courses: list[SchoolCourse]) -> list[SchoolCourse]:
+    course_ids = {
+        int(getattr(course, "id", 0) or 0): course
+        for course in (courses or [])
+        if getattr(course, "id", None) is not None
+    }
+    course_ids.pop(0, None)
+    codes_to_course_ids: dict[str, list[int]] = {}
+    for course in courses or []:
+        code = str(getattr(course, "code", "") or "").strip().upper()
+        if not code:
+            continue
+        codes_to_course_ids.setdefault(code, []).append(course.id)
+        course.students_count = 0
+
+    student_ids_by_course: dict[int, set[int]] = {course.id: set() for course in courses or []}
+    student_rows = Alumno.objects.filter(school=school).values("id", "school_course_id", "curso")
+    for row in student_rows:
+        alumno_id = int(row.get("id") or 0)
+        if alumno_id <= 0:
+            continue
+
+        school_course_id = int(row.get("school_course_id") or 0)
+        if school_course_id in student_ids_by_course:
+            student_ids_by_course[school_course_id].add(alumno_id)
+            continue
+
+        course_code = str(row.get("curso") or "").strip().upper()
+        if not course_code:
+            continue
+        for course_id in codes_to_course_ids.get(course_code, []):
+            student_ids_by_course[course_id].add(alumno_id)
+
+    for course in courses or []:
+        course.students_count = len(student_ids_by_course.get(course.id, set()))
+    return courses
+
+
 def _school_courses_to_dict(school: School) -> dict:
     data = _admin_school_to_dict(school)
-    courses = list(
-        SchoolCourse.objects.filter(school=school)
-        .annotate(students_count=Count("alumnos", distinct=True))
-        .order_by("sort_order", "name", "id")
-    )
+    courses = list(SchoolCourse.objects.filter(school=school).order_by("sort_order", "name", "id"))
+    courses = _attach_school_course_student_counts(school, courses)
     data.update(
         {
             "courses": [_admin_course_to_dict(course) for course in courses],
@@ -519,7 +555,13 @@ def admin_school_courses(request):
     if denied is not None:
         return denied
 
-    if not getattr(request.user, "is_superuser", False):
+    requested_school_identifier = get_requested_school_identifier(request)
+    should_scope_to_active_school = (
+        not getattr(request.user, "is_superuser", False)
+        or bool(str(requested_school_identifier or "").strip())
+    )
+
+    if should_scope_to_active_school:
         school = (
             School.objects.filter(pk=getattr(active_school, "id", None))
             .annotate(
@@ -531,10 +573,12 @@ def admin_school_courses(request):
         if school is None:
             return Response({"detail": "Colegio no encontrado."}, status=404)
 
-        school._prefetched_admin_courses = list(
-            SchoolCourse.objects.filter(school=school)
-            .annotate(students_count=Count("alumnos", distinct=True))
-            .order_by("sort_order", "name", "id")
+        school._prefetched_admin_courses = _attach_school_course_student_counts(
+            school,
+            list(
+                SchoolCourse.objects.filter(school=school)
+                .order_by("sort_order", "name", "id")
+            ),
         )
         return Response({"schools": [_school_with_courses_to_dict(school)]}, status=200)
 
