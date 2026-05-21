@@ -287,9 +287,9 @@ export default function AdminCreateUserPage({
           Cargando configuración del colegio...
         </div>
       ) : (
-        <form className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_360px]" onSubmit={handleSubmit}>
-          <div className="space-y-6">
-            <Card>
+        <form className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_360px]" onSubmit={handleSubmit}>
+          <div className="min-w-0 space-y-6">
+            <Card className="min-w-0">
               <CardHeader className="pb-2">
                 <CardTitle>Datos base</CardTitle>
               </CardHeader>
@@ -321,7 +321,7 @@ export default function AdminCreateUserPage({
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="min-w-0">
               <CardHeader>
                 <CardTitle>Tipo de usuario</CardTitle>
                 <CardDescription>Elegi el rol operativo con el que la cuenta entra a la plataforma.</CardDescription>
@@ -355,13 +355,13 @@ export default function AdminCreateUserPage({
             </Card>
 
             {form.role === "Alumnos" ? (
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle>Vínculo con alumno</CardTitle>
                   <CardDescription>El usuario quedará asociado al alumno seleccionado para resolver su contexto automáticamente.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
                     <div className="space-y-2">
                       <Label htmlFor="student-search">Buscar alumno</Label>
                       <Input id="student-search" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Nombre, apellido o legajo" />
@@ -419,13 +419,13 @@ export default function AdminCreateUserPage({
             ) : null}
 
             {form.role === "Padres" ? (
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle>Alumnos a cargo</CardTitle>
                   <CardDescription>Selecciona los alumnos que deberian quedar asociados a esta familia.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
                     <div className="space-y-2">
                       <Label htmlFor="parent-student-search">Buscar alumno</Label>
                       <Input id="parent-student-search" value={studentQuery} onChange={(event) => setStudentQuery(event.target.value)} placeholder="Nombre, apellido o legajo" />

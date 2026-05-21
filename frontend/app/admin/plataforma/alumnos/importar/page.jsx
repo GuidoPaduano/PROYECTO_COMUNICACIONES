@@ -195,7 +195,7 @@ export default function ImportarAlumnosPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 min-w-0">
       <div>
         <Link
           href="/admin/plataforma"
@@ -207,8 +207,8 @@ export default function ImportarAlumnosPage() {
         <h1 className="mt-3 text-3xl font-semibold text-slate-900">Importar alumnos</h1>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Archivo de alumnos</CardTitle>
             <CardDescription>
@@ -338,7 +338,7 @@ export default function ImportarAlumnosPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Columnas esperadas</CardTitle>
           </CardHeader>
