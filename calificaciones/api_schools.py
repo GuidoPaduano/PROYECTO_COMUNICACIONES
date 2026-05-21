@@ -1,6 +1,9 @@
-from django.db import transaction
-from django.db.models.deletion import ProtectedError
-from django.db.models import Count, Q
+from concurrent.futures import ThreadPoolExecutor
+
+from django.db import close_old_connections, transaction
+from django.db.utils import OperationalError, ProgrammingError
+from django.db.models import Count, Exists, OuterRef, Q
+from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -9,8 +12,22 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .forms import SchoolAdminForm
-from .models import Alumno, School, SchoolCourse
-from .models_preceptores import SchoolAdmin
+from .models import (
+    AlertaAcademica,
+    AlertaInasistencia,
+    Alumno,
+    Asistencia,
+    Comunicado,
+    Evento,
+    Mensaje,
+    Nota,
+    Notificacion,
+    Sancion,
+    School,
+    SchoolCourse,
+    SchoolDeletionJob,
+)
+from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
 from .schools import (
     get_available_school_dicts_for_user,
     get_default_school,
@@ -25,6 +42,15 @@ from .utils_cursos import clear_school_course_cache, get_school_course_choices
 from .user_groups import get_user_group_names
 
 User = get_user_model()
+_SCHOOL_DELETION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="school-delete")
+
+
+def _school_deletion_jobs_ready() -> bool:
+    try:
+        list(SchoolDeletionJob.objects.order_by("-id").values_list("id", flat=True)[:1])
+        return True
+    except (OperationalError, ProgrammingError):
+        return False
 
 
 def _require_platform_admin(user):
@@ -368,6 +394,126 @@ def _seed_school_courses(school) -> int:
     return len(pending)
 
 
+def _delete_school_tree(school: School) -> None:
+    with transaction.atomic():
+        clear_school_course_cache(school)
+
+        SchoolAdmin.objects.filter(school=school).delete()
+        PreceptorCurso.objects.filter(school=school).delete()
+        ProfesorCurso.objects.filter(school=school).delete()
+
+        Notificacion.objects.filter(school=school).delete()
+        AlertaAcademica.objects.filter(school=school).delete()
+        AlertaInasistencia.objects.filter(school=school).delete()
+        Asistencia.objects.filter(school=school).delete()
+        Sancion.objects.filter(school=school).delete()
+        Nota.objects.filter(school=school).delete()
+        Evento.objects.filter(school=school).delete()
+        Comunicado.objects.filter(school=school).delete()
+        Mensaje.objects.filter(school=school).delete()
+
+        Alumno.objects.filter(school=school).delete()
+        SchoolCourse.objects.filter(school=school).delete()
+        school.delete()
+
+
+def _school_deletion_job_to_dict(job: SchoolDeletionJob) -> dict:
+    return {
+        "id": job.id,
+        "school_id": job.school_id,
+        "school_name": str(getattr(job, "school_name", "") or "").strip(),
+        "school_slug": str(getattr(job, "school_slug", "") or "").strip(),
+        "status": str(getattr(job, "status", "") or "").strip(),
+        "error": str(getattr(job, "error", "") or "").strip(),
+        "requested_at": job.requested_at.isoformat() if getattr(job, "requested_at", None) else None,
+        "started_at": job.started_at.isoformat() if getattr(job, "started_at", None) else None,
+        "finished_at": job.finished_at.isoformat() if getattr(job, "finished_at", None) else None,
+    }
+
+
+def _run_school_deletion_job(job_id: int) -> None:
+    close_old_connections()
+    now = timezone.now()
+    started = SchoolDeletionJob.objects.filter(
+        pk=job_id,
+        status=SchoolDeletionJob.STATUS_PENDING,
+    ).update(
+        status=SchoolDeletionJob.STATUS_RUNNING,
+        started_at=now,
+        finished_at=None,
+        error="",
+    )
+    if not started:
+        close_old_connections()
+        return
+
+    try:
+        job = SchoolDeletionJob.objects.select_related("school").get(pk=job_id)
+        school = getattr(job, "school", None)
+        if school is not None:
+            _delete_school_tree(school)
+        SchoolDeletionJob.objects.filter(pk=job_id).update(
+            status=SchoolDeletionJob.STATUS_COMPLETED,
+            finished_at=timezone.now(),
+            error="",
+            school=None,
+        )
+    except Exception as exc:
+        SchoolDeletionJob.objects.filter(pk=job_id).update(
+            status=SchoolDeletionJob.STATUS_FAILED,
+            finished_at=timezone.now(),
+            error=str(exc)[:4000],
+        )
+    finally:
+        close_old_connections()
+
+
+def _schedule_school_deletion_job(job_id: int) -> None:
+    _SCHOOL_DELETION_EXECUTOR.submit(_run_school_deletion_job, job_id)
+
+
+def _schedule_pending_school_deletion_jobs(limit: int = 3) -> None:
+    if not _school_deletion_jobs_ready():
+        return
+    pending_ids = list(
+        SchoolDeletionJob.objects.filter(status=SchoolDeletionJob.STATUS_PENDING)
+        .order_by("requested_at", "id")
+        .values_list("id", flat=True)[: max(1, int(limit or 1))]
+    )
+    for job_id in pending_ids:
+        _schedule_school_deletion_job(int(job_id))
+
+
+def _enqueue_school_deletion_job(*, school: School, requested_by) -> tuple[SchoolDeletionJob, bool]:
+    if not _school_deletion_jobs_ready():
+        raise RuntimeError("Falta aplicar la migracion de SchoolDeletionJob.")
+    active_statuses = [
+        SchoolDeletionJob.STATUS_PENDING,
+        SchoolDeletionJob.STATUS_RUNNING,
+    ]
+    existing = (
+        SchoolDeletionJob.objects.filter(school=school, status__in=active_statuses)
+        .order_by("-requested_at", "-id")
+        .first()
+    )
+    if existing is not None:
+        return existing, False
+
+    if school.is_active:
+        school.is_active = False
+        school.save(update_fields=["is_active", "updated_at"])
+
+    job = SchoolDeletionJob.objects.create(
+        school=school,
+        requested_by=requested_by,
+        school_name=str(getattr(school, "name", "") or "").strip(),
+        school_slug=str(getattr(school, "slug", "") or "").strip(),
+        status=SchoolDeletionJob.STATUS_PENDING,
+    )
+    transaction.on_commit(lambda: _schedule_school_deletion_job(job.id))
+    return job, True
+
+
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def admin_create_school(request):
@@ -375,11 +521,31 @@ def admin_create_school(request):
         return Response({"detail": "No autorizado."}, status=403)
 
     if request.method == "GET":
+        jobs_ready = _school_deletion_jobs_ready()
+        if jobs_ready:
+            _schedule_pending_school_deletion_jobs()
+            active_deletion_jobs = SchoolDeletionJob.objects.filter(
+                school_id=OuterRef("pk"),
+                status__in=[
+                    SchoolDeletionJob.STATUS_PENDING,
+                    SchoolDeletionJob.STATUS_RUNNING,
+                ],
+            )
+            schools_qs = (
+                School.objects.annotate(
+                    courses_count=Count("courses", distinct=True),
+                    students_count=Count("alumnos", distinct=True),
+                    deletion_in_progress=Exists(active_deletion_jobs),
+                )
+                .filter(deletion_in_progress=False)
+                .order_by("name", "id")
+            )
+        else:
+            schools_qs = School.objects.annotate(
+                courses_count=Count("courses", distinct=True),
+                students_count=Count("alumnos", distinct=True),
+            ).order_by("name", "id")
         query = str(request.GET.get("q") or "").strip()
-        schools_qs = School.objects.annotate(
-            courses_count=Count("courses", distinct=True),
-            students_count=Count("alumnos", distinct=True),
-        ).order_by("name", "id")
         if query:
             schools_qs = schools_qs.filter(
                 Q(name__icontains=query)
@@ -426,28 +592,25 @@ def admin_update_school(request, school_id: int):
 
     if request.method == "DELETE":
         try:
-            school.delete()
-        except ProtectedError:
-            return Response(
-                {
-                    "detail": "No se puede borrar el colegio porque tiene cursos, alumnos u otros datos asociados."
-                },
-                status=400,
-            )
-
+            with transaction.atomic():
+                job, created = _enqueue_school_deletion_job(school=school, requested_by=request.user)
+        except RuntimeError as exc:
+            return Response({"detail": str(exc)}, status=503)
         next_active_school = (
-            School.objects.filter(is_active=True).order_by("name", "id").first()
-            or School.objects.order_by("name", "id").first()
+            School.objects.filter(is_active=True).exclude(pk=school_id).order_by("name", "id").first()
+            or School.objects.exclude(pk=school_id).order_by("name", "id").first()
         )
         return Response(
             {
                 "deleted_id": school_id,
+                "detail": "Borrado iniciado." if created else "El borrado ya estaba en progreso.",
+                "job": _school_deletion_job_to_dict(job),
                 "available_schools": get_available_school_dicts_for_user(
                     request.user,
                     active_school=next_active_school,
                 ),
             },
-            status=200,
+            status=202,
         )
 
     payload = _school_payload_from_request(request, instance=school)

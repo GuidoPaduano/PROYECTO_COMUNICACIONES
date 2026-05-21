@@ -2,9 +2,11 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
-from calificaciones.models import Alumno, School, SchoolCourse
-from calificaciones.models_preceptores import PreceptorCurso
+from calificaciones.api_schools import _run_school_deletion_job
+from calificaciones.models import Alumno, Mensaje, School, SchoolCourse, SchoolDeletionJob
+from calificaciones.models_preceptores import PreceptorCurso, SchoolAdmin
 
 
 def _make_user(username: str, *, is_superuser: bool = False):
@@ -380,23 +382,58 @@ class SchoolContextApiTests(TestCase):
             accent_color="#445566",
         )
 
-        res = self.client.delete(f"/api/admin/schools/{school.id}/")
+        with patch("calificaciones.api_schools._schedule_school_deletion_job") as mocked_schedule:
+            res = self.client.delete(f"/api/admin/schools/{school.id}/")
 
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.status_code, 202)
+        mocked_schedule.assert_called_once()
+        job = SchoolDeletionJob.objects.get(pk=res.json()["job"]["id"])
+        self.assertEqual(job.status, SchoolDeletionJob.STATUS_PENDING)
+        _run_school_deletion_job(job.id)
         self.assertFalse(School.objects.filter(pk=school.id).exists())
         self.assertEqual(res.json()["deleted_id"], school.id)
 
     def test_superuser_no_puede_borrar_colegio_con_dependencias(self):
         self.client.force_authenticate(user=self.superuser)
-
-        res = self.client.delete(f"/api/admin/schools/{self.school_a.id}/")
-
-        self.assertEqual(res.status_code, 400)
-        self.assertTrue(School.objects.filter(pk=self.school_a.id).exists())
-        self.assertEqual(
-            res.json()["detail"],
-            "No se puede borrar el colegio porque tiene cursos, alumnos u otros datos asociados.",
+        preceptor = _make_user("preceptor_delete_school_context")
+        admin_user = _make_user("admin_delete_school_context")
+        SchoolAdmin.objects.create(school=self.school_a, admin=admin_user)
+        PreceptorCurso.objects.create(
+            school=self.school_a,
+            preceptor=preceptor,
+            curso="1A",
         )
+        Mensaje.objects.create(
+            school=self.school_a,
+            school_course=self.course_a,
+            remitente=self.superuser,
+            destinatario=preceptor,
+            curso="1A",
+            asunto="Prueba",
+            contenido="Mensaje asociado al colegio",
+        )
+
+        with patch("calificaciones.api_schools._schedule_school_deletion_job") as mocked_schedule:
+            res = self.client.delete(f"/api/admin/schools/{self.school_a.id}/")
+
+        self.assertEqual(res.status_code, 202)
+        mocked_schedule.assert_called_once()
+        job = SchoolDeletionJob.objects.get(pk=res.json()["job"]["id"])
+        self.assertEqual(job.status, SchoolDeletionJob.STATUS_PENDING)
+        self.school_a.refresh_from_db()
+        self.assertFalse(self.school_a.is_active)
+
+        _run_school_deletion_job(job.id)
+
+        self.assertFalse(School.objects.filter(pk=self.school_a.id).exists())
+        self.assertFalse(SchoolCourse.objects.filter(pk=self.course_a.id).exists())
+        self.assertFalse(Alumno.objects.filter(school=self.school_a).exists())
+        self.assertFalse(PreceptorCurso.objects.filter(school=self.school_a).exists())
+        self.assertFalse(SchoolAdmin.objects.filter(school=self.school_a).exists())
+        self.assertFalse(Mensaje.objects.filter(school=self.school_a).exists())
+        self.assertTrue(School.objects.filter(pk=self.school_b.id).exists())
+        self.assertEqual(res.json()["deleted_id"], self.school_a.id)
+        self.assertEqual(res.json()["detail"], "Borrado iniciado.")
 
     def test_superuser_admin_school_courses_respeta_colegio_solicitado(self):
         self.client.force_authenticate(user=self.superuser)

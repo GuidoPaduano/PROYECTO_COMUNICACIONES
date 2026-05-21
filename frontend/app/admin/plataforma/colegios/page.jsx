@@ -233,7 +233,7 @@ export default function ColegiosPage() {
         is_superuser: true,
       })
       setDeleteTarget(null)
-      setSuccess("Colegio borrado.")
+      setSuccess(data?.detail || "Borrado iniciado.")
       await loadSchools({ keepSelection: true })
     } catch {
       setError("No se pudo conectar con el servidor.")
@@ -272,8 +272,8 @@ export default function ColegiosPage() {
         </Button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(420px,0.85fr)]">
-        <Card>
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <Card className="min-w-0">
           <CardHeader className="pb-3">
             <CardTitle>Listado</CardTitle>
             <CardDescription>
@@ -291,7 +291,7 @@ export default function ColegiosPage() {
               />
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-slate-200">
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -390,7 +390,7 @@ export default function ColegiosPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Editar colegio</CardTitle>
             <CardDescription>

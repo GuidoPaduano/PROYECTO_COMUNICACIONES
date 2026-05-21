@@ -91,6 +91,10 @@ def _normalize_single_id(raw_value):
     return value if value > 0 else None
 
 
+def _contains_digit(raw_value: str = "") -> bool:
+    return any(char.isdigit() for char in str(raw_value or ""))
+
+
 def _full_name(user) -> str:
     return " ".join(
         part for part in [str(getattr(user, "first_name", "") or "").strip(), str(getattr(user, "last_name", "") or "").strip()] if part
@@ -172,6 +176,46 @@ def _serialize_staff_user(*, user, school, preceptor_map, profesor_map) -> dict:
     }
 
 
+def _serialize_directory_user(*, user, assigned_courses=None) -> dict:
+    courses = assigned_courses or []
+    return {
+        "id": user.id,
+        "username": user.username,
+        "full_name": _full_name(user) or user.username,
+        "first_name": str(getattr(user, "first_name", "") or "").strip(),
+        "last_name": str(getattr(user, "last_name", "") or "").strip(),
+        "email": str(getattr(user, "email", "") or "").strip(),
+        "is_active": bool(getattr(user, "is_active", True)),
+        "groups": _get_user_group_names(user),
+        "assigned_school_courses": [_serialize_course(course) for course in courses],
+    }
+
+
+def _serialize_directory_student(student) -> dict:
+    school_course = getattr(student, "school_course", None)
+    linked_user = getattr(student, "usuario", None)
+    return {
+        "id": student.id,
+        "id_alumno": str(getattr(student, "id_alumno", "") or "").strip(),
+        "full_name": _serialize_student(student)["full_name"],
+        "nombre": str(getattr(student, "nombre", "") or "").strip(),
+        "apellido": str(getattr(student, "apellido", "") or "").strip(),
+        "course_id": getattr(student, "school_course_id", None),
+        "course_code": str(getattr(school_course, "code", "") or "").strip(),
+        "course_name": str(getattr(school_course, "name", "") or "").strip(),
+        "has_linked_user": bool(getattr(student, "usuario_id", None)),
+        "linked_user": None
+        if linked_user is None
+        else {
+            "id": linked_user.id,
+            "username": linked_user.username,
+            "full_name": _full_name(linked_user) or linked_user.username,
+            "email": str(getattr(linked_user, "email", "") or "").strip(),
+            "is_active": bool(getattr(linked_user, "is_active", True)),
+        },
+    }
+
+
 def _build_assignment_map(*, school, role: str) -> dict[int, list[SchoolCourse]]:
     if role == "Profesores":
         rows = (
@@ -196,6 +240,69 @@ def _build_assignment_map(*, school, role: str) -> dict[int, list[SchoolCourse]]
             continue
         assignments.setdefault(user_id, []).append(course)
     return assignments
+
+
+def _user_is_school_admin_for(school, user) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    return SchoolAdmin.objects.filter(school=school, admin=user).exists()
+
+
+def _build_user_directory_payload(*, school) -> dict:
+    profesor_map = _build_assignment_map(school=school, role="Profesores")
+    preceptor_map = _build_assignment_map(school=school, role="Preceptores")
+
+    profesores = list(
+        User.objects.filter(id__in=profesor_map.keys())
+        .exclude(is_superuser=True)
+        .order_by("first_name", "last_name", "username", "id")
+    )
+    preceptores = list(
+        User.objects.filter(id__in=preceptor_map.keys())
+        .exclude(is_superuser=True)
+        .order_by("first_name", "last_name", "username", "id")
+    )
+    alumnos = list(
+        Alumno.objects.select_related("school_course", "usuario")
+        .filter(school=school)
+        .order_by("school_course__sort_order", "school_course__name", "apellido", "nombre", "id")
+    )
+
+    grouped_students: dict[int | str, dict] = {}
+    for alumno in alumnos:
+        school_course = getattr(alumno, "school_course", None)
+        course_id = getattr(alumno, "school_course_id", None)
+        key = course_id if course_id is not None else f"legacy:{getattr(alumno, 'curso', '')}"
+        if key not in grouped_students:
+            grouped_students[key] = {
+                "course": {
+                    "id": course_id,
+                    "code": str(getattr(school_course, "code", "") or getattr(alumno, "curso", "") or "").strip(),
+                    "name": str(getattr(school_course, "name", "") or "").strip(),
+                    "is_active": bool(getattr(school_course, "is_active", True)) if school_course is not None else True,
+                },
+                "students": [],
+            }
+        grouped_students[key]["students"].append(_serialize_directory_student(alumno))
+
+    return {
+        "school": school_to_dict(school),
+        "profesores": [
+            _serialize_directory_user(user=user, assigned_courses=profesor_map.get(user.id, []))
+            for user in profesores
+        ],
+        "preceptores": [
+            _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []))
+            for user in preceptores
+        ],
+        "alumnos_por_curso": list(grouped_students.values()),
+        "totals": {
+            "profesores": len(profesores),
+            "preceptores": len(preceptores),
+            "alumnos": len(alumnos),
+            "cursos_con_alumnos": len(grouped_students),
+        },
+    }
 
 
 def _list_staff_users(*, school, query: str = "") -> list[User]:
@@ -351,6 +458,10 @@ def _validate_new_user_payload(payload) -> dict:
         raise ValueError("El nombre es obligatorio.")
     if not last_name:
         raise ValueError("El apellido es obligatorio.")
+    if _contains_digit(first_name):
+        raise ValueError("El nombre no puede contener numeros.")
+    if _contains_digit(last_name):
+        raise ValueError("El apellido no puede contener numeros.")
     if not username:
         raise ValueError("El nombre de usuario es obligatorio.")
     if not role:
@@ -432,6 +543,23 @@ def admin_staff_overview(request):
     courses = list(
         SchoolCourse.objects.filter(school=active_school, is_active=True).order_by("sort_order", "name", "id")
     )
+
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_school_user_directory(request):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school = get_request_school(request)
+    if active_school is None:
+        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+    if not _user_is_school_admin_for(active_school, getattr(request, "user", None)):
+        return Response({"detail": "No autorizado para el colegio activo."}, status=403)
+
+    return Response(_build_user_directory_payload(school=active_school))
     users = _list_staff_users(school=active_school, query=query)
     preceptor_map = _build_assignment_map(school=active_school, role="Preceptores")
     profesor_map = _build_assignment_map(school=active_school, role="Profesores")
