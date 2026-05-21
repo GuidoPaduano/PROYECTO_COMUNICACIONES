@@ -273,7 +273,7 @@ export default function StaffCourseAssignmentPage({
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
@@ -292,9 +292,9 @@ export default function StaffCourseAssignmentPage({
         </div>
       </div>
 
-      <Card>
+      <Card className="min-w-0">
         <CardContent className="flex flex-col gap-3 py-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid flex-1 gap-3 sm:grid-cols-[minmax(240px,340px)_minmax(240px,1fr)]">
+          <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-[minmax(220px,340px)_minmax(220px,1fr)]">
             <div className="space-y-2">
               <Label htmlFor="course-selector">Curso</Label>
               <select
@@ -344,8 +344,8 @@ export default function StaffCourseAssignmentPage({
       ) : null}
 
       {!loading ? (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <Card>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <Card className="min-w-0">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BookCopy className="h-5 w-5" />

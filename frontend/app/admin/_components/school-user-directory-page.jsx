@@ -82,7 +82,7 @@ function StaffSection({ title, rows, emptyLabel }) {
         <CardDescription>{rows.length ? `${rows.length} usuario(s)` : emptyLabel}</CardDescription>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="overflow-hidden rounded-lg border border-slate-200">
+        <div className="min-w-0">
           <Table>
             <TableHeader>
               <TableRow>
@@ -129,7 +129,7 @@ function StudentsSection({ course }) {
         <CardDescription>{course.students.length} alumno(s)</CardDescription>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="overflow-hidden rounded-lg border border-slate-200">
+        <div className="min-w-0">
           <Table>
             <TableHeader>
               <TableRow>
@@ -268,7 +268,7 @@ export default function SchoolUserDirectoryPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
+    <div className="mx-auto max-w-7xl space-y-5 min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link
@@ -305,7 +305,7 @@ export default function SchoolUserDirectoryPage() {
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
         <SummaryCard
           title="Profesores"
           value={payload?.totals?.profesores ?? 0}

@@ -170,7 +170,7 @@ export default function AdminsPorColegioPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6 min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link
@@ -202,8 +202,8 @@ export default function AdminsPorColegioPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
-        <Card>
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
+        <Card className="min-w-0">
           <CardHeader className="pb-3">
             <CardTitle>Colegios</CardTitle>
             <CardDescription>Selecciona el colegio que queres administrar.</CardDescription>
@@ -219,7 +219,7 @@ export default function AdminsPorColegioPage() {
               />
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-slate-200">
+            <div className="min-w-0">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -270,7 +270,7 @@ export default function AdminsPorColegioPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5" />

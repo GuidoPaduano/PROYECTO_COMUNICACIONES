@@ -349,7 +349,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto max-w-6xl space-y-5 min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link
@@ -383,9 +383,9 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
         </div>
       ) : null}
 
-      <div className={`grid gap-5 ${isPlatformMode ? "xl:grid-cols-[minmax(0,0.82fr)_minmax(560px,1.18fr)]" : ""}`}>
+      <div className={`grid gap-5 ${isPlatformMode ? "2xl:grid-cols-[minmax(0,0.82fr)_minmax(520px,1.18fr)]" : ""}`}>
         {isPlatformMode ? (
-          <Card>
+          <Card className="min-w-0">
             <CardHeader className="pb-3">
               <CardTitle>Colegios</CardTitle>
               <CardDescription>Selecciona el colegio que queres editar.</CardDescription>
@@ -401,7 +401,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                 />
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-slate-200">
+              <div className="min-w-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -457,8 +457,8 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
           </Card>
         ) : null}
 
-        <div className="space-y-6">
-          <Card>
+        <div className="min-w-0 space-y-6">
+          <Card className="min-w-0">
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2">
                 <Layers3 className="h-5 w-5" />
@@ -469,7 +469,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-0">
-              <div className="overflow-hidden rounded-lg border border-slate-200">
+              <div className="min-w-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -526,7 +526,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="min-w-0">
             <CardHeader className="pb-4">
               <CardTitle>Nuevo curso</CardTitle>
               <CardDescription>
