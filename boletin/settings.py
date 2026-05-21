@@ -9,8 +9,9 @@ from corsheaders.defaults import default_headers  # ✅ para extender headers pe
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ⚠️ Cargar el .env del proyecto sin depender del directorio desde donde se
-# arranca Django.
-load_dotenv(BASE_DIR / ".env")
+# arranca Django. En desarrollo local, el .env del repo debe prevalecer sobre
+# variables heredadas de la shell actual.
+load_dotenv(BASE_DIR / ".env", override=True)
 
 STATIC_BUILD = (
     os.environ.get("RAILWAY_STATIC_BUILD", "").strip() == "1"
@@ -116,16 +117,37 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'boletin.wsgi.application'
 
-# Base de datos (PostgreSQL en Railway / SQLite local opcional)
-DATABASE_URL = os.environ.get('DATABASE_URL', '')
-DB_SSL_REQUIRE = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
-DATABASES = {
-    'default': dj_database_url.config(
-        default=DATABASE_URL or ("sqlite:///" + str(BASE_DIR / "static-build.sqlite3") if STATIC_BUILD else ""),
-        conn_max_age=600,
-        ssl_require=DB_SSL_REQUIRE
-    )
-}
+# Base de datos:
+# - Railway/produccion: PostgreSQL via DATABASE_URL
+# - build estatico: SQLite efimera
+# - desarrollo local: SQLite del proyecto si no hay DATABASE_URL
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+
+if DATABASE_URL:
+    DB_SSL_REQUIRE = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=DB_SSL_REQUIRE
+        )
+    }
+elif STATIC_BUILD:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'static-build.sqlite3',
+        }
+    }
+elif DEBUG:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+else:
+    DATABASES = {'default': {}}
 
 CACHE_URL = os.environ.get("REDIS_URL", "").strip() or os.environ.get("CACHE_URL", "").strip()
 if CACHE_URL:
@@ -143,13 +165,14 @@ else:
         }
     }
 
-# Verificación de configuración para entorno local
+# Verificacion de configuracion para entorno local
 if 'ENGINE' not in DATABASES['default'] and not STATIC_BUILD:
     raise Exception(
-        "La variable de entorno DATABASE_URL no está definida o es inválida.\n"
-        "Exportala en tu entorno local o cargala desde un archivo .env antes de correr el servidor.\n\n"
-        "Windows (cmd):   set DATABASE_URL=postgres://usuario:contraseña@host:puerto/dbname\n"
-        "Git Bash / Linux: export DATABASE_URL=postgres://usuario:contraseña@host:puerto/dbname"
+        "La base de datos no esta configurada.\n"
+        "En desarrollo con DEBUG=True, si no definis DATABASE_URL se usa db.sqlite3 local.\n"
+        "En otros entornos, defini DATABASE_URL con una URL valida.\n\n"
+        "Windows (cmd):   set DATABASE_URL=postgres://usuario:contrasena@host:puerto/dbname\n"
+        "Git Bash / Linux: export DATABASE_URL=postgres://usuario:contrasena@host:puerto/dbname"
     )
 
 AUTH_PASSWORD_VALIDATORS = []

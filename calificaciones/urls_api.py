@@ -109,7 +109,13 @@ from .api_schools import (
     public_school_directory,
 )
 from .api_backups import admin_manual_platform_backup
-from .api_admin_staff import admin_staff_overview, admin_staff_update, admin_staff_course_update, admin_user_create
+from .api_admin_staff import (
+    admin_school_user_directory,
+    admin_staff_overview,
+    admin_staff_update,
+    admin_staff_course_update,
+    admin_user_create,
+)
 from .utils_cursos import parse_school_course_id
 
 # APIs de eventos para padres (calendario filtrado por hijo/curso)
@@ -221,6 +227,8 @@ urlpatterns = [
     path("admin/school-courses/course/<int:course_id>", admin_update_school_course, name="admin_update_school_course_noslash"),
     path("admin/staff/", admin_staff_overview, name="admin_staff_overview"),
     path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
+    path("admin/school-users/", admin_school_user_directory, name="admin_school_user_directory"),
+    path("admin/school-users", admin_school_user_directory, name="admin_school_user_directory_noslash"),
     path("admin/users/create/", admin_user_create, name="admin_user_create"),
     path("admin/users/create", admin_user_create, name="admin_user_create_noslash"),
     path("admin/staff/<int:user_id>/", admin_staff_update, name="admin_staff_update"),
@@ -319,8 +327,11 @@ urlpatterns = [
 
     # ===== Nueva Nota (JSON) =====
     path("calificaciones/nueva-nota/datos/", NuevaNotaDatosIniciales.as_view(), name="nueva_nota_datos"),
+    path("calificaciones/nueva-nota/datos", NuevaNotaDatosIniciales.as_view(), name="nueva_nota_datos_noslash"),
     path("calificaciones/notas/", CrearNota.as_view(), name="crear_nota"),
+    path("calificaciones/notas", CrearNota.as_view(), name="crear_nota_noslash"),
     path("calificaciones/notas/masivo/", CrearNotasMasivo.as_view(), name="crear_nota_masivo"),
+    path("calificaciones/notas/masivo", CrearNotasMasivo.as_view(), name="crear_nota_masivo_noslash"),
     path("calificaciones/notas/<int:nota_id>/", EditarNota.as_view(), name="editar_nota"),
     path("calificaciones/notas/<int:nota_id>", EditarNota.as_view(), name="editar_nota_noslash"),
 

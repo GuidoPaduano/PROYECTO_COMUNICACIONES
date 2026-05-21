@@ -74,6 +74,54 @@ class School(models.Model):
         return self.name
 
 
+class SchoolDeletionJob(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pendiente"),
+        (STATUS_RUNNING, "En ejecucion"),
+        (STATUS_COMPLETED, "Completado"),
+        (STATUS_FAILED, "Fallido"),
+    ]
+
+    school = models.ForeignKey(
+        School,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deletion_jobs",
+    )
+    requested_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="school_deletion_jobs",
+    )
+    school_name = models.CharField(max_length=150, blank=True, default="")
+    school_slug = models.SlugField(max_length=80, blank=True, default="")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    error = models.TextField(blank=True, default="")
+    requested_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-requested_at", "-id"]
+        indexes = [
+            models.Index(fields=["school", "status"]),
+            models.Index(fields=["status", "requested_at"]),
+        ]
+        verbose_name = "Job de borrado de colegio"
+        verbose_name_plural = "Jobs de borrado de colegios"
+
+    def __str__(self):
+        target = self.school_name or self.school_slug or f"school:{self.school_id or 'n/a'}"
+        return f"{target} [{self.status}]"
+
+
 class SchoolCourse(models.Model):
     school = models.ForeignKey(
         School,

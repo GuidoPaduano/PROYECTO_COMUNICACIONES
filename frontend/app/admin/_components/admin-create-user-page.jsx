@@ -26,6 +26,10 @@ function studentLabel(student) {
   return [fullName, legajo ? `Legajo ${legajo}` : "", course].filter(Boolean).join(" - ")
 }
 
+function containsDigit(value) {
+  return /\d/.test(String(value || ""))
+}
+
 const INITIAL_FORM = {
   first_name: "",
   last_name: "",
@@ -191,6 +195,20 @@ export default function AdminCreateUserPage({
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    const firstName = String(form.first_name || "").trim()
+    const lastName = String(form.last_name || "").trim()
+    if (!firstName || !lastName) {
+      setError("Completa nombre y apellido para crear el usuario.")
+      return
+    }
+    if (containsDigit(firstName)) {
+      setError("El nombre no puede contener numeros.")
+      return
+    }
+    if (containsDigit(lastName)) {
+      setError("El apellido no puede contener numeros.")
+      return
+    }
     setSubmitting(true)
     setError("")
     setSuccess("")
@@ -199,7 +217,11 @@ export default function AdminCreateUserPage({
       const res = await authFetch("/admin/users/create/", {
         method: "POST",
         headers: activeSchoolRef ? { "X-School": String(activeSchoolRef) } : undefined,
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          first_name: firstName,
+          last_name: lastName,
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -274,11 +296,11 @@ export default function AdminCreateUserPage({
               <CardContent className="grid gap-4 pt-2 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="last_name">Apellido</Label>
-                  <Input id="last_name" value={form.last_name} onChange={(event) => setField("last_name", event.target.value)} />
+                  <Input id="last_name" required value={form.last_name} onChange={(event) => setField("last_name", event.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="first_name">Nombre</Label>
-                  <Input id="first_name" value={form.first_name} onChange={(event) => setField("first_name", event.target.value)} />
+                  <Input id="first_name" required value={form.first_name} onChange={(event) => setField("first_name", event.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="username">Usuario</Label>

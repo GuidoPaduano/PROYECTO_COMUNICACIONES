@@ -223,6 +223,78 @@ class AdminStaffApiTests(TestCase):
         self.assertTrue(usuario.groups.filter(name="Administradores").exists())
         self.assertTrue(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
 
+    def test_post_rechaza_usuario_sin_nombre(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "   ",
+                "last_name": "Apellido",
+                "username": "sin_nombre",
+                "email": "sin.nombre@example.com",
+                "password": "1",
+                "password_confirm": "1",
+                "role": "Administradores",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "El nombre es obligatorio.")
+
+    def test_post_rechaza_usuario_sin_apellido(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "Nombre",
+                "last_name": "   ",
+                "username": "sin_apellido",
+                "email": "sin.apellido@example.com",
+                "password": "1",
+                "password_confirm": "1",
+                "role": "Administradores",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "El apellido es obligatorio.")
+
+    def test_post_rechaza_usuario_con_numero_en_nombre(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "N0mbre",
+                "last_name": "Apellido",
+                "username": "nombre_invalido",
+                "email": "nombre.invalido@example.com",
+                "password": "1",
+                "password_confirm": "1",
+                "role": "Administradores",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "El nombre no puede contener numeros.")
+
+    def test_post_rechaza_usuario_con_numero_en_apellido(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "Nombre",
+                "last_name": "Apell1do",
+                "username": "apellido_invalido",
+                "email": "apellido.invalido@example.com",
+                "password": "1",
+                "password_confirm": "1",
+                "role": "Administradores",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "El apellido no puede contener numeros.")
+
     def test_patch_directivo_limpia_asignaciones_del_colegio_activo(self):
         usuario = _make_user("usuario_directivo")
         usuario.groups.add(self.prof_group)
@@ -302,3 +374,84 @@ class AdminStaffApiTests(TestCase):
         response = self.client.get("/api/admin/staff/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["school"]["slug"], self.school.slug)
+
+    def test_school_user_directory_separa_profesores_preceptores_y_alumnos_por_curso(self):
+        school_admin = _make_user("admin_directorio")
+        school_admin.groups.add(self.school_admin_group)
+        SchoolAdmin.objects.create(school=self.school, admin=school_admin)
+        self.client.force_authenticate(user=school_admin)
+
+        profesor = _make_user("profe_directorio")
+        profesor.first_name = "Paula"
+        profesor.last_name = "Perez"
+        profesor.save(update_fields=["first_name", "last_name"])
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            profesor=profesor,
+            curso=self.course_a.code,
+        )
+
+        preceptor = _make_user("prece_directorio")
+        preceptor.groups.add(self.prec_group)
+        PreceptorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_b,
+            preceptor=preceptor,
+            curso=self.course_b.code,
+        )
+
+        alumno_user = _make_user("leg001_user")
+        alumno_a = Alumno.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            curso=self.course_a.code,
+            nombre="Lara",
+            apellido="Lopez",
+            id_alumno="LEG001",
+            usuario=alumno_user,
+        )
+        Alumno.objects.create(
+            school=self.school,
+            school_course=self.course_b,
+            curso=self.course_b.code,
+            nombre="Nico",
+            apellido="Diaz",
+            id_alumno="LEG002",
+        )
+        Alumno.objects.create(
+            school=self.other_school,
+            school_course=self.other_course,
+            curso=self.other_course.code,
+            nombre="Fuera",
+            apellido="Scope",
+            id_alumno="LEG999",
+        )
+
+        response = self.client.get("/api/admin/school-users/", HTTP_X_SCHOOL=self.school.slug)
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body["totals"]["profesores"], 1)
+        self.assertEqual(body["totals"]["preceptores"], 1)
+        self.assertEqual(body["totals"]["alumnos"], 2)
+        self.assertEqual([item["username"] for item in body["profesores"]], ["profe_directorio"])
+        self.assertEqual([item["username"] for item in body["preceptores"]], ["prece_directorio"])
+
+        grouped = {item["course"]["id"]: item["students"] for item in body["alumnos_por_curso"]}
+        self.assertEqual(len(grouped[self.course_a.id]), 1)
+        self.assertEqual(grouped[self.course_a.id][0]["id_alumno"], alumno_a.id_alumno)
+        self.assertTrue(grouped[self.course_a.id][0]["has_linked_user"])
+        self.assertEqual(grouped[self.course_a.id][0]["linked_user"]["username"], "leg001_user")
+        self.assertEqual(len(grouped[self.course_b.id]), 1)
+        self.assertEqual(grouped[self.course_b.id][0]["id_alumno"], "LEG002")
+
+    def test_school_user_directory_exige_admin_del_colegio_activo(self):
+        school_admin = _make_user("admin_otro_colegio")
+        school_admin.groups.add(self.school_admin_group)
+        SchoolAdmin.objects.create(school=self.other_school, admin=school_admin)
+        self.client.force_authenticate(user=school_admin)
+
+        response = self.client.get("/api/admin/school-users/", HTTP_X_SCHOOL=self.school.slug)
+        self.assertEqual(response.status_code, 403)
