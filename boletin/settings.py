@@ -302,7 +302,7 @@ SECURE_REFERRER_POLICY = "same-origin"
 
 # Alertas académicas por notas
 ALERTAS_ACADEMICAS_VENTANA_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_VENTANA_DIAS", "45"))
-ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA = os.environ.get("ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", "False") == "True"
+ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA = os.environ.get("ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", "True") == "True"
 # No hay worker diferido para inasistencias; si no se evalúan al guardar,
 # las alertas esperadas por la app quedan omitidas silenciosamente.
 ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO = os.environ.get("ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", "True") == "True"

@@ -6,6 +6,7 @@ from typing import Any
 from collections import defaultdict
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 from .course_access import build_course_membership_q_for_refs, build_course_ref, filter_assignments_for_course
@@ -520,3 +521,133 @@ def evaluar_alerta_nota(*, nota: Nota, actor=None, send_email: bool = True) -> d
         "emails": emails,
         "triggers": trigger_map,
     }
+
+
+def evaluar_alertas_notas_bulk(*, notas, actor=None, send_email: bool = False) -> dict[str, Any]:
+    hoy = timezone.localdate()
+    cooldown_dias = _cfg_int("ALERTAS_ACADEMICAS_COOLDOWN_DIAS", 7)
+    escalado_dias = _cfg_int("ALERTAS_ACADEMICAS_ESCALADO_DIAS", 14)
+
+    latest_by_key = {}
+    for nota in notas or []:
+        alumno_id = getattr(nota, "alumno_id", None)
+        materia = str(getattr(nota, "materia", "") or "")
+        if alumno_id is None or not materia:
+            continue
+        key = (int(alumno_id), materia, getattr(nota, "cuatrimestre", None))
+        prev = latest_by_key.get(key)
+        if prev is None:
+            latest_by_key[key] = nota
+            continue
+
+        prev_fecha = getattr(prev, "fecha", None)
+        curr_fecha = getattr(nota, "fecha", None)
+        prev_id = getattr(prev, "id", 0) or 0
+        curr_id = getattr(nota, "id", 0) or 0
+        if (curr_fecha, curr_id) >= (prev_fecha, prev_id):
+            latest_by_key[key] = nota
+
+    keys = list(latest_by_key.keys())
+    if not keys:
+        return {"created": 0, "evaluated": 0, "closed": 0}
+
+    notas_lookup, desde = _build_notas_ventana_lookup(keys=keys, hoy=hoy)
+    alumno_ids = sorted({alumno_id for alumno_id, _, _ in keys})
+    materias = sorted({materia for _, materia, _ in keys})
+
+    last_by_pair = {}
+    for alerta in AlertaAcademica.objects.filter(
+        alumno_id__in=alumno_ids,
+        materia__in=materias,
+    ).order_by("alumno_id", "materia", "-creada_en", "-id"):
+        pair_key = (int(getattr(alerta, "alumno_id", 0) or 0), str(getattr(alerta, "materia", "") or ""))
+        if pair_key not in last_by_pair:
+            last_by_pair[pair_key] = alerta
+
+    created = 0
+    closed = 0
+    no_trigger_q = Q()
+
+    for key in keys:
+        nota = latest_by_key[key]
+        alumno_id, materia, cuatrimestre = key
+        current = _estado_actual_alerta_from_notas(
+            notas_ventana=notas_lookup.get(key, []),
+            desde=desde,
+            hoy=hoy,
+        )
+
+        riesgo = current["riesgo"]
+        trigger_a = current["trigger_a"]
+        trigger_b = current["trigger_b"]
+        trigger_c = current["trigger_c"]
+        trigger_d = current["trigger_d"]
+
+        if not (trigger_a or trigger_b or trigger_c or trigger_d):
+            no_trigger_q |= Q(alumno_id=alumno_id, materia=materia, estado="activa")
+            continue
+
+        severidad = _severidad_binaria(
+            trigger_a=trigger_a,
+            trigger_b=trigger_b,
+            trigger_c=trigger_c,
+            trigger_d=trigger_d,
+        )
+        if severidad <= 0:
+            continue
+
+        last = last_by_pair.get((alumno_id, materia))
+        if last is not None:
+            dias = (hoy - (getattr(last, "fecha_evento", hoy) or hoy)).days
+            if dias < cooldown_dias or dias < escalado_dias:
+                continue
+
+        trigger_map = {
+            "materia": materia,
+            "A_TED_critico": trigger_a,
+            "B_racha_2": trigger_b,
+            "C_riesgo_sostenido": trigger_c,
+            "D_caida_brusca": trigger_d,
+        }
+        create_kwargs = {
+            "alumno": nota.alumno,
+            "materia": materia,
+            "cuatrimestre": cuatrimestre,
+            "severidad": severidad,
+            "riesgo_ponderado": Decimal(str(round(riesgo, 3))),
+            "triggers": trigger_map,
+            "ventana_desde": desde,
+            "ventana_hasta": hoy,
+            "fecha_evento": hoy,
+            "estado": "activa",
+            "nota_disparadora": nota,
+            "creada_por": actor,
+        }
+        school_ref = getattr(nota, "school", None) or getattr(getattr(nota, "alumno", None), "school", None)
+        if school_ref is not None:
+            create_kwargs["school"] = school_ref
+
+        alerta = AlertaAcademica.objects.create(**create_kwargs)
+        destinatarios = _destinatarios_alerta(nota.alumno)
+        _crear_notificaciones_alerta(
+            alumno=nota.alumno,
+            destinatarios=destinatarios,
+            severidad=severidad,
+            riesgo=riesgo,
+            trigger_map=trigger_map,
+            alerta_id=alerta.id,
+        )
+        if send_email:
+            _enviar_email_alerta(
+                alumno=nota.alumno,
+                destinatarios=destinatarios,
+                severidad=severidad,
+                riesgo=riesgo,
+                trigger_map=trigger_map,
+            )
+        created += 1
+
+    if no_trigger_q:
+        closed = AlertaAcademica.objects.filter(no_trigger_q).update(estado="cerrada")
+
+    return {"created": created, "evaluated": len(keys), "closed": int(closed or 0)}

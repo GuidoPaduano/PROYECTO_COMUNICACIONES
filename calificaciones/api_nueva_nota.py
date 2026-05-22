@@ -39,7 +39,7 @@ from .schools import (
     user_can_access_school,
 )
 from .utils_cursos import get_school_course_dicts, resolve_course_reference
-from .alerts import evaluar_alerta_nota
+from .alerts import evaluar_alerta_nota, evaluar_alertas_notas_bulk
 from .user_groups import get_user_group_names
 
 logger = logging.getLogger(__name__)
@@ -1167,18 +1167,16 @@ class CrearNotasMasivo(APIView):
                 if (curr_fecha, curr_id) >= (prev_fecha, prev_id):
                     alert_candidates[key] = n
 
-        if getattr(settings, "ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", False):
-            for nota_candidata in alert_candidates.values():
-                try:
-                    info = evaluar_alerta_nota(
-                        nota=nota_candidata,
-                        actor=request.user,
-                        send_email=False,
-                    )
-                    if info.get("created"):
-                        alertas_creadas += 1
-                except Exception:
-                    pass
+        if getattr(settings, "ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", True):
+            try:
+                info = evaluar_alertas_notas_bulk(
+                    notas=alert_candidates.values(),
+                    actor=request.user,
+                    send_email=False,
+                )
+                alertas_creadas = int(info.get("created") or 0)
+            except Exception:
+                logger.exception("Error evaluando alertas academicas en carga masiva")
 
         # 207 si hubo errores parciales, 201 si todo ok
         if errors:
