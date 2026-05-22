@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase
 from django.test.utils import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from calificaciones.alerts import evaluar_alerta_nota, reconciliar_alertas_academicas
@@ -22,6 +25,7 @@ def _make_user(username: str, groups: list[str] | None = None, *, is_staff: bool
 class AlertasAcademicasApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.today = timezone.localdate()
         self.profesor = _make_user("profe_alertas", ["Profesores"], is_staff=True)
         self.padre = _make_user("padre_alertas", ["Padres"])
         self.preceptor = _make_user("preceptor_alertas", ["Preceptores"])
@@ -49,8 +53,11 @@ class AlertasAcademicasApiTests(TestCase):
         }
         return self.client.post("/api/calificaciones/notas/", payload, format="json")
 
+    def _iso_days_ago(self, days: int) -> str:
+        return (self.today - timedelta(days=days)).isoformat()
+
     def test_ted_crea_alerta_y_notifica_a_padre_y_preceptor(self):
-        res = self._post_nota(resultado="TED", calificacion="TED", fecha_iso="2026-03-01")
+        res = self._post_nota(resultado="TED", calificacion="TED", fecha_iso=self._iso_days_ago(0))
         self.assertEqual(res.status_code, 201)
 
         self.assertEqual(AlertaAcademica.objects.count(), 1)
@@ -63,29 +70,68 @@ class AlertasAcademicasApiTests(TestCase):
         self.assertIn(self.preceptor.id, dest_ids)
 
     def test_cooldown_7_dias_bloquea_alerta_repetida(self):
-        res1 = self._post_nota(resultado="TED", calificacion="TED", fecha_iso="2026-03-01")
+        res1 = self._post_nota(resultado="TED", calificacion="TED", fecha_iso=self._iso_days_ago(1))
         self.assertEqual(res1.status_code, 201)
         self.assertEqual(AlertaAcademica.objects.count(), 1)
 
-        res2 = self._post_nota(resultado="TED", calificacion="TED", fecha_iso="2026-03-02")
+        res2 = self._post_nota(resultado="TED", calificacion="TED", fecha_iso=self._iso_days_ago(0))
         self.assertEqual(res2.status_code, 201)
         self.assertEqual(AlertaAcademica.objects.count(), 1)
 
     def test_racha_de_dos_malas_dispara_alerta(self):
-        r1 = self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso="2026-03-01", materia="Historia")
+        r1 = self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso=self._iso_days_ago(2), materia="Historia")
         self.assertEqual(r1.status_code, 201)
         self.assertEqual(AlertaAcademica.objects.count(), 0)
 
-        r2 = self._post_nota(resultado="TEP", calificacion="TEP", fecha_iso="2026-03-02", materia="Historia")
+        r2 = self._post_nota(resultado="TEP", calificacion="TEP", fecha_iso=self._iso_days_ago(1), materia="Historia")
         self.assertEqual(r2.status_code, 201)
         self.assertEqual(AlertaAcademica.objects.count(), 0)
 
-        r3 = self._post_nota(resultado="TEP", calificacion="TEP", fecha_iso="2026-03-03", materia="Historia")
+        r3 = self._post_nota(resultado="TEP", calificacion="TEP", fecha_iso=self._iso_days_ago(0), materia="Historia")
         self.assertEqual(r3.status_code, 201)
         self.assertEqual(AlertaAcademica.objects.count(), 1)
 
+    def test_carga_masiva_evalua_alertas_por_defecto(self):
+        payload = {
+            "notas": [
+                {
+                    "alumno": self.alumno.id,
+                    "materia": "Lengua",
+                    "tipo": "Examen",
+                    "resultado": "TED",
+                    "calificacion": "TED",
+                    "cuatrimestre": 1,
+                    "fecha": self._iso_days_ago(2),
+                },
+                {
+                    "alumno": self.alumno.id,
+                    "materia": "Lengua",
+                    "tipo": "Examen",
+                    "resultado": "TED",
+                    "calificacion": "TED",
+                    "cuatrimestre": 1,
+                    "fecha": self._iso_days_ago(1),
+                },
+                {
+                    "alumno": self.alumno.id,
+                    "materia": "Lengua",
+                    "tipo": "Examen",
+                    "resultado": "TED",
+                    "calificacion": "TED",
+                    "cuatrimestre": 1,
+                    "fecha": self._iso_days_ago(0),
+                },
+            ]
+        }
+
+        res = self.client.post("/api/calificaciones/notas/masivo/", payload, format="json")
+
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json()["alertas"], 1)
+        self.assertEqual(AlertaAcademica.objects.count(), 1)
+
     def test_preceptor_endpoint_lista_alumnos_en_alerta(self):
-        self._post_nota(resultado="TED", calificacion="TED", fecha_iso="2026-03-01", materia="Lengua")
+        self._post_nota(resultado="TED", calificacion="TED", fecha_iso=self._iso_days_ago(0), materia="Lengua")
 
         self.client.force_authenticate(user=self.preceptor)
         res = self.client.get("/api/preceptor/alertas-academicas/?limit=10")
@@ -101,11 +147,11 @@ class AlertasAcademicasApiTests(TestCase):
         self.assertNotIn("curso", row["alumno"])
 
     def test_mejora_en_la_misma_materia_cierra_alerta_activa(self):
-        res_bad = self._post_nota(resultado="TED", calificacion="TED", fecha_iso="2026-03-01", materia="Lengua")
+        res_bad = self._post_nota(resultado="TED", calificacion="TED", fecha_iso=self._iso_days_ago(1), materia="Lengua")
         self.assertEqual(res_bad.status_code, 201)
         self.assertEqual(AlertaAcademica.objects.filter(estado="activa").count(), 1)
 
-        res_good = self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso="2026-03-02", materia="Lengua")
+        res_good = self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso=self._iso_days_ago(0), materia="Lengua")
         self.assertEqual(res_good.status_code, 201)
 
         alerta = AlertaAcademica.objects.get()
@@ -118,7 +164,7 @@ class AlertasAcademicasApiTests(TestCase):
         self.assertEqual(body["count"], 0)
 
     def test_endpoint_cierra_alerta_vieja_si_ya_no_hay_trigger(self):
-        self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso="2026-03-01", materia="Lengua")
+        self._post_nota(resultado="TEA", calificacion="TEA", fecha_iso=self._iso_days_ago(0), materia="Lengua")
         AlertaAcademica.objects.create(
             alumno=self.alumno,
             materia="Lengua",
@@ -141,6 +187,7 @@ class AlertasAcademicasApiTests(TestCase):
 class AlertasAcademicasSchoolRecipientTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.today = timezone.localdate()
         self.school_a = School.objects.create(name="Colegio Alertas Norte", slug="colegio-alertas-norte")
         self.school_b = School.objects.create(name="Colegio Alertas Sur", slug="colegio-alertas-sur")
         self.school_course_a = SchoolCourse.objects.create(school=self.school_a, code="1A", name="1A Norte", sort_order=1)
@@ -166,6 +213,9 @@ class AlertasAcademicasSchoolRecipientTests(TestCase):
             curso="1A",
         )
 
+    def _iso_days_ago(self, days: int) -> str:
+        return (self.today - timedelta(days=days)).isoformat()
+
     def test_notifica_solo_al_preceptor_del_mismo_school(self):
         nota = Nota.objects.create(
             school=self.school_a,
@@ -175,7 +225,7 @@ class AlertasAcademicasSchoolRecipientTests(TestCase):
             resultado="TED",
             calificacion="TED",
             cuatrimestre=1,
-            fecha="2026-03-05",
+            fecha=self._iso_days_ago(0),
         )
 
         info = evaluar_alerta_nota(nota=nota, send_email=False)
@@ -208,7 +258,7 @@ class AlertasAcademicasSchoolRecipientTests(TestCase):
             resultado="TED",
             calificacion="TED",
             cuatrimestre=1,
-            fecha="2026-03-06",
+            fecha=self._iso_days_ago(0),
         )
         nota_b = Nota.objects.create(
             school=self.school_b,
@@ -218,7 +268,7 @@ class AlertasAcademicasSchoolRecipientTests(TestCase):
             resultado="TED",
             calificacion="TED",
             cuatrimestre=1,
-            fecha="2026-03-06",
+            fecha=self._iso_days_ago(0),
         )
         evaluar_alerta_nota(nota=nota_a, send_email=False)
         evaluar_alerta_nota(nota=nota_b, send_email=False)

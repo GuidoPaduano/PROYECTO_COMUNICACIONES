@@ -354,6 +354,7 @@ async function fetchJSON(url, opts) {
 
 async function getAlumnoIdsFromAny(idParam) {
   const encoded = encodeURIComponent(idParam)
+  const normalizedId = String(idParam ?? "").trim()
   try {
     const r = await fetchJSON(`/api/alumnos/${encoded}/`)
     if (r.ok) {
@@ -367,12 +368,35 @@ async function getAlumnoIdsFromAny(idParam) {
   } catch {}
 
   try {
+    const r = await fetchJSON("/api/padres/mis-hijos/")
+    const hijos = r.ok && Array.isArray(r.data?.results) ? r.data.results : []
+    const match = hijos.find((h) => {
+      const candidates = [kidPk(h), kidLegajo(h), kidValue(h)]
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean)
+      return candidates.includes(normalizedId)
+    })
+    if (match) {
+      const pk = kidPk(match)
+      const code = kidLegajo(match) ?? normalizedId
+      return {
+        detail: {
+          ...match,
+          id: pk,
+          id_alumno: code,
+        },
+        pk,
+        code,
+      }
+    }
+  } catch {}
+
+  try {
     const profile = await getSessionProfile()
     const alumno = profile?.alumno
     if (alumno && typeof alumno === "object") {
       const sessionPk = alumno?.id ?? alumno?.pk ?? null
       const sessionCode = alumno?.id_alumno ?? alumno?.legajo ?? null
-      const normalizedId = String(idParam ?? "").trim()
       const matchesSessionAlumno =
         (sessionPk != null && String(sessionPk).trim() === normalizedId) ||
         (sessionCode != null && String(sessionCode).trim() === normalizedId)
@@ -963,8 +987,9 @@ function AlumnoPerfilPageInner() {
     ;(async () => {
       try {
         const { detail, pk, code } = await getAlumnoIdsFromAny(alumnoid)
-        if (!detail) throw new Error("No se encontró información del alumno.")
+        if (!detail && !cachedDetail) throw new Error("No se encontró información del alumno.")
         if (!alive) return
+        if (!detail && cachedDetail) return
         setAlumnoDetail(detail)
         setPk(pk || null)
         setCode(code || alumnoid)
@@ -2602,41 +2627,41 @@ function AlumnoPerfilPageInner() {
         {/* ===== Encabezado + acciones ===== */}
         <div
           className={[
-            "flex justify-between gap-4",
-            showKidSelector ? "items-center" : "items-start",
+            "flex flex-col gap-4 sm:flex-row sm:justify-between",
+            showKidSelector ? "sm:items-center" : "sm:items-start",
           ].join(" ")}
         >
           <div
             className={[
-              "flex gap-4",
-              showKidSelector ? "items-center" : "items-start",
+              "flex min-w-0 gap-3 sm:gap-4",
+              showKidSelector ? "items-start sm:items-center" : "items-start",
             ].join(" ")}
           >
-            <div className="w-14 h-14 rounded-xl flex items-center justify-center school-primary-soft-icon">
-              <Users className="w-7 h-7" />
+            <div className="w-12 h-12 sm:w-14 sm:h-14 shrink-0 rounded-xl flex items-center justify-center school-primary-soft-icon">
+              <Users className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
-            <div>
-              <h1 className="text-2xl font-semibold">{nombreAlumno}</h1>
-              <p className="text-gray-600 text-sm">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-semibold leading-tight break-words">{nombreAlumno}</h1>
+              <p className="text-gray-600 text-sm mt-1 break-words">
                 Curso: <b>{cursoAlumno}</b> · Legajo/ID: <b>{legajoAlumno}</b>
               </p>
             </div>
           </div>
 
           {/* ✅ ocultamos "Enviar mensaje" cuando es padre / viene de /mis-hijos */}
-          <div className="flex flex-col items-end gap-3 w-full md:flex-1">
+          <div className="flex flex-col items-stretch gap-3 w-full sm:items-end md:flex-1">
             {showKidSelector && (
-              <Card className="w-full md:max-w-[900px] shadow-sm border-0 bg-white/80 backdrop-blur-sm">
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <Label className="block text-sm mb-1">Alumno</Label>
+              <Card className="w-full shadow-sm border-0 bg-white/80 backdrop-blur-sm sm:max-w-[360px] md:max-w-[420px]">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="min-w-0">
+                      <Label className="block text-xs font-medium text-slate-600 mb-1">Alumno</Label>
                       <Select
                         value={selectedKid}
                         onValueChange={onChangeKid}
                         disabled={!hijosLoaded || !hasHijos}
                       >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger className="w-full min-w-0">
                           <SelectValue
                             placeholder={
                               hijosLoaded ? (hasHijos ? "Seleccionar" : "Sin hijos") : "Cargando…"
@@ -2701,7 +2726,7 @@ function AlumnoPerfilPageInner() {
         {!isAlumno && rolesReady && (
           <>
             {/* ===== Tarjetas resumen (clickeables) ===== */}
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4">
           <Card
             onClick={() => setActiveSection("notas")}
             className={[
@@ -2709,13 +2734,13 @@ function AlumnoPerfilPageInner() {
               activeSection === "notas" ? "school-primary-selected" : "",
             ].join(" ")}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center school-primary-soft-icon">
-                  <ClipboardList className="w-5 h-5" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:text-left sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-lg flex items-center justify-center school-primary-soft-icon">
+                  <ClipboardList className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
-                <div>
-                  <div className="text-xl font-semibold text-gray-900">Notas</div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-xl font-semibold text-gray-900 leading-tight">Notas</div>
                 </div>
               </div>
             </CardContent>
@@ -2730,13 +2755,13 @@ function AlumnoPerfilPageInner() {
                 : "hover:bg-amber-50/70",
             ].join(" ")}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                  <Gavel className="w-5 h-5 text-amber-700" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:text-left sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <Gavel className="w-4 h-4 sm:w-5 sm:h-5 text-amber-700" />
                 </div>
-                <div>
-                  <div className="text-xl font-semibold text-gray-900">Sanciones</div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-xl font-semibold text-gray-900 leading-tight">Sanciones</div>
                 </div>
               </div>
             </CardContent>
@@ -2745,19 +2770,19 @@ function AlumnoPerfilPageInner() {
           <Card
             onClick={() => setActiveSection("asistencias")}
             className={[
-              "border-0 shadow-sm cursor-pointer transition-all",
+              "col-span-2 border-0 shadow-sm cursor-pointer transition-all sm:col-span-1",
               activeSection === "asistencias"
                 ? "ring-2 ring-emerald-500 bg-emerald-50"
                 : "hover:bg-emerald-50/70",
             ].join(" ")}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                  <CalendarDays className="w-5 h-5 text-emerald-700" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:text-left sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-lg bg-emerald-100 flex items-center justify-center">
+                  <CalendarDays className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700" />
                 </div>
-                <div>
-                  <div className="text-xl font-semibold text-gray-900">
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-xl font-semibold text-gray-900 leading-tight">
                     Inasistencias
                   </div>
                 </div>
@@ -2898,7 +2923,139 @@ function AlumnoPerfilPageInner() {
                       No se encontraron notas con los filtros actuales.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <>
+                    <div className="space-y-3 md:hidden">
+                      {notasFiltradas.map((n, i) => {
+                        const cuatr = notaCuatr(n)
+                        const firmada = isFirmadaFromAny(n)
+                        const firmadaEn = n?.firmada_en || n?.firmado_en || null
+                        const rowId = n.id || i
+                        return (
+                          <div
+                            key={`nota-mobile-${rowId}`}
+                            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900 break-words">
+                                  {n.materia || "Sin materia"}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {fmtFecha(n.fecha || n.created_at)}
+                                  {cuatr ? ` · ${cuatr}° cuatrimestre` : ""}
+                                </p>
+                              </div>
+                              <span className="inline-flex shrink-0 items-center rounded-full school-primary-soft-badge px-3 py-1 text-sm font-semibold">
+                                {toNumberOrText(n.calificacion)}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                  Tipo
+                                </p>
+                                <p className="mt-1 text-slate-900 break-words">
+                                  {n.tipo || "—"}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                  Firma
+                                </p>
+                                <div className="mt-1">
+                                  {!canViewFirmaEstado ? (
+                                    <span className="text-slate-400">—</span>
+                                  ) : firmada ? (
+                                    <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                      Firmada{firmadaEn ? ` · ${fmtFecha(firmadaEn)}` : ""}
+                                    </span>
+                                  ) : canSignByPadre ? (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        setSigningNotaId(String(n.id || ""))
+                                        const r = await firmarNota(n.id)
+                                        setSigningNotaId(null)
+                                        if (!r.ok) {
+                                          alert(
+                                            r.data?.detail ||
+                                              `Error (HTTP ${r.status || "?"})`
+                                          )
+                                          return
+                                        }
+
+                                        setNotas((prev) => {
+                                          const list = Array.isArray(prev) ? prev : []
+                                          const next = list.map((x) =>
+                                            String(x?.id || "") !== String(n.id || "")
+                                              ? x
+                                              : {
+                                                  ...x,
+                                                  firmada: true,
+                                                  firmada_en:
+                                                    r.data?.firmada_en || new Date().toISOString(),
+                                                }
+                                          )
+                                          setCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId, next)
+                                          return next
+                                        })
+                                      }}
+                                      disabled={
+                                        signingAllNotas ||
+                                        String(signingNotaId || "") === String(n.id || "")
+                                      }
+                                      className="inline-flex items-center rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-800 disabled:opacity-60"
+                                    >
+                                      {String(signingNotaId || "") === String(n.id || "")
+                                        ? "Firmando..."
+                                        : "Firmar"}
+                                    </button>
+                                  ) : (
+                                    <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                                      Pendiente
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {(n.observaciones || n.comentarios || canEditNotas) && (
+                              <div className="mt-3 border-t border-slate-100 pt-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                      Comentarios
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-700 break-words">
+                                      {n.observaciones || n.comentarios || "—"}
+                                    </p>
+                                  </div>
+                                  {canEditNotas ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openNotaModal(n)}
+                                      disabled={String(savingNotaId || "") === String(n.id || "")}
+                                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                                      aria-label="Editar nota"
+                                      title="Editar nota"
+                                    >
+                                      {String(savingNotaId || "") === String(n.id || "") ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Pencil className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="hidden overflow-x-auto md:block">
                       <table className="min-w-full text-sm">
                         <thead>
                           <tr className="text-left text-gray-600 border-b">
@@ -3011,6 +3168,7 @@ function AlumnoPerfilPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
                 </CardContent>
               </Card>
@@ -3020,19 +3178,19 @@ function AlumnoPerfilPageInner() {
             {activeSection === "sanciones" && (
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                 <CardContent className="p-4 sm:p-6">
-                  <div className="flex items-center justify-between gap-4 mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <div className="flex flex-col gap-4 mb-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="w-12 h-12 shrink-0 bg-amber-100 rounded-lg flex items-center justify-center">
                         <Gavel className="h-6 w-6 text-amber-700" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <h3 className="tile-title">Sanciones</h3>
                         <p className="tile-subtitle">
                           Historial disciplinario del alumno
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
                       {canSignByPadre ? (
                         <Button
                           type="button"
@@ -3041,7 +3199,7 @@ function AlumnoPerfilPageInner() {
                             signingAllSanciones ||
                             sancionesPendientesFirma.length === 0
                           }
-                          className="h-9 gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="h-9 w-full gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
                         >
                           {signingAllSanciones ? "Firmando..." : "Firmar todo"}
                         </Button>
@@ -3050,10 +3208,12 @@ function AlumnoPerfilPageInner() {
                         type="button"
                         onClick={handleDownloadSancionesPdf}
                         disabled={downloadingSancionesPdf}
-                        className="h-9 gap-2 primary-button"
+                        className="h-9 w-full min-w-0 gap-2 primary-button sm:w-auto"
                       >
-                        <Download className="h-4 w-4" />
-                        {downloadingSancionesPdf ? "Generando..." : "Descargar en PDF"}
+                        <Download className="h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          {downloadingSancionesPdf ? "Generando..." : "Descargar en PDF"}
+                        </span>
                       </Button>
                     </div>
                   </div>
@@ -3107,7 +3267,92 @@ function AlumnoPerfilPageInner() {
                       No hay sanciones registradas.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <>
+                    <div className="space-y-3 md:hidden">
+                      {sancionesFiltradas.map((s, i) => {
+                        const firmada = isFirmadaFromAny(s)
+                        const firmadaEn = s?.firmada_en || s?.firmado_en || null
+                        const rowId = s.id || i
+                        return (
+                          <div
+                            key={`sancion-mobile-${rowId}`}
+                            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {fmtFecha(s.fecha || s.created_at)}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500 break-words">
+                                  {s.docente || s.creado_por || "Sin docente"}
+                                </p>
+                              </div>
+                              {canSignByPadre ? (
+                                firmada ? (
+                                  <span className="inline-flex shrink-0 items-center rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                    Firmada{firmadaEn ? ` · ${fmtFecha(firmadaEn)}` : ""}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setSigningSancionId(String(s.id || ""))
+                                      const r = await firmarSancion(s.id)
+                                      setSigningSancionId(null)
+                                      if (!r.ok) {
+                                        alert(
+                                          r.data?.detail ||
+                                            `Error (HTTP ${r.status || "?"})`
+                                        )
+                                        return
+                                      }
+
+                                      setSanciones((prev) => {
+                                        const list = Array.isArray(prev) ? prev : []
+                                        const next = list.map((x) => {
+                                          if (String(x?.id || "") !== String(s.id || "")) return x
+                                          return {
+                                            ...x,
+                                            firmada: true,
+                                            firmada_en:
+                                              r.data?.firmada_en || new Date().toISOString(),
+                                          }
+                                        })
+                                        setCachedList(
+                                          SANCIONES_CACHE_PREFIX,
+                                          alumnoCacheId,
+                                          next
+                                        )
+                                        return next
+                                      })
+                                    }}
+                                    disabled={
+                                      signingAllSanciones ||
+                                      String(signingSancionId || "") === String(s.id || "")
+                                    }
+                                    className="inline-flex shrink-0 items-center rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-800 disabled:opacity-60"
+                                  >
+                                    {String(signingSancionId || "") === String(s.id || "")
+                                      ? "Firmando..."
+                                      : "Firmar"}
+                                  </button>
+                                )
+                              ) : null}
+                            </div>
+                            <div className="mt-3 border-t border-slate-100 pt-3">
+                              <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                Motivo
+                              </p>
+                              <p className="mt-1 text-sm text-slate-800 break-words">
+                                {s.motivo || s.detalle || s.descripcion || "-"}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="hidden overflow-x-auto md:block">
                       <table className="w-full table-fixed text-sm">
                         <colgroup>
                           <col className={canSignByPadre ? "w-[18%]" : "w-[20%]"} />
@@ -3197,6 +3442,7 @@ function AlumnoPerfilPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
                 </CardContent>
               </Card>
