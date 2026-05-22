@@ -354,6 +354,7 @@ async function fetchJSON(url, opts) {
 
 async function getAlumnoIdsFromAny(idParam) {
   const encoded = encodeURIComponent(idParam)
+  const normalizedId = String(idParam ?? "").trim()
   try {
     const r = await fetchJSON(`/api/alumnos/${encoded}/`)
     if (r.ok) {
@@ -367,12 +368,35 @@ async function getAlumnoIdsFromAny(idParam) {
   } catch {}
 
   try {
+    const r = await fetchJSON("/api/padres/mis-hijos/")
+    const hijos = r.ok && Array.isArray(r.data?.results) ? r.data.results : []
+    const match = hijos.find((h) => {
+      const candidates = [kidPk(h), kidLegajo(h), kidValue(h)]
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean)
+      return candidates.includes(normalizedId)
+    })
+    if (match) {
+      const pk = kidPk(match)
+      const code = kidLegajo(match) ?? normalizedId
+      return {
+        detail: {
+          ...match,
+          id: pk,
+          id_alumno: code,
+        },
+        pk,
+        code,
+      }
+    }
+  } catch {}
+
+  try {
     const profile = await getSessionProfile()
     const alumno = profile?.alumno
     if (alumno && typeof alumno === "object") {
       const sessionPk = alumno?.id ?? alumno?.pk ?? null
       const sessionCode = alumno?.id_alumno ?? alumno?.legajo ?? null
-      const normalizedId = String(idParam ?? "").trim()
       const matchesSessionAlumno =
         (sessionPk != null && String(sessionPk).trim() === normalizedId) ||
         (sessionCode != null && String(sessionCode).trim() === normalizedId)
@@ -963,8 +987,9 @@ function AlumnoPerfilPageInner() {
     ;(async () => {
       try {
         const { detail, pk, code } = await getAlumnoIdsFromAny(alumnoid)
-        if (!detail) throw new Error("No se encontró información del alumno.")
+        if (!detail && !cachedDetail) throw new Error("No se encontró información del alumno.")
         if (!alive) return
+        if (!detail && cachedDetail) return
         setAlumnoDetail(detail)
         setPk(pk || null)
         setCode(code || alumnoid)
@@ -2602,41 +2627,41 @@ function AlumnoPerfilPageInner() {
         {/* ===== Encabezado + acciones ===== */}
         <div
           className={[
-            "flex justify-between gap-4",
-            showKidSelector ? "items-center" : "items-start",
+            "flex flex-col gap-4 sm:flex-row sm:justify-between",
+            showKidSelector ? "sm:items-center" : "sm:items-start",
           ].join(" ")}
         >
           <div
             className={[
-              "flex gap-4",
-              showKidSelector ? "items-center" : "items-start",
+              "flex min-w-0 gap-3 sm:gap-4",
+              showKidSelector ? "items-start sm:items-center" : "items-start",
             ].join(" ")}
           >
-            <div className="w-14 h-14 rounded-xl flex items-center justify-center school-primary-soft-icon">
-              <Users className="w-7 h-7" />
+            <div className="w-12 h-12 sm:w-14 sm:h-14 shrink-0 rounded-xl flex items-center justify-center school-primary-soft-icon">
+              <Users className="w-6 h-6 sm:w-7 sm:h-7" />
             </div>
-            <div>
-              <h1 className="text-2xl font-semibold">{nombreAlumno}</h1>
-              <p className="text-gray-600 text-sm">
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-semibold leading-tight break-words">{nombreAlumno}</h1>
+              <p className="text-gray-600 text-sm mt-1 break-words">
                 Curso: <b>{cursoAlumno}</b> · Legajo/ID: <b>{legajoAlumno}</b>
               </p>
             </div>
           </div>
 
           {/* ✅ ocultamos "Enviar mensaje" cuando es padre / viene de /mis-hijos */}
-          <div className="flex flex-col items-end gap-3 w-full md:flex-1">
+          <div className="flex flex-col items-stretch gap-3 w-full sm:items-end md:flex-1">
             {showKidSelector && (
-              <Card className="w-full md:max-w-[900px] shadow-sm border-0 bg-white/80 backdrop-blur-sm">
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <Label className="block text-sm mb-1">Alumno</Label>
+              <Card className="w-full shadow-sm border-0 bg-white/80 backdrop-blur-sm sm:max-w-[360px] md:max-w-[420px]">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="grid grid-cols-1 gap-2">
+                    <div className="min-w-0">
+                      <Label className="block text-xs font-medium text-slate-600 mb-1">Alumno</Label>
                       <Select
                         value={selectedKid}
                         onValueChange={onChangeKid}
                         disabled={!hijosLoaded || !hasHijos}
                       >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger className="w-full min-w-0">
                           <SelectValue
                             placeholder={
                               hijosLoaded ? (hasHijos ? "Seleccionar" : "Sin hijos") : "Cargando…"
@@ -2701,7 +2726,7 @@ function AlumnoPerfilPageInner() {
         {!isAlumno && rolesReady && (
           <>
             {/* ===== Tarjetas resumen (clickeables) ===== */}
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
           <Card
             onClick={() => setActiveSection("notas")}
             className={[
@@ -2709,13 +2734,13 @@ function AlumnoPerfilPageInner() {
               activeSection === "notas" ? "school-primary-selected" : "",
             ].join(" ")}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center school-primary-soft-icon">
-                  <ClipboardList className="w-5 h-5" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:text-left sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-lg flex items-center justify-center school-primary-soft-icon">
+                  <ClipboardList className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
-                <div>
-                  <div className="text-xl font-semibold text-gray-900">Notas</div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-xl font-semibold text-gray-900 leading-tight">Notas</div>
                 </div>
               </div>
             </CardContent>
@@ -2730,13 +2755,13 @@ function AlumnoPerfilPageInner() {
                 : "hover:bg-amber-50/70",
             ].join(" ")}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                  <Gavel className="w-5 h-5 text-amber-700" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:text-left sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <Gavel className="w-4 h-4 sm:w-5 sm:h-5 text-amber-700" />
                 </div>
-                <div>
-                  <div className="text-xl font-semibold text-gray-900">Sanciones</div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-xl font-semibold text-gray-900 leading-tight">Sanciones</div>
                 </div>
               </div>
             </CardContent>
@@ -2751,13 +2776,13 @@ function AlumnoPerfilPageInner() {
                 : "hover:bg-emerald-50/70",
             ].join(" ")}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                  <CalendarDays className="w-5 h-5 text-emerald-700" />
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:text-left sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-lg bg-emerald-100 flex items-center justify-center">
+                  <CalendarDays className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-700" />
                 </div>
-                <div>
-                  <div className="text-xl font-semibold text-gray-900">
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-xl font-semibold text-gray-900 leading-tight">
                     Inasistencias
                   </div>
                 </div>
