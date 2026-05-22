@@ -10,6 +10,7 @@ import {
   DEFAULT_SCHOOL_LOGO_URL,
   authFetch,
   getLastSchoolLoginHref,
+  getLastSessionSchool,
   getRequestedSchoolIdentifierFromWindow,
   sanitizePostLoginPath,
   setTokens,
@@ -65,7 +66,19 @@ export default function LoginPage() {
     setError("")
 
     try {
-      const schoolParam = getRequestedSchoolIdentifierFromWindow()
+      const requestedSchool = getRequestedSchoolIdentifierFromWindow()
+      const rememberedSchool = !requestedSchool ? getLastSessionSchool() : null
+      const schoolParam =
+        requestedSchool ||
+        rememberedSchool?.slug ||
+        (rememberedSchool?.id != null ? String(rememberedSchool.id) : "")
+
+      if (!schoolParam) {
+        setError("Seleccioná un colegio antes de iniciar sesión.")
+        setLoading(false)
+        return
+      }
+
       clearTokens()
       await fetch(buildApiUrl("/auth/logout/"), {
         method: "POST",

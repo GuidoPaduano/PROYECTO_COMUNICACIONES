@@ -11,6 +11,7 @@ import {
   buildSchoolLoginHref,
   fetchPublicJson,
   getHostSchoolSlugFromWindow,
+  rememberSchoolSelection,
   usePublicSchoolBranding,
 } from "./_lib/auth"
 
@@ -42,6 +43,7 @@ function SchoolCard({ school }) {
   return (
     <Link
       href={href}
+      onClick={() => rememberSchoolSelection(school)}
       className="group flex h-full flex-col justify-between rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
     >
       <div className="space-y-4">
