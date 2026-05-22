@@ -2,10 +2,29 @@
 
 import { useEffect, useState } from "react"
 
-export const API_BASE =
+const CONFIGURED_API_BASE =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL)
     ? process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "")
     : "/api"
+
+function resolveApiBase() {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      /^https?:\/\//i.test(CONFIGURED_API_BASE)
+    ) {
+      const configured = new URL(CONFIGURED_API_BASE)
+      const current = new URL(window.location.origin)
+      if (configured.origin !== current.origin) {
+        // Keep auth cookies first-party on mobile Safari by using the Next rewrite.
+        return "/api"
+      }
+    }
+  } catch {}
+  return CONFIGURED_API_BASE
+}
+
+export const API_BASE = resolveApiBase()
 export const SCHOOL_PARENT_DOMAIN =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PARENT_DOMAIN)
     ? String(process.env.NEXT_PUBLIC_PARENT_DOMAIN).trim().toLowerCase()
