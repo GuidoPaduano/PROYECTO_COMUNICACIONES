@@ -2726,7 +2726,7 @@ function AlumnoPerfilPageInner() {
         {!isAlumno && rolesReady && (
           <>
             {/* ===== Tarjetas resumen (clickeables) ===== */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4">
           <Card
             onClick={() => setActiveSection("notas")}
             className={[
@@ -2770,7 +2770,7 @@ function AlumnoPerfilPageInner() {
           <Card
             onClick={() => setActiveSection("asistencias")}
             className={[
-              "border-0 shadow-sm cursor-pointer transition-all",
+              "col-span-2 border-0 shadow-sm cursor-pointer transition-all sm:col-span-1",
               activeSection === "asistencias"
                 ? "ring-2 ring-emerald-500 bg-emerald-50"
                 : "hover:bg-emerald-50/70",
@@ -2923,7 +2923,139 @@ function AlumnoPerfilPageInner() {
                       No se encontraron notas con los filtros actuales.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <>
+                    <div className="space-y-3 md:hidden">
+                      {notasFiltradas.map((n, i) => {
+                        const cuatr = notaCuatr(n)
+                        const firmada = isFirmadaFromAny(n)
+                        const firmadaEn = n?.firmada_en || n?.firmado_en || null
+                        const rowId = n.id || i
+                        return (
+                          <div
+                            key={`nota-mobile-${rowId}`}
+                            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900 break-words">
+                                  {n.materia || "Sin materia"}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {fmtFecha(n.fecha || n.created_at)}
+                                  {cuatr ? ` · ${cuatr}° cuatrimestre` : ""}
+                                </p>
+                              </div>
+                              <span className="inline-flex shrink-0 items-center rounded-full school-primary-soft-badge px-3 py-1 text-sm font-semibold">
+                                {toNumberOrText(n.calificacion)}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                  Tipo
+                                </p>
+                                <p className="mt-1 text-slate-900 break-words">
+                                  {n.tipo || "—"}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                  Firma
+                                </p>
+                                <div className="mt-1">
+                                  {!canViewFirmaEstado ? (
+                                    <span className="text-slate-400">—</span>
+                                  ) : firmada ? (
+                                    <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                      Firmada{firmadaEn ? ` · ${fmtFecha(firmadaEn)}` : ""}
+                                    </span>
+                                  ) : canSignByPadre ? (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        setSigningNotaId(String(n.id || ""))
+                                        const r = await firmarNota(n.id)
+                                        setSigningNotaId(null)
+                                        if (!r.ok) {
+                                          alert(
+                                            r.data?.detail ||
+                                              `Error (HTTP ${r.status || "?"})`
+                                          )
+                                          return
+                                        }
+
+                                        setNotas((prev) => {
+                                          const list = Array.isArray(prev) ? prev : []
+                                          const next = list.map((x) =>
+                                            String(x?.id || "") !== String(n.id || "")
+                                              ? x
+                                              : {
+                                                  ...x,
+                                                  firmada: true,
+                                                  firmada_en:
+                                                    r.data?.firmada_en || new Date().toISOString(),
+                                                }
+                                          )
+                                          setCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId, next)
+                                          return next
+                                        })
+                                      }}
+                                      disabled={
+                                        signingAllNotas ||
+                                        String(signingNotaId || "") === String(n.id || "")
+                                      }
+                                      className="inline-flex items-center rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-800 disabled:opacity-60"
+                                    >
+                                      {String(signingNotaId || "") === String(n.id || "")
+                                        ? "Firmando..."
+                                        : "Firmar"}
+                                    </button>
+                                  ) : (
+                                    <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                                      Pendiente
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {(n.observaciones || n.comentarios || canEditNotas) && (
+                              <div className="mt-3 border-t border-slate-100 pt-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                      Comentarios
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-700 break-words">
+                                      {n.observaciones || n.comentarios || "—"}
+                                    </p>
+                                  </div>
+                                  {canEditNotas ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openNotaModal(n)}
+                                      disabled={String(savingNotaId || "") === String(n.id || "")}
+                                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                                      aria-label="Editar nota"
+                                      title="Editar nota"
+                                    >
+                                      {String(savingNotaId || "") === String(n.id || "") ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Pencil className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="hidden overflow-x-auto md:block">
                       <table className="min-w-full text-sm">
                         <thead>
                           <tr className="text-left text-gray-600 border-b">
@@ -3036,6 +3168,7 @@ function AlumnoPerfilPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
                 </CardContent>
               </Card>
