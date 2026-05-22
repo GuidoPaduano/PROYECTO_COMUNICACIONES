@@ -334,6 +334,10 @@ export default function CargarNotasRapidas() {
     )
   }
 
+  function updateRowAt(index, patch) {
+    setRows((prev) => prev.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)))
+  }
+
   async function guardarSeleccionadas() {
     setError("")
     setOkMsg("")
@@ -401,10 +405,10 @@ export default function CargarNotasRapidas() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold">Carga de notas</h1>
         <Link href="/dashboard">
-          <Button variant="outline" className="inline-flex items-center">
+          <Button variant="outline" className="inline-flex w-full items-center justify-center sm:w-auto">
             <ArrowLeft className="mr-2 h-4 w-4" /> Volver
           </Button>
         </Link>
@@ -436,35 +440,35 @@ export default function CargarNotasRapidas() {
             </select>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-            <select className="rounded border px-3 py-2" value={fill.materia} onChange={(e) => setFill((f) => ({ ...f, materia: e.target.value }))}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <select className="rounded border px-3 py-2 text-sm" value={fill.materia} onChange={(e) => setFill((f) => ({ ...f, materia: e.target.value }))}>
               <option value="">Materia</option>
               {materias.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
-            <select className="rounded border px-3 py-2" value={fill.tipo} onChange={(e) => setFill((f) => ({ ...f, tipo: e.target.value }))}>
+            <select className="rounded border px-3 py-2 text-sm" value={fill.tipo} onChange={(e) => setFill((f) => ({ ...f, tipo: e.target.value }))}>
               <option value="">Tipo</option>
               {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
-            <select className="rounded border px-3 py-2" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
+            <select className="rounded border px-3 py-2 text-sm" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
               <option value="">Calificación</option>
               {calificaciones.map((r) => (
                 <option key={r.id} value={r.id}>{r.label}</option>
               ))}
             </select>
-            <select className="rounded border px-3 py-2" value={fill.cuatrimestre} onChange={(e) => setFill((f) => ({ ...f, cuatrimestre: e.target.value }))}>
+            <select className="rounded border px-3 py-2 text-sm" value={fill.cuatrimestre} onChange={(e) => setFill((f) => ({ ...f, cuatrimestre: e.target.value }))}>
               <option value="">Cuatrimestre</option>
               {cuatris.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
-            <input type="date" className="rounded border px-3 py-2" value={fill.fecha} onChange={(e) => setFill((f) => ({ ...f, fecha: e.target.value }))} />
+            <input type="date" className="rounded border px-3 py-2 text-sm" value={fill.fecha} onChange={(e) => setFill((f) => ({ ...f, fecha: e.target.value }))} />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <label className="text-sm">
               <input
                 type="checkbox"
@@ -474,13 +478,84 @@ export default function CargarNotasRapidas() {
               />
               Reemplazar campos ya cargados
             </label>
-            <Button variant="outline" onClick={applyFill}>Aplicar a todas</Button>
+            <Button variant="outline" onClick={applyFill} className="w-full sm:w-auto">Aplicar a todas</Button>
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardContent className="overflow-x-auto p-0">
+        <CardContent className="p-0">
+          <div className="border-b px-4 py-3 md:hidden">
+            <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                checked={allSelected}
+                onChange={(e) =>
+                  setRows((prev) => prev.map((row) => ({ ...row, incluir: e.target.checked })))
+                }
+                aria-label="Seleccionar o deseleccionar todos los alumnos"
+              />
+              <span>Incluir todos</span>
+            </label>
+          </div>
+
+          <div className="space-y-3 p-4 md:hidden">
+            {rows.map((r, idx) => (
+              <div key={`${r.id}-${idx}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">{r.nombre}</p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={!!r.incluir}
+                      onChange={(e) => updateRowAt(idx, { incluir: e.target.checked })}
+                    />
+                    Incluir
+                  </label>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Materia</label>
+                    <select className="w-full rounded border px-3 py-2 text-sm" value={r.materia} onChange={(e) => updateRowAt(idx, { materia: e.target.value })}>
+                      <option value=""></option>
+                      {materias.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tipo</label>
+                    <select className="w-full rounded border px-3 py-2 text-sm" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
+                      <option value=""></option>
+                      {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Calificación</label>
+                    <select className="w-full rounded border px-3 py-2 text-sm" value={r.calificacion} onChange={(e) => updateRowAt(idx, { calificacion: e.target.value })}>
+                      <option value=""></option>
+                      {calificaciones.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cuatrimestre</label>
+                    <select className="w-full rounded border px-3 py-2 text-sm" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
+                      <option value=""></option>
+                      {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Fecha</label>
+                    <input type="date" className="w-full rounded border px-3 py-2 text-sm" value={r.fecha || ""} onChange={(e) => updateRowAt(idx, { fecha: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-left">
@@ -513,44 +588,45 @@ export default function CargarNotasRapidas() {
                     <input
                       type="checkbox"
                       checked={!!r.incluir}
-                      onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, incluir: e.target.checked } : x)))}
+                      onChange={(e) => updateRowAt(idx, { incluir: e.target.checked })}
                     />
                   </td>
                   <td className="px-3 py-2">{r.nombre}</td>
                   <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.materia} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, materia: e.target.value } : x)))}>
+                    <select className="w-full rounded border px-2 py-1" value={r.materia} onChange={(e) => updateRowAt(idx, { materia: e.target.value })}>
                       <option value=""></option>
                       {materias.map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.tipo} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, tipo: e.target.value } : x)))}>
+                    <select className="w-full rounded border px-2 py-1" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
                       <option value=""></option>
                       {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.calificacion} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, calificacion: e.target.value } : x)))}>
+                    <select className="w-full rounded border px-2 py-1" value={r.calificacion} onChange={(e) => updateRowAt(idx, { calificacion: e.target.value })}>
                       <option value=""></option>
                       {calificaciones.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.cuatrimestre} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, cuatrimestre: Number(e.target.value) } : x)))}>
+                    <select className="w-full rounded border px-2 py-1" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
                       <option value=""></option>
                       {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <input type="date" className="w-full rounded border px-2 py-1" value={r.fecha || ""} onChange={(e) => setRows((prev) => prev.map((x, j) => (j === idx ? { ...x, fecha: e.target.value } : x)))} />
+                    <input type="date" className="w-full rounded border px-2 py-1" value={r.fecha || ""} onChange={(e) => updateRowAt(idx, { fecha: e.target.value })} />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
 
-          <div className="flex items-center gap-3 p-4">
-            <Button onClick={guardarSeleccionadas} disabled={saving || isLoading} className="inline-flex items-center">
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+            <Button onClick={guardarSeleccionadas} disabled={saving || isLoading} className="inline-flex w-full items-center justify-center sm:w-auto">
               <Save className="mr-2 h-4 w-4" /> {saving ? "Guardando..." : "Guardar seleccionadas"}
             </Button>
             <div className="text-xs text-slate-500">

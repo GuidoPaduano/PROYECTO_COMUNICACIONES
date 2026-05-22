@@ -41,13 +41,13 @@ function matchQuery(values, query) {
 
 function SummaryCard({ title, value, icon, active = false, onClick, interactive = false }) {
   const content = (
-    <CardContent className="flex items-center justify-between p-5">
+    <CardContent className="flex items-center justify-between p-4 sm:p-5">
       <div>
         <div className={`text-sm ${active ? "text-slate-900" : "text-slate-500"}`}>{title}</div>
-        <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
+        <div className="mt-1 text-2xl font-semibold text-slate-900 sm:text-2xl">{value}</div>
       </div>
       <div
-        className="inline-flex h-11 w-11 items-center justify-center rounded-2xl text-white transition"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl text-white transition sm:h-11 sm:w-11"
         style={{ backgroundColor: active ? "#0f172a" : "var(--school-primary)" }}
       >
         {icon}
@@ -82,7 +82,39 @@ function StaffSection({ title, rows, emptyLabel }) {
         <CardDescription>{rows.length ? `${rows.length} usuario(s)` : emptyLabel}</CardDescription>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="min-w-0">
+        <div className="space-y-3 md:hidden">
+          {rows.map((row) => (
+            <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{row.full_name || row.username}</p>
+                  <p className="mt-1 text-xs text-slate-500">@{row.username}</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Email</span>
+                  <span className="break-all">{row.email || "-"}</span>
+                </div>
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cursos</span>
+                  <span className="block">
+                    {Array.isArray(row.assigned_school_courses) && row.assigned_school_courses.length
+                      ? row.assigned_school_courses.map((course) => course.code || course.name).join(", ")
+                      : "-"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+          {!rows.length ? (
+            <div className="rounded-2xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+              {emptyLabel}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="hidden min-w-0 md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -129,7 +161,34 @@ function StudentsSection({ course }) {
         <CardDescription>{course.students.length} alumno(s)</CardDescription>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="min-w-0">
+        <div className="space-y-3 md:hidden">
+          {course.students.map((student) => (
+            <div key={student.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{student.full_name || "-"}</p>
+                  <p className="mt-1 text-xs text-slate-500">Legajo {student.id_alumno}</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Usuario vinculado</span>
+                  {student.linked_user?.username ? (
+                    <span>{student.linked_user.username}</span>
+                  ) : (
+                    <span className="text-amber-700">Sin usuario</span>
+                  )}
+                </div>
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Email</span>
+                  <span className="break-all">{student.linked_user?.email || "-"}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="hidden min-w-0 md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -269,7 +328,7 @@ export default function SchoolUserDirectoryPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 min-w-0">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div>
           <Link
             href="/admin/colegio"
@@ -278,12 +337,12 @@ export default function SchoolUserDirectoryPage() {
             <ArrowLeft className="h-4 w-4" />
             Volver a admin colegio
           </Link>
-          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Usuarios del colegio</h1>
+          <h1 className="mt-3 text-2xl font-semibold text-slate-900 sm:text-3xl">Usuarios del colegio</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             Directorio del colegio activo con profesores, preceptores y alumnos agrupados por curso.
           </p>
         </div>
-        <Button type="button" variant="outline" onClick={loadData} disabled={loading}>
+        <Button type="button" variant="outline" onClick={loadData} disabled={loading} className="w-full sm:w-auto">
           <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           Actualizar
         </Button>
@@ -295,7 +354,7 @@ export default function SchoolUserDirectoryPage() {
         </div>
       ) : null}
 
-      <div className="relative max-w-md">
+      <div className="relative w-full max-w-md">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <Input
           value={query}
@@ -362,7 +421,7 @@ export default function SchoolUserDirectoryPage() {
               {alumnosPorCurso.length ? (
                 <div className="w-full max-w-md">
                   <Select value={selectedCourseKey} onValueChange={setSelectedCourseKey}>
-                    <SelectTrigger className="h-12 text-base">
+                    <SelectTrigger className="h-11 text-sm sm:h-12 sm:text-base">
                       <SelectValue placeholder="Seleccionar curso" />
                     </SelectTrigger>
                     <SelectContent>
