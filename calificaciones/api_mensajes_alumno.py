@@ -182,7 +182,7 @@ def _school_has_assignment_data(school=None) -> bool:
 def _allowed_docentes_qs(*, school=None, school_course=None, curso: str = "", alumno: Optional[Alumno] = None):
     """
     Usa asignaciones por school/curso cuando existen.
-    Si todavia no hay asignaciones cargadas para ese school, cae al listado general.
+    Si todavía no hay asignaciones cargadas para ese school, cae al listado general.
     """
     base = User.objects.filter(is_active=True, groups__name__in=(PROF_GROUPS + PREC_GROUPS)).distinct()
     user_ids = set()
@@ -351,7 +351,7 @@ def alumno_enviar(request):
         alumno=alumno,
     )
     if not any(getattr(allowed, "id", None) == receptor.id for allowed in allowed_receptores):
-        return Response({"detail": "El destinatario no esta habilitado para el colegio o curso activo."}, status=403)
+        return Response({"detail": "El destinatario no está habilitado para el colegio o curso activo."}, status=403)
     course_context = _course_context(alumno=alumno, school_course=school_course_ref, curso=curso, school=school_ref)
     school_course_ref = course_context["school_course"] or school_course_ref
     course_code = _course_code_from_context(alumno=alumno, school_course=school_course_ref, curso=curso)

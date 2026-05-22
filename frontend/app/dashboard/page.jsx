@@ -1763,7 +1763,7 @@ function ProximosEventosCard({
               <h3 className="tile-title">{titleText || "Proximos eventos"}</h3>
               <p className="tile-subtitle">
                 {subtitleText ||
-                  `En los proximos ${PROXIMOS_EVENTOS_DIAS} dias`}
+                  `En los próximos ${PROXIMOS_EVENTOS_DIAS} días`}
               </p>
             </div>
           </div>
@@ -1793,13 +1793,13 @@ function ProximosEventosCard({
         <div>
           {!hasCurso ? (
             <p className="text-sm text-slate-500">
-              {noCursoText || "Selecciona un curso para ver eventos."}
+              {noCursoText || "Seleccioná un curso para ver eventos."}
             </p>
           ) : eventosLoading ? (
             <p className="text-sm text-slate-500">Cargando eventos...</p>
           ) : eventos.length === 0 ? (
             <p className="text-sm text-slate-500">
-              {`No hay eventos en los proximos ${PROXIMOS_EVENTOS_DIAS} dias.`}
+              {`No hay eventos en los próximos ${PROXIMOS_EVENTOS_DIAS} días.`}
             </p>
           ) : (
             <div className="space-y-3">
@@ -2156,11 +2156,11 @@ function PadreInicio({
             showHijoLabel && hijoLabel
               ? (
                 <span>
-                  En los proximos {PROXIMOS_EVENTOS_DIAS} dias ·{" "}
+                  En los próximos {PROXIMOS_EVENTOS_DIAS} días ·{" "}
                   <strong>{hijoLabel}</strong>
                 </span>
               )
-              : `En los proximos ${PROXIMOS_EVENTOS_DIAS} dias`
+              : `En los próximos ${PROXIMOS_EVENTOS_DIAS} días`
           }
           countLabel="eventos"
         />

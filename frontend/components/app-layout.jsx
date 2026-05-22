@@ -73,7 +73,7 @@ const ROUTE_META = [
   {
     match: (p) => p.startsWith("/agregar_nota"),
     title: () => "Nueva nota",
-    subtitle: "Agrega una calificación u observación.",
+    subtitle: "Agregá una calificación u observación.",
     icon: <ClipboardList className="w-5 h-5" />,
   },
   {

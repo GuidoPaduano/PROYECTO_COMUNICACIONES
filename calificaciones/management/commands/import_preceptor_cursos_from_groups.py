@@ -18,7 +18,7 @@ class Command(BaseCommand):
         if target_school is None:
             self.stdout.write(
                 self.style.WARNING(
-                    "Se omitio la importacion: hace falta indicar el colegio en un entorno con multiples colegios."
+                    "Se omitió la importación: hace falta indicar el colegio en un entorno con múltiples colegios."
                 )
             )
             return

@@ -45,7 +45,7 @@ class NotaForm(forms.ModelForm):
 
     resultado = forms.ChoiceField(
         required=False,
-        choices=[("", "Selecciona..."), ("TEA", "Aprobado"), ("TEP", "Desaprobado"), ("TED", "Aplazado")],
+        choices=[("", "Seleccioná..."), ("TEA", "Aprobado"), ("TEP", "Desaprobado"), ("TED", "Aplazado")],
         widget=forms.Select(attrs={"class": "form-control"}),
     )
     nota_numerica = forms.DecimalField(
@@ -131,7 +131,7 @@ class EventoForm(forms.ModelForm):
     def __init__(self, *args, school=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.selected_school = school or getattr(getattr(self, "instance", None), "school", None)
-        choices = [("", "Selecciona un curso...")]
+        choices = [("", "Seleccioná un curso...")]
         if self.selected_school is not None:
             try:
                 choices.extend(
@@ -164,7 +164,7 @@ class EventoForm(forms.ModelForm):
             include_inactive=True,
         )
         if school_course is None:
-            raise forms.ValidationError("Selecciona un curso válido.")
+            raise forms.ValidationError("Seleccioná un curso válido.")
         self.cleaned_data["school_course"] = school_course
         return str(school_course.id)
 

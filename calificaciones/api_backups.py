@@ -70,10 +70,10 @@ def _sqlite_backup_response():
 def _postgres_backup_response():
     database_url = (os.environ.get("DATABASE_URL") or "").strip()
     if not database_url:
-        return None, Response({"detail": "DATABASE_URL no esta configurada."}, status=500)
+        return None, Response({"detail": "DATABASE_URL no está configurada."}, status=500)
 
     if shutil.which("pg_dump") is None:
-        return None, Response({"detail": "pg_dump no esta disponible en el contenedor."}, status=500)
+        return None, Response({"detail": "pg_dump no está disponible en el contenedor."}, status=500)
 
     database_name = _safe_db_name_from_url(database_url)
     temp_dir = tempfile.mkdtemp(prefix="platform-backup-")
