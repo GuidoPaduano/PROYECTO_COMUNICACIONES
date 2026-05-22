@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import SuccessMessage from "@/components/ui/success-message"
 import {
   getCourseLabel,
+  getCourseCode,
   getCourseSchoolCourseId,
   getCourseValue,
   loadCourseCatalog,
@@ -104,6 +105,10 @@ export default function ComposeComunicadoFamilia({
     () => getCourseSchoolCourseId(cursoSel, cursos),
     [cursoSel, cursos]
   )
+  const courseCodeSel = useMemo(
+    () => getCourseCode(cursoSel, cursos) || String(cursoSel || "").trim(),
+    [cursoSel, cursos]
+  )
 
   // Reset suave al abrir/cerrar
   useEffect(() => {
@@ -188,7 +193,7 @@ export default function ComposeComunicadoFamilia({
   // ----- Cargar alumnos del curso -----
   useEffect(() => {
     if (!open || !cursoSel) { setAlumnos([]); setDestinatarios([]); setAlumnoSel(""); setPadreSel(""); return }
-    if (schoolCourseIdSel == null) {
+    if (schoolCourseIdSel == null && !courseCodeSel) {
       setErrMsg("No se pudo resolver el curso seleccionado.")
       setAlumnos([])
       setDestinatarios([])
@@ -199,7 +204,11 @@ export default function ComposeComunicadoFamilia({
     let alive = true
     setLoadingAlumnos(true)
     setErrMsg("")
-    authFetch(`/alumnos/?school_course_id=${encodeURIComponent(String(schoolCourseIdSel))}`)
+    const courseQuery =
+      schoolCourseIdSel != null
+        ? `school_course_id=${encodeURIComponent(String(schoolCourseIdSel))}`
+        : `curso=${encodeURIComponent(courseCodeSel)}`
+    authFetch(`/alumnos/?${courseQuery}`)
       .then((r) => r.json())
       .then((data) => {
         if (!alive) return
@@ -248,7 +257,7 @@ export default function ComposeComunicadoFamilia({
       })
       .finally(() => alive && setLoadingAlumnos(false))
     return () => { alive = false }
-  }, [open, cursoSel, schoolCourseIdSel])
+  }, [open, cursoSel, schoolCourseIdSel, courseCodeSel])
 
   // En modo "alumno", aseguramos que haya una selección válida si hay alumnos cargados.
   useEffect(() => {
@@ -345,14 +354,18 @@ export default function ComposeComunicadoFamilia({
         setOkMsg("Mensaje enviado al alumno correctamente.")
       } else {
         // Envío grupal a TODOS los alumnos del curso
-        if (schoolCourseIdSel == null) {
+        if (schoolCourseIdSel == null && !courseCodeSel) {
           throw new Error("No se pudo resolver el curso seleccionado.")
         }
+        const coursePayload =
+          schoolCourseIdSel != null
+            ? { school_course_id: schoolCourseIdSel }
+            : { curso: courseCodeSel }
         const res = await authFetch("/api/mensajes/enviar_grupal/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            school_course_id: schoolCourseIdSel,
+            ...coursePayload,
             asunto,
             contenido: mensaje,
             tipo: "mensaje", // => alumno.usuario (no padres)

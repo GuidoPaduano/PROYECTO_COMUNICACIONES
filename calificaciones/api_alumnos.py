@@ -447,6 +447,15 @@ def _import_duplicate_signature(*, nombre: str, apellido: str, legajo: str, curs
     )
 
 
+def _validate_import_person_name(value: str, field_label: str) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return [f"Falta {field_label}."]
+    if any(ch.isdigit() for ch in text):
+        return [f"El {field_label} no puede contener números."]
+    return []
+
+
 IGNORED_IMPORT_SHEET_TITLES = {
     "todo",
     "todos",
@@ -582,8 +591,8 @@ def _build_import_plan(*, rows: list[dict], school: School):
         else:
             seen_rows[row_signature] = index
 
-        if not nombre and not apellido:
-            row_errors.append("Falta nombre o apellido.")
+        row_errors.extend(_validate_import_person_name(nombre, "nombre"))
+        row_errors.extend(_validate_import_person_name(apellido, "apellido"))
         if not curso:
             row_errors.append("Falta curso.")
 
@@ -654,7 +663,7 @@ def _build_import_plan(*, rows: list[dict], school: School):
             {
                 "row": index,
                 "legajo": legajo,
-                "nombre": nombre or legajo,
+                "nombre": nombre,
                 "apellido": apellido,
                 "curso": curso,
                 "school_course": school_course,
@@ -908,6 +917,8 @@ def cursos_disponibles(request):
         {
             "id": item.get("id"),
             "nombre": item.get("nombre"),
+            "code": item.get("id"),
+            "school_course_id": item.get("school_course_id"),
         }
         for item in cursos
         if item.get("id")

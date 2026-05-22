@@ -499,8 +499,8 @@ export default function ColegiosPage() {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => (!open ? setDeleteTarget(null) : null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Seguro que quiere borrar este colegio?</DialogTitle>
-            <DialogDescription>Esta accion es irreversible.</DialogDescription>
+            <DialogTitle>¿Seguro que quiere borrar este colegio?</DialogTitle>
+            <DialogDescription>Esta acción es irreversible.</DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
             <Button

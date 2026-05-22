@@ -202,11 +202,11 @@ export default function AdminCreateUserPage({
       return
     }
     if (containsDigit(firstName)) {
-      setError("El nombre no puede contener numeros.")
+      setError("El nombre no puede contener números.")
       return
     }
     if (containsDigit(lastName)) {
-      setError("El apellido no puede contener numeros.")
+      setError("El apellido no puede contener números.")
       return
     }
     setSubmitting(true)
@@ -422,7 +422,7 @@ export default function AdminCreateUserPage({
               <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle>Alumnos a cargo</CardTitle>
-                  <CardDescription>Selecciona los alumnos que deberian quedar asociados a esta familia.</CardDescription>
+                  <CardDescription>Seleccioná los alumnos que deberían quedar asociados a esta familia.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -480,8 +480,8 @@ export default function AdminCreateUserPage({
             {(form.role === "Profesores" || form.role === "Preceptores") ? (
               <Card>
                 <CardHeader>
-                  <CardTitle>Asignacion inicial a cursos</CardTitle>
-                  <CardDescription>Opcional. Si los seleccionas ahora, el usuario ya queda operativo dentro del colegio.</CardDescription>
+                  <CardTitle>Asignación inicial a cursos</CardTitle>
+                  <CardDescription>Opcional. Si los seleccionás ahora, el usuario ya queda operativo dentro del colegio.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-2 sm:grid-cols-2">
                   {courses.map((course) => {

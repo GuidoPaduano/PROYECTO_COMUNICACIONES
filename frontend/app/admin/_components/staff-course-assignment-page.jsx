@@ -352,7 +352,7 @@ export default function StaffCourseAssignmentPage({
                 {selectedCourse ? courseLabel(selectedCourse) : "Curso"}
               </CardTitle>
               <CardDescription>
-                Selecciona los {roleLabel(role)} que deben quedar asignados a este curso.
+                Seleccioná los {roleLabel(role)} que deben quedar asignados a este curso.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">

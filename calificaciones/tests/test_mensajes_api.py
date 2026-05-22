@@ -207,7 +207,7 @@ class MensajesEliminarTests(TestCase):
         res = self.client.delete(f"/api/mensajes/{self.mensaje.id}/eliminar/")
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No podes eliminar mensajes no leidos.")
+        self.assertEqual(res.json()["detail"], "No podés eliminar mensajes no leídos.")
         self.assertTrue(Mensaje.objects.filter(id=self.mensaje.id).exists())
 
     def test_padre_puede_eliminar_mensaje_leido(self):

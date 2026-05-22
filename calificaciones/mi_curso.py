@@ -49,7 +49,7 @@ def mi_curso(request):
 
     Respuesta:
       {"school_course_id": 14, "school_course_name": "1A Norte"}
-      o valores nulos si no esta linkeado.
+      o valores nulos si no está linkeado.
     """
     if Alumno is None:
         return Response({"school_course_id": None, "school_course_name": None}, status=status.HTTP_200_OK)

@@ -67,7 +67,7 @@ def _build_url(base_url: str, path: str) -> str:
 def _parse_endpoint(raw: str) -> EndpointSpec:
     txt = (raw or "").strip()
     if not txt:
-        raise ValueError("Endpoint vacio.")
+        raise ValueError("Endpoint vacío.")
     if ":" not in txt:
         return EndpointSpec(method="GET", path=txt)
     method, path = txt.split(":", 1)
@@ -118,7 +118,7 @@ def _obtain_jwt(base_url: str, username: str, password: str, timeout_s: float) -
     if isinstance(payload, dict):
         token = payload.get("access")
     if not token:
-        raise RuntimeError(f"No se recibio access token en {url}: {payload}")
+        raise RuntimeError(f"No se recibió access token en {url}: {payload}")
     return str(token)
 
 
@@ -258,7 +258,7 @@ def main() -> int:
             continue
         endpoint_specs.append(_parse_endpoint(txt))
     if not endpoint_specs:
-        print("No hay endpoints validos para testear.", file=sys.stderr)
+        print("No hay endpoints válidos para testear.", file=sys.stderr)
         return 2
 
     auth_header = None
