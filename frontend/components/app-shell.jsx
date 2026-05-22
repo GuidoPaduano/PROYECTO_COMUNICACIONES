@@ -386,6 +386,15 @@ export function AppShell({
         </aside>
       )}
 
+      {!hideSidebar && sidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Cerrar menu lateral"
+          className="app-sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+        />
+      ) : null}
+
       <main className="app-main">
         <div className={cn("app-main-inner", maxWidthClass)}>
           {!hideSidebar && (
