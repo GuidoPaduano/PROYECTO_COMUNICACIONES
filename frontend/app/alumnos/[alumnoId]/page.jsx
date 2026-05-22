@@ -3178,19 +3178,19 @@ function AlumnoPerfilPageInner() {
             {activeSection === "sanciones" && (
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                 <CardContent className="p-4 sm:p-6">
-                  <div className="flex items-center justify-between gap-4 mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <div className="flex flex-col gap-4 mb-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="w-12 h-12 shrink-0 bg-amber-100 rounded-lg flex items-center justify-center">
                         <Gavel className="h-6 w-6 text-amber-700" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <h3 className="tile-title">Sanciones</h3>
                         <p className="tile-subtitle">
                           Historial disciplinario del alumno
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
                       {canSignByPadre ? (
                         <Button
                           type="button"
@@ -3199,7 +3199,7 @@ function AlumnoPerfilPageInner() {
                             signingAllSanciones ||
                             sancionesPendientesFirma.length === 0
                           }
-                          className="h-9 gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="h-9 w-full gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
                         >
                           {signingAllSanciones ? "Firmando..." : "Firmar todo"}
                         </Button>
@@ -3208,10 +3208,12 @@ function AlumnoPerfilPageInner() {
                         type="button"
                         onClick={handleDownloadSancionesPdf}
                         disabled={downloadingSancionesPdf}
-                        className="h-9 gap-2 primary-button"
+                        className="h-9 w-full min-w-0 gap-2 primary-button sm:w-auto"
                       >
-                        <Download className="h-4 w-4" />
-                        {downloadingSancionesPdf ? "Generando..." : "Descargar en PDF"}
+                        <Download className="h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          {downloadingSancionesPdf ? "Generando..." : "Descargar en PDF"}
+                        </span>
                       </Button>
                     </div>
                   </div>
@@ -3265,7 +3267,92 @@ function AlumnoPerfilPageInner() {
                       No hay sanciones registradas.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <>
+                    <div className="space-y-3 md:hidden">
+                      {sancionesFiltradas.map((s, i) => {
+                        const firmada = isFirmadaFromAny(s)
+                        const firmadaEn = s?.firmada_en || s?.firmado_en || null
+                        const rowId = s.id || i
+                        return (
+                          <div
+                            key={`sancion-mobile-${rowId}`}
+                            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {fmtFecha(s.fecha || s.created_at)}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500 break-words">
+                                  {s.docente || s.creado_por || "Sin docente"}
+                                </p>
+                              </div>
+                              {canSignByPadre ? (
+                                firmada ? (
+                                  <span className="inline-flex shrink-0 items-center rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                    Firmada{firmadaEn ? ` · ${fmtFecha(firmadaEn)}` : ""}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setSigningSancionId(String(s.id || ""))
+                                      const r = await firmarSancion(s.id)
+                                      setSigningSancionId(null)
+                                      if (!r.ok) {
+                                        alert(
+                                          r.data?.detail ||
+                                            `Error (HTTP ${r.status || "?"})`
+                                        )
+                                        return
+                                      }
+
+                                      setSanciones((prev) => {
+                                        const list = Array.isArray(prev) ? prev : []
+                                        const next = list.map((x) => {
+                                          if (String(x?.id || "") !== String(s.id || "")) return x
+                                          return {
+                                            ...x,
+                                            firmada: true,
+                                            firmada_en:
+                                              r.data?.firmada_en || new Date().toISOString(),
+                                          }
+                                        })
+                                        setCachedList(
+                                          SANCIONES_CACHE_PREFIX,
+                                          alumnoCacheId,
+                                          next
+                                        )
+                                        return next
+                                      })
+                                    }}
+                                    disabled={
+                                      signingAllSanciones ||
+                                      String(signingSancionId || "") === String(s.id || "")
+                                    }
+                                    className="inline-flex shrink-0 items-center rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-800 disabled:opacity-60"
+                                  >
+                                    {String(signingSancionId || "") === String(s.id || "")
+                                      ? "Firmando..."
+                                      : "Firmar"}
+                                  </button>
+                                )
+                              ) : null}
+                            </div>
+                            <div className="mt-3 border-t border-slate-100 pt-3">
+                              <p className="text-[11px] font-semibold uppercase text-slate-500">
+                                Motivo
+                              </p>
+                              <p className="mt-1 text-sm text-slate-800 break-words">
+                                {s.motivo || s.detalle || s.descripcion || "-"}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="hidden overflow-x-auto md:block">
                       <table className="w-full table-fixed text-sm">
                         <colgroup>
                           <col className={canSignByPadre ? "w-[18%]" : "w-[20%]"} />
@@ -3355,6 +3442,7 @@ function AlumnoPerfilPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
                 </CardContent>
               </Card>
