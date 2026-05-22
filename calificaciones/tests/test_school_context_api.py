@@ -162,6 +162,7 @@ class SchoolContextApiTests(TestCase):
         self.assertEqual(body["available_schools"][0]["primary_color"], "#654321")
         self.assertEqual(body["available_schools"][0]["accent_color"], "#fedcba")
         self.assertEqual(body["alumno"]["school_course_name"], "1A Sur")
+        self.assertEqual(body["alumno"]["apellido"], "Suarez")
         self.assertNotIn("curso", body["alumno"])
 
     def test_login_rechaza_usuario_de_otro_colegio(self):
