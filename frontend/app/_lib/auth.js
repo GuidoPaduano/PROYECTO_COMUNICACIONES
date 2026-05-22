@@ -297,6 +297,10 @@ function rememberLastSessionSchool(rawSchool) {
   } catch {}
 }
 
+export function rememberSchoolSelection(rawSchool) {
+  rememberLastSessionSchool(rawSchool)
+}
+
 export function getLastSchoolLoginHref() {
   const school = getLastSessionSchool()
   return school ? buildSchoolLoginHref(school) : ""
@@ -336,8 +340,16 @@ export function usePublicSchoolBranding(options = {}) {
     ;(async () => {
       try {
         const schoolParam = getRequestedSchoolIdentifierFromWindow()
+        const rememberedSchool = !schoolParam ? getLastSessionSchool() : null
+        const rememberedSchoolRef =
+          rememberedSchool?.slug || (rememberedSchool?.id != null ? String(rememberedSchool.id) : "")
+        if (alive && rememberedSchoolRef) {
+          setBranding(buildPublicBranding(rememberedSchool, fallback))
+        }
         const path = schoolParam
           ? `/public/school-branding/?school=${encodeURIComponent(schoolParam)}`
+          : rememberedSchoolRef
+            ? `/public/school-branding/?school=${encodeURIComponent(rememberedSchoolRef)}`
           : "/public/school-branding/"
         const data = await fetchPublicJson(path, { retries: 1, retryDelayMs: 300 })
         if (alive) {
