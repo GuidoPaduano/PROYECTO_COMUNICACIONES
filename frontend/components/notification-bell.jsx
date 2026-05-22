@@ -323,10 +323,10 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
-        side="right"
-        align="start"
-        sideOffset={24}
-        className="w-[calc(100vw-2rem)] p-2 max-h-[70vh] overflow-y-auto sm:w-96"
+        side="bottom"
+        align="end"
+        sideOffset={8}
+        className="w-[220px] p-2 max-h-[70vh] overflow-y-auto sm:w-96"
       >
         <DropdownMenuLabel className="px-2">Notificaciones</DropdownMenuLabel>
         <DropdownMenuSeparator />

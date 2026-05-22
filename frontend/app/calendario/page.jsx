@@ -692,12 +692,14 @@ export default function CalendarioEscolarPage() {
       locale: "es",
       height: "auto",
       buttonText: { today: "Hoy" },
-      dayHeaderFormat: { weekday: "long" },
+      dayHeaderFormat: { weekday: "short" },
       dayHeaderContent: (info) => {
+        const compact = typeof window !== "undefined" && window.innerWidth < 640
         const label = new Intl.DateTimeFormat("es-ES", {
-          weekday: "long",
+          weekday: compact ? "short" : "long",
         }).format(info.date)
-        return capitalizeFirstLetter(label || "")
+        const cleanLabel = compact ? String(label || "").replace(/\.$/, "") : label
+        return capitalizeFirstLetter(cleanLabel || "")
       },
       datesSet: (info) => {
         try {
