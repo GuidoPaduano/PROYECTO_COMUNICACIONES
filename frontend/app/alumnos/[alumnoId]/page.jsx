@@ -365,6 +365,32 @@ async function getAlumnoIdsFromAny(idParam) {
       }
     }
   } catch {}
+
+  try {
+    const profile = await getSessionProfile()
+    const alumno = profile?.alumno
+    if (alumno && typeof alumno === "object") {
+      const sessionPk = alumno?.id ?? alumno?.pk ?? null
+      const sessionCode = alumno?.id_alumno ?? alumno?.legajo ?? null
+      const normalizedId = String(idParam ?? "").trim()
+      const matchesSessionAlumno =
+        (sessionPk != null && String(sessionPk).trim() === normalizedId) ||
+        (sessionCode != null && String(sessionCode).trim() === normalizedId)
+
+      if (matchesSessionAlumno) {
+        return {
+          detail: {
+            ...alumno,
+            id: sessionPk,
+            id_alumno: sessionCode ?? normalizedId,
+          },
+          pk: sessionPk,
+          code: sessionCode ?? normalizedId,
+        }
+      }
+    }
+  } catch {}
+
   return { detail: null, pk: null, code: idParam }
 }
 
@@ -2759,8 +2785,8 @@ function AlumnoPerfilPageInner() {
             {/* ===== Sección: Notas ===== */}
             {activeSection === "notas" && (
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-4 mb-4">
+                <CardContent className="p-4 sm:p-6">
+                  <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="flex items-start gap-4">
                       <div className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 school-primary-soft-icon">
                         <ClipboardList className="h-6 w-6" />
@@ -2993,7 +3019,7 @@ function AlumnoPerfilPageInner() {
             {/* ===== Sección: Sanciones ===== */}
             {activeSection === "sanciones" && (
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
-                <CardContent className="p-6">
+                <CardContent className="p-4 sm:p-6">
                   <div className="flex items-center justify-between gap-4 mb-4">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
@@ -3181,7 +3207,7 @@ function AlumnoPerfilPageInner() {
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                 <CardContent className="p-6">
                   {/* ✅ header con filtros a la derecha */}
-                  <div className="flex items-start justify-between gap-4 mb-4">
+                  <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center">
                         <CalendarDays className="h-6 w-6 text-emerald-700" />
@@ -3192,10 +3218,10 @@ function AlumnoPerfilPageInner() {
                     </div>
 
                     {/* ✅ NUEVO: filtros mes + tipo */}
-                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                    <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
                       {asistencias.length > 0 && (
-                        <>
-                          <div className="min-w-[180px]">
+                        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:w-auto">
+                          <div className="w-full lg:min-w-[180px]">
                             <Label className="text-xs text-gray-600">Mes</Label>
                             <select
                               className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
@@ -3211,7 +3237,7 @@ function AlumnoPerfilPageInner() {
                             </select>
                           </div>
 
-                          <div className="min-w-[200px]">
+                          <div className="w-full lg:min-w-[200px]">
                             <Label className="text-xs text-gray-600">Asistencia</Label>
                             <select
                               className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
@@ -3224,10 +3250,10 @@ function AlumnoPerfilPageInner() {
                               <option value="catequesis">Catequesis</option>
                             </select>
                           </div>
-                        </>
+                        </div>
                       )}
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
                         {canSignByPadre ? (
                           <Button
                             type="button"
@@ -3236,7 +3262,7 @@ function AlumnoPerfilPageInner() {
                               signingAllAsistencias ||
                               asistenciasPendientesFirma.length === 0
                             }
-                            className="h-9 gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="h-9 w-full justify-center gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
                           >
                             {signingAllAsistencias ? "Firmando..." : "Firmar todo"}
                           </Button>
@@ -3245,7 +3271,7 @@ function AlumnoPerfilPageInner() {
                           type="button"
                           onClick={handleDownloadAsistenciasPdf}
                           disabled={downloadingAsistenciasPdf}
-                          className="h-9 gap-2 primary-button"
+                          className="h-9 w-full justify-center gap-2 primary-button sm:w-auto"
                         >
                           <Download className="h-4 w-4" />
                           {downloadingAsistenciasPdf
@@ -3270,7 +3296,204 @@ function AlumnoPerfilPageInner() {
                       No hay asistencias para los filtros seleccionados.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <>
+                    <div className="space-y-3 md:hidden">
+                      {asistenciasFiltradas.map((a, i) => {
+                        const tipoRaw = asistenciaTipoFromAny(a)
+                        const tipoNorm = normalizeAsistenciaTipo(tipoRaw) || "clases"
+                        const rowId = getAsistenciaId(a) || `${i}`
+                        const asistenciaId = getAsistenciaId(a)
+                        const est = estadoTexto(asistenciaEstadoFromAny(a))
+                        const puedeFirmarAsistencia = est === "Ausente" || est === "Tarde"
+                        const puedeDetalle = canEditAsistenciaDetalle
+                        const detalleTexto = a.detalle || a.observaciones || a.observacion || ""
+                        const firmada = isFirmadaFromAny(a)
+                        const firmadaEn = a?.firmada_en || a?.firmado_en || null
+                        const just = isJustificadaFromAny(a)
+
+                        return (
+                          <div
+                            key={`mobile-${rowId}`}
+                            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {fmtFecha(a.fecha || a.created_at)}
+                                </p>
+                                <div className="mt-2">
+                                  <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                    {asistenciaTipoLabel(tipoNorm)}
+                                  </span>
+                                </div>
+                              </div>
+                              <span
+                                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
+                                  est === "Presente"
+                                    ? "border border-emerald-300 bg-emerald-50 text-emerald-800"
+                                    : est === "Tarde"
+                                    ? "border border-amber-300 bg-amber-50 text-amber-800"
+                                    : est === "Ausente"
+                                    ? "border border-rose-200 bg-rose-50 text-rose-700"
+                                    : "border border-slate-200 bg-slate-50 text-slate-700"
+                                }`}
+                              >
+                                {est}
+                              </span>
+                            </div>
+
+                            <div className="mt-4 space-y-3">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                  Justificada
+                                </p>
+                                <div className="mt-1">
+                                  {!puedeFirmarAsistencia ? (
+                                    <span className="text-sm text-slate-400">No aplica</span>
+                                  ) : !canJustifyAsistencias ? (
+                                    just ? (
+                                      <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
+                                        Justificada
+                                      </span>
+                                    ) : (
+                                      <span className="text-sm text-slate-400">Pendiente</span>
+                                    )
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        const r = await toggleJustificada(asistenciaId, !just)
+                                        if (!r.ok) {
+                                          alert(
+                                            r.data?.detail ||
+                                              `Error (HTTP ${r.status || "?"})`
+                                          )
+                                          return
+                                        }
+
+                                        setAsistencias((prev) => {
+                                          const list = Array.isArray(prev) ? prev : []
+                                          return list.map((x) => {
+                                            const xid = getAsistenciaId(x)
+                                            if (String(xid) !== String(asistenciaId)) return x
+                                            return {
+                                              ...x,
+                                              justificada: r.data?.justificada ?? !just,
+                                              falta_valor:
+                                                r.data?.falta_valor ?? x.falta_valor,
+                                            }
+                                          })
+                                        })
+                                      }}
+                                      className={
+                                        just
+                                          ? "inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
+                                          : "inline-flex items-center rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-800"
+                                      }
+                                    >
+                                      {just ? "Justificada" : "Justificar"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                  Firma
+                                </p>
+                                <div className="mt-1">
+                                  {canViewFirmaEstado && puedeFirmarAsistencia ? (
+                                    firmada ? (
+                                      <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
+                                        Firmada {firmadaEn ? `- ${fmtFecha(firmadaEn)}` : ""}
+                                      </span>
+                                    ) : canSignByPadre ? (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          setSigningAsistenciaId(String(asistenciaId || rowId))
+                                          const r = await firmarAsistencia(asistenciaId)
+                                          setSigningAsistenciaId(null)
+                                          if (!r.ok) {
+                                            alert(
+                                              r.data?.detail ||
+                                                `Error (HTTP ${r.status || "?"})`
+                                            )
+                                            return
+                                          }
+
+                                          setAsistencias((prev) => {
+                                            const list = Array.isArray(prev) ? prev : []
+                                            const next = list.map((x) => {
+                                              const xid = getAsistenciaId(x)
+                                              if (String(xid) !== String(asistenciaId)) return x
+                                              return {
+                                                ...x,
+                                                firmada: true,
+                                                firmada_en:
+                                                  r.data?.firmada_en || new Date().toISOString(),
+                                              }
+                                            })
+                                            setCachedList(
+                                              ASISTENCIAS_CACHE_PREFIX,
+                                              alumnoCacheId,
+                                              next
+                                            )
+                                            return next
+                                          })
+                                        }}
+                                        disabled={
+                                          signingAllAsistencias ||
+                                          !asistenciaId ||
+                                          String(signingAsistenciaId || "") ===
+                                            String(asistenciaId || rowId)
+                                        }
+                                        className="inline-flex items-center rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-800 disabled:opacity-60"
+                                      >
+                                        {String(signingAsistenciaId || "") ===
+                                        String(asistenciaId || rowId)
+                                          ? "Firmando..."
+                                          : "Firmar"}
+                                      </button>
+                                    ) : (
+                                      <span className="text-sm text-amber-700">Pendiente</span>
+                                    )
+                                  ) : canViewFirmaEstado ? (
+                                    <span className="text-sm text-slate-400">No aplica</span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                                  Detalle
+                                </p>
+                                <div className="mt-1 flex items-start gap-2">
+                                  <span
+                                    className={`min-w-0 flex-1 break-words text-sm ${
+                                      detalleTexto ? "text-gray-900" : "text-gray-400"
+                                    }`}
+                                  >
+                                    {detalleTexto || "Sin detalle"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => openDetalleModal(a)}
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-600 school-icon-button disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Agregar/editar detalle"
+                                    disabled={!puedeDetalle}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="hidden overflow-x-auto md:block">
                       <table className="w-full table-fixed text-sm">
                         <colgroup>
                           <col className="w-[18%]" />
@@ -3486,6 +3709,7 @@ function AlumnoPerfilPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                   )}
 
                   <div className="mt-4 flex items-center justify-end">
