@@ -463,22 +463,26 @@ export default function PasarAsistenciaPage() {
                 </select>
               </div>
 
-              <div className="ml-auto flex gap-2 self-end">
+              <div className="grid w-full gap-2 self-end sm:grid-cols-3 lg:ml-auto lg:w-auto lg:flex">
                 <Button
-                  className="h-10"
+                  className="h-auto min-h-10 whitespace-normal px-3 py-2 text-center leading-tight"
                   onClick={() => marcarTodos("presente")}
                   disabled={!alumnos.length || saving}
                 >
                   Marcar todos PRESENTES
                 </Button>
                 <Button
-                  className="h-10"
+                  className="h-auto min-h-10 whitespace-normal px-3 py-2 text-center leading-tight"
                   onClick={() => marcarTodos("ausente")}
                   disabled={!alumnos.length || saving}
                 >
                   Marcar todos AUSENTES
                 </Button>
-                <Button className="h-10" onClick={guardar} disabled={saving || !alumnos.length}>
+                <Button
+                  className="h-auto min-h-10 whitespace-normal px-3 py-2 text-center leading-tight"
+                  onClick={guardar}
+                  disabled={saving || !alumnos.length}
+                >
                   <Save className="h-4 w-4 mr-2" />
                   {saving ? "Guardando..." : "Guardar asistencia"}
                 </Button>
