@@ -365,6 +365,32 @@ async function getAlumnoIdsFromAny(idParam) {
       }
     }
   } catch {}
+
+  try {
+    const profile = await getSessionProfile()
+    const alumno = profile?.alumno
+    if (alumno && typeof alumno === "object") {
+      const sessionPk = alumno?.id ?? alumno?.pk ?? null
+      const sessionCode = alumno?.id_alumno ?? alumno?.legajo ?? null
+      const normalizedId = String(idParam ?? "").trim()
+      const matchesSessionAlumno =
+        (sessionPk != null && String(sessionPk).trim() === normalizedId) ||
+        (sessionCode != null && String(sessionCode).trim() === normalizedId)
+
+      if (matchesSessionAlumno) {
+        return {
+          detail: {
+            ...alumno,
+            id: sessionPk,
+            id_alumno: sessionCode ?? normalizedId,
+          },
+          pk: sessionPk,
+          code: sessionCode ?? normalizedId,
+        }
+      }
+    }
+  } catch {}
+
   return { detail: null, pk: null, code: idParam }
 }
 
