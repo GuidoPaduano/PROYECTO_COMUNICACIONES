@@ -7,7 +7,6 @@ import {
   Mail,
   User,
   Edit3,
-  Camera,
   Save,
   X,
   BadgeCheck,
@@ -28,7 +27,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NotificationBell } from "@/components/notification-bell";
-import { authFetch, DEFAULT_SCHOOL_PRIMARY_COLOR, getCachedProfileApi, getProfileApi, logout, useAuthGuard } from "../_lib/auth";
+import {
+  authFetch,
+  DEFAULT_SCHOOL_PRIMARY_COLOR,
+  getCachedProfileApi,
+  getCachedSessionProfileData,
+  getProfileApi,
+  logout,
+  useAuthGuard,
+  useSessionContext,
+} from "../_lib/auth";
 import { getCourseDisplayName } from "../_lib/courses";
 import { useUnreadMessages } from "../_lib/useUnreadMessages";
 
@@ -98,9 +106,51 @@ function buildEditableProfileData(api) {
   };
 }
 
+function buildFallbackProfileApi(source) {
+  if (!source || typeof source !== "object") return null;
+
+  const user = source.user && typeof source.user === "object" ? source.user : source;
+  const username = String(user?.username || source?.username || "").trim();
+  const displayName = String(
+    source?.userLabel ||
+      source?.full_name ||
+      user?.full_name ||
+      [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
+      username
+  ).trim();
+
+  if (!username && !displayName) return null;
+
+  return {
+    user: {
+      id: user?.id ?? source?.id ?? null,
+      username,
+      first_name: user?.first_name || displayName,
+      last_name: user?.last_name || "",
+      email: user?.email || source?.email || "",
+      is_superuser: !!(user?.is_superuser || source?.is_superuser || source?.isSuperuser),
+      groups: Array.isArray(user?.groups) ? user.groups : Array.isArray(source?.groups) ? source.groups : [],
+      rol: user?.rol || source?.rol || source?.role || "",
+    },
+    alumno: source?.alumno || null,
+    children: Array.isArray(source?.children) ? source.children : [],
+    assigned_school_courses: Array.isArray(source?.assigned_school_courses) ? source.assigned_school_courses : [],
+    school: source?.school || null,
+    available_schools: source?.available_schools || source?.availableSchools || [],
+    stats: source?.stats || {},
+  };
+}
+
 export default function Profile() {
   useAuthGuard();
-  const initialApi = useMemo(() => getCachedProfileApi(), []);
+  const sessionContext = useSessionContext();
+  const initialApi = useMemo(
+    () =>
+      getCachedProfileApi() ||
+      buildFallbackProfileApi(getCachedSessionProfileData()) ||
+      buildFallbackProfileApi(sessionContext),
+    [sessionContext]
+  );
   const initialLegajo = useMemo(() => {
     const username = initialApi?.user?.username || "";
     return !initialApi?.alumno && username && username.length <= 32 ? username : "";
@@ -161,7 +211,17 @@ export default function Profile() {
         }
       } catch (e) {
         if (!cancelled) {
-          setError((e && e.message) || "Error al cargar el perfil");
+          const fallback =
+            getCachedProfileApi() ||
+            buildFallbackProfileApi(getCachedSessionProfileData()) ||
+            buildFallbackProfileApi(sessionContext);
+          if (fallback) {
+            setApi(fallback);
+            setProfileData(buildEditableProfileData(fallback));
+            setError(null);
+          } else {
+            setError("No se pudo cargar el perfil. Revisá la conexión e intentá nuevamente.");
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -171,7 +231,7 @@ export default function Profile() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialApi, sessionContext]);
 
   const displayName = useMemo(
     () => profileData.name || "",
@@ -215,6 +275,14 @@ export default function Profile() {
     );
     const rolRaw = String(api?.user?.rol || "").toLowerCase();
     return [rolRaw, ...grupos].some((t) => t.includes("alumno"));
+  }, [api]);
+
+  const isPadre = useMemo(() => {
+    const grupos = (api?.user?.groups || []).map((g) =>
+      String(g || "").toLowerCase()
+    );
+    const rolRaw = String(api?.user?.rol || "").toLowerCase();
+    return [rolRaw, ...grupos].some((t) => t.includes("padre"));
   }, [api]);
 
   useEffect(() => {
@@ -533,13 +601,6 @@ export default function Profile() {
                     <div className="w-32 h-32 rounded-full flex items-center justify-center mx-auto school-primary-soft-icon">
                       <User className="h-16 w-16" />
                     </div>
-                    <Button
-                      size="icon"
-                      className="absolute bottom-0 right-0 rounded-full w-10 h-10"
-                      disabled
-                    >
-                      <Camera className="h-4 w-4" />
-                    </Button>
                   </div>
                   <h3 className="font-semibold text-gray-900 text-lg mb-1">
                     {displayName}
@@ -796,12 +857,15 @@ export default function Profile() {
                 </CardContent>
               </Card>
 
-              {getChildren(api).length > 0 && (
+              {isPadre && getChildren(api).length > 0 && (
                   <Card className="mt-8 shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                     <CardContent className="p-6">
                       <h4 className="font-semibold text-gray-900 text-lg mb-4">
-                        Alumnos a cargo
+                        Vínculos
                       </h4>
+                      <p className="text-sm text-gray-600 mb-4">
+                        Hijos asociados a este usuario padre.
+                      </p>
                       <ul className="text-sm text-gray-800 list-disc pl-5 space-y-1">
                         {getChildren(api).map((a) => {
                           const alumnoId = a?.id ?? a?.id_alumno;
@@ -814,6 +878,7 @@ export default function Profile() {
                                 <Link
                                   href={href}
                                   className="font-medium text-[var(--school-primary,#0b1b3f)] underline-offset-2 hover:underline"
+                                  title="Ver notas, sanciones e inasistencias"
                                 >
                                   {a.nombre}
                                 </Link>
