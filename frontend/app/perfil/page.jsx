@@ -161,6 +161,9 @@ export default function Profile() {
   const [loading, setLoading] = useState(!initialApi);
   const [error, setError] = useState(null);
   const [api, setApi] = useState(initialApi);
+  const [parentChildren, setParentChildren] = useState(() => getChildren(initialApi));
+  const [parentChildrenLoading, setParentChildrenLoading] = useState(false);
+  const [parentChildrenError, setParentChildrenError] = useState("");
 
   // Estado editable (sin teléfono)
   const [profileData, setProfileData] = useState({
@@ -284,6 +287,49 @@ export default function Profile() {
     const rolRaw = String(api?.user?.rol || "").toLowerCase();
     return [rolRaw, ...grupos].some((t) => t.includes("padre"));
   }, [api]);
+
+  const vinculosHijos = useMemo(() => {
+    return parentChildren.length ? parentChildren : getChildren(api);
+  }, [api, parentChildren]);
+
+  useEffect(() => {
+    if (!isPadre) {
+      setParentChildren([]);
+      setParentChildrenError("");
+      setParentChildrenLoading(false);
+      return;
+    }
+
+    const apiChildren = getChildren(api);
+    if (apiChildren.length) {
+      setParentChildren(apiChildren);
+    }
+
+    let alive = true;
+    setParentChildrenLoading(true);
+    setParentChildrenError("");
+
+    authFetch("/padres/mis-hijos/", {
+      headers: { Accept: "application/json" },
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+        if (!alive) return;
+        setParentChildren(Array.isArray(data?.results) ? data.results : []);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setParentChildrenError("No se pudieron cargar los hijos asociados.");
+      })
+      .finally(() => {
+        if (alive) setParentChildrenLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [api, isPadre]);
 
   useEffect(() => {
     if (isAlumno && showPasswordForm) {
@@ -857,7 +903,7 @@ export default function Profile() {
                 </CardContent>
               </Card>
 
-              {isPadre && getChildren(api).length > 0 && (
+              {isPadre && (
                   <Card className="mt-8 shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                     <CardContent className="p-6">
                       <h4 className="font-semibold text-gray-900 text-lg mb-4">
@@ -866,8 +912,13 @@ export default function Profile() {
                       <p className="text-sm text-gray-600 mb-4">
                         Hijos asociados a este usuario padre.
                       </p>
-                      <ul className="text-sm text-gray-800 list-disc pl-5 space-y-1">
-                        {getChildren(api).map((a) => {
+                      {parentChildrenLoading ? (
+                        <p className="text-sm text-gray-600">Cargando vínculos...</p>
+                      ) : parentChildrenError ? (
+                        <p className="text-sm text-red-600">{parentChildrenError}</p>
+                      ) : vinculosHijos.length > 0 ? (
+                        <ul className="text-sm text-gray-800 list-disc pl-5 space-y-1">
+                        {vinculosHijos.map((a) => {
                           const alumnoId = a?.id ?? a?.id_alumno;
                           const href = alumnoId
                             ? `/alumnos/${encodeURIComponent(String(alumnoId))}?from=%2Fmis-hijos`
@@ -889,7 +940,12 @@ export default function Profile() {
                             </li>
                           );
                         })}
-                      </ul>
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-gray-600">
+                          No hay hijos asociados a este usuario.
+                        </p>
+                      )}
                     </CardContent>
                   </Card>
                 )}

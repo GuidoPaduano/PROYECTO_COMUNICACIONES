@@ -110,6 +110,7 @@ from .api_schools import (
 )
 from .api_backups import admin_manual_platform_backup
 from .api_admin_staff import (
+    admin_parent_children_update,
     admin_school_user_directory,
     admin_staff_overview,
     admin_staff_update,
@@ -229,6 +230,8 @@ urlpatterns = [
     path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
     path("admin/school-users/", admin_school_user_directory, name="admin_school_user_directory"),
     path("admin/school-users", admin_school_user_directory, name="admin_school_user_directory_noslash"),
+    path("admin/school-users/parents/<int:user_id>/children/", admin_parent_children_update, name="admin_parent_children_update"),
+    path("admin/school-users/parents/<int:user_id>/children", admin_parent_children_update, name="admin_parent_children_update_noslash"),
     path("admin/users/create/", admin_user_create, name="admin_user_create"),
     path("admin/users/create", admin_user_create, name="admin_user_create_noslash"),
     path("admin/staff/<int:user_id>/", admin_staff_update, name="admin_staff_update"),
