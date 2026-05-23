@@ -7,6 +7,7 @@ import { ArrowLeft, GraduationCap, RefreshCw, Search, ShieldCheck, Users } from 
 import { authFetch, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -14,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 const DIRECTORY_SECTIONS = {
   profesores: "profesores",
   preceptores: "preceptores",
+  padres: "padres",
   alumnos: "alumnos",
 }
 
@@ -22,6 +24,15 @@ function buildCourseLabel(course) {
   const name = String(course?.name || "").trim()
   if (code && name && code.toLowerCase() === name.toLowerCase()) return code
   return [code, name].filter(Boolean).join(" - ") || "Curso"
+}
+
+function getStudentCourseKey(student) {
+  return String(student?.course_id || student?.course_code || student?.course_name || "sin-curso")
+}
+
+function buildStudentCourseLabel(student) {
+  if (!student?.course_code && !student?.course_name) return "Sin curso"
+  return buildCourseLabel({ code: student?.course_code, name: student?.course_name })
 }
 
 function isSchoolAdminContext(sessionContext) {
@@ -221,6 +232,251 @@ function StudentsSection({ course }) {
   )
 }
 
+function ParentsSection({ rows, availableStudents, onLinked }) {
+  const emptyLabel = "No hay padres registrados en el colegio activo."
+  const [selectedParent, setSelectedParent] = useState(null)
+  const [selectedCourseKey, setSelectedCourseKey] = useState("")
+  const [selectedStudentId, setSelectedStudentId] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const studentOptions = Array.isArray(availableStudents) ? availableStudents : []
+  const courseOptions = useMemo(() => {
+    const courses = new Map()
+    studentOptions.forEach((student) => {
+      const key = getStudentCourseKey(student)
+      if (!courses.has(key)) {
+        courses.set(key, { key, label: buildStudentCourseLabel(student) })
+      }
+    })
+    return Array.from(courses.values()).sort((a, b) => a.label.localeCompare(b.label, "es"))
+  }, [studentOptions])
+  const filteredStudentOptions = useMemo(
+    () => studentOptions.filter((student) => getStudentCourseKey(student) === selectedCourseKey),
+    [selectedCourseKey, studentOptions],
+  )
+
+  const openLinkDialog = (parent) => {
+    const firstCourseKey = courseOptions[0]?.key || ""
+    const firstStudent = studentOptions.find((student) => getStudentCourseKey(student) === firstCourseKey)
+    setSelectedParent(parent)
+    setSelectedCourseKey(firstCourseKey)
+    setSelectedStudentId(firstStudent?.id ? String(firstStudent.id) : "")
+    setError("")
+  }
+
+  const closeLinkDialog = () => {
+    setSelectedParent(null)
+    setSelectedCourseKey("")
+    setSelectedStudentId("")
+    setError("")
+    setSaving(false)
+  }
+
+  useEffect(() => {
+    if (!selectedParent) return
+    if (!courseOptions.length) {
+      setSelectedCourseKey("")
+      setSelectedStudentId("")
+      return
+    }
+    if (!selectedCourseKey || !courseOptions.some((course) => course.key === selectedCourseKey)) {
+      setSelectedCourseKey(courseOptions[0].key)
+    }
+  }, [courseOptions, selectedCourseKey, selectedParent])
+
+  useEffect(() => {
+    if (!selectedParent) return
+    if (!filteredStudentOptions.length) {
+      setSelectedStudentId("")
+      return
+    }
+    if (!filteredStudentOptions.some((student) => String(student.id) === selectedStudentId)) {
+      setSelectedStudentId(String(filteredStudentOptions[0].id))
+    }
+  }, [filteredStudentOptions, selectedParent, selectedStudentId])
+
+  const handleLinkStudent = async () => {
+    if (!selectedParent?.id || !selectedStudentId) {
+      setError("Seleccioná un alumno para vincular.")
+      return
+    }
+
+    setSaving(true)
+    setError("")
+    try {
+      const res = await authFetch(`/admin/school-users/parents/${selectedParent.id}/children/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ alumno_id: Number(selectedStudentId) }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data?.detail || "No se pudo vincular el alumno.")
+        return
+      }
+      if (data?.directory) onLinked?.(data.directory)
+      closeLinkDialog()
+    } catch {
+      setError("No se pudo conectar con el servidor.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <CardTitle>Padres</CardTitle>
+        <CardDescription>{rows.length ? `${rows.length} usuario(s)` : emptyLabel}</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-3 md:hidden">
+          {rows.map((row) => (
+            <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{row.full_name || row.username}</p>
+                <p className="mt-1 text-xs text-slate-500">@{row.username}</p>
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Email</span>
+                  <span className="break-all">{row.email || "-"}</span>
+                </div>
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hijos vinculados</span>
+                  <span className={row.children_count ? "" : "text-amber-700"}>
+                    {row.children_count
+                      ? row.children.map((child) => child.full_name || child.id_alumno).join(", ")
+                      : "Sin hijos vinculados"}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openLinkDialog(row)}
+                  disabled={!studentOptions.length}
+                >
+                  Vincular alumno
+                </Button>
+              </div>
+            </div>
+          ))}
+          {!rows.length ? (
+            <div className="rounded-2xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+              {emptyLabel}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="hidden min-w-0 md:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Usuario</TableHead>
+                <TableHead>Nombre</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Hijos vinculados</TableHead>
+                <TableHead className="text-right">Acción</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="font-medium text-slate-900">{row.username}</TableCell>
+                  <TableCell>{row.full_name || "-"}</TableCell>
+                  <TableCell>{row.email || "-"}</TableCell>
+                  <TableCell className="text-sm text-slate-600">
+                    {row.children_count ? (
+                      row.children.map((child) => child.full_name || child.id_alumno).join(", ")
+                    ) : (
+                      <span className="text-amber-700">Sin hijos vinculados</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openLinkDialog(row)}
+                      disabled={!studentOptions.length}
+                    >
+                      Vincular alumno
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!rows.length ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                    {emptyLabel}
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
+        {!studentOptions.length ? (
+          <p className="mt-4 text-sm text-slate-500">
+            No hay alumnos disponibles sin tutor vinculado.
+          </p>
+        ) : null}
+        <Dialog open={!!selectedParent} onOpenChange={(open) => (!open ? closeLinkDialog() : null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Vincular alumno a {selectedParent?.full_name || selectedParent?.username}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-slate-700">Curso</label>
+                <Select value={selectedCourseKey} onValueChange={setSelectedCourseKey}>
+                  <SelectTrigger className="mt-1 h-11">
+                    <SelectValue placeholder="Seleccionar curso" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {courseOptions.map((course) => (
+                      <SelectItem key={course.key} value={course.key}>
+                        {course.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700">Alumno sin tutor vinculado</label>
+                <Select value={selectedStudentId} onValueChange={setSelectedStudentId} disabled={!selectedCourseKey}>
+                  <SelectTrigger className="mt-1 h-11">
+                    <SelectValue placeholder="Seleccionar alumno" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredStudentOptions.map((student) => (
+                      <SelectItem key={student.id} value={String(student.id)}>
+                        {student.full_name || student.id_alumno} {student.id_alumno ? `(${student.id_alumno})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedCourseKey && !filteredStudentOptions.length ? (
+                  <p className="mt-2 text-sm text-slate-500">No hay alumnos sin tutor en este curso.</p>
+                ) : null}
+              </div>
+              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeLinkDialog} disabled={saving}>
+                Cancelar
+              </Button>
+              <Button type="button" onClick={handleLinkStudent} disabled={saving || !selectedStudentId}>
+                {saving ? "Vinculando..." : "Vincular"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function SchoolUserDirectoryPage() {
   useAuthGuard()
   const sessionContext = useSessionContext()
@@ -264,6 +520,23 @@ export default function SchoolUserDirectoryPage() {
   const preceptores = useMemo(() => {
     const rows = Array.isArray(payload?.preceptores) ? payload.preceptores : []
     return rows.filter((row) => matchQuery([row.username, row.full_name, row.email], query))
+  }, [payload, query])
+
+  const padres = useMemo(() => {
+    const rows = Array.isArray(payload?.padres) ? payload.padres : []
+    return rows.filter((row) =>
+      matchQuery(
+        [
+          row.username,
+          row.full_name,
+          row.email,
+          ...(Array.isArray(row.children)
+            ? row.children.flatMap((child) => [child.id_alumno, child.full_name])
+            : []),
+        ],
+        query
+      )
+    )
   }, [payload, query])
 
   const alumnosPorCurso = useMemo(() => {
@@ -389,7 +662,14 @@ export default function SchoolUserDirectoryPage() {
           active={activeSection === DIRECTORY_SECTIONS.alumnos}
           onClick={() => setActiveSection(DIRECTORY_SECTIONS.alumnos)}
         />
-        <SummaryCard title="Cursos con alumnos" value={payload?.totals?.cursos_con_alumnos ?? 0} icon={<Users className="h-5 w-5" />} />
+        <SummaryCard
+          title="Padres"
+          value={payload?.totals?.padres ?? 0}
+          icon={<Users className="h-5 w-5" />}
+          interactive
+          active={activeSection === DIRECTORY_SECTIONS.padres}
+          onClick={() => setActiveSection(DIRECTORY_SECTIONS.padres)}
+        />
       </div>
 
       {activeSection === DIRECTORY_SECTIONS.profesores ? (
@@ -405,6 +685,14 @@ export default function SchoolUserDirectoryPage() {
           title="Preceptores"
           rows={preceptores}
           emptyLabel="No hay preceptores asignados en el colegio activo."
+        />
+      ) : null}
+
+      {activeSection === DIRECTORY_SECTIONS.padres ? (
+        <ParentsSection
+          rows={padres}
+          availableStudents={payload?.students_without_parent || []}
+          onLinked={setPayload}
         />
       ) : null}
 

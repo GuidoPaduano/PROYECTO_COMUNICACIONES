@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -204,6 +205,7 @@ def _serialize_directory_student(student) -> dict:
         "course_code": str(getattr(school_course, "code", "") or "").strip(),
         "course_name": str(getattr(school_course, "name", "") or "").strip(),
         "has_linked_user": bool(getattr(student, "usuario_id", None)),
+        "has_parent": bool(getattr(student, "padre_id", None)),
         "linked_user": None
         if linked_user is None
         else {
@@ -213,6 +215,15 @@ def _serialize_directory_student(student) -> dict:
             "email": str(getattr(linked_user, "email", "") or "").strip(),
             "is_active": bool(getattr(linked_user, "is_active", True)),
         },
+    }
+
+
+def _serialize_directory_parent(*, user, children=None) -> dict:
+    linked_children = children or []
+    return {
+        **_serialize_directory_user(user=user),
+        "children_count": len(linked_children),
+        "children": [_serialize_directory_student(child) for child in linked_children],
     }
 
 
@@ -242,6 +253,14 @@ def _build_assignment_map(*, school, role: str) -> dict[int, list[SchoolCourse]]
     return assignments
 
 
+def _clear_parent_children_cache(*, parent_id, school_id):
+    try:
+        cache.delete(f"mis_hijos:user:{parent_id or 'x'}:school:{school_id or 'none'}:super:0")
+        cache.delete(f"mis_hijos:user:{parent_id or 'x'}:school:{school_id or 'none'}:super:1")
+    except Exception:
+        pass
+
+
 def _user_is_school_admin_for(school, user) -> bool:
     if getattr(user, "is_superuser", False):
         return True
@@ -267,6 +286,24 @@ def _build_user_directory_payload(*, school) -> dict:
         .filter(school=school)
         .order_by("school_course__sort_order", "school_course__name", "apellido", "nombre", "id")
     )
+    parent_group_ids = User.objects.filter(groups__name="Padres").values_list("id", flat=True)
+    parent_ids = {
+        int(parent_id)
+        for parent_id in Alumno.objects.filter(school=school, padre_id__isnull=False).values_list("padre_id", flat=True)
+        if parent_id is not None
+    }
+    parent_ids.update(int(user_id) for user_id in parent_group_ids if user_id is not None)
+    padres = list(
+        User.objects.filter(id__in=parent_ids)
+        .exclude(is_superuser=True)
+        .order_by("first_name", "last_name", "username", "id")
+    )
+    children_by_parent: dict[int, list[Alumno]] = {}
+    for alumno in alumnos:
+        parent_id = getattr(alumno, "padre_id", None)
+        if parent_id is None:
+            continue
+        children_by_parent.setdefault(parent_id, []).append(alumno)
 
     grouped_students: dict[int | str, dict] = {}
     for alumno in alumnos:
@@ -295,10 +332,20 @@ def _build_user_directory_payload(*, school) -> dict:
             _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []))
             for user in preceptores
         ],
+        "padres": [
+            _serialize_directory_parent(user=user, children=children_by_parent.get(user.id, []))
+            for user in padres
+        ],
         "alumnos_por_curso": list(grouped_students.values()),
+        "students_without_parent": [
+            _serialize_directory_student(alumno)
+            for alumno in alumnos
+            if getattr(alumno, "padre_id", None) is None
+        ],
         "totals": {
             "profesores": len(profesores),
             "preceptores": len(preceptores),
+            "padres": len(padres),
             "alumnos": len(alumnos),
             "cursos_con_alumnos": len(grouped_students),
         },
@@ -578,6 +625,65 @@ def admin_school_user_directory(request):
                 )
                 for user in users
             ],
+        }
+    )
+
+
+@api_view(["PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_parent_children_update(request, user_id: int):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school = get_request_school(request)
+    if active_school is None:
+        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+    if not _user_is_school_admin_for(active_school, getattr(request, "user", None)):
+        return Response({"detail": "No autorizado para el colegio activo."}, status=403)
+
+    parent = User.objects.filter(pk=user_id, groups__name="Padres").exclude(is_superuser=True).first()
+    if parent is None:
+        return Response({"detail": "Padre no encontrado."}, status=404)
+
+    raw_ids = request.data.get("alumno_ids")
+    if raw_ids is None:
+        raw_ids = request.data.get("alumno_id")
+    student_ids = _normalize_user_ids(raw_ids) if isinstance(raw_ids, list) else []
+    if not student_ids:
+        single_id = _normalize_single_id(raw_ids)
+        if single_id is not None:
+            student_ids = [single_id]
+    if not student_ids:
+        return Response({"detail": "Seleccioná al menos un alumno para vincular."}, status=400)
+
+    students = list(
+        Alumno.objects.filter(pk__in=student_ids, school=active_school).order_by("apellido", "nombre", "id")
+    )
+    if len(students) != len(student_ids):
+        return Response({"detail": "Uno o más alumnos seleccionados no pertenecen al colegio activo."}, status=400)
+
+    occupied = [
+        student.id_alumno
+        for student in students
+        if getattr(student, "padre_id", None) and getattr(student, "padre_id", None) != parent.id
+    ]
+    if occupied:
+        return Response(
+            {"detail": f"Uno o más alumnos ya tienen tutor vinculado ({', '.join(occupied[:3])})."},
+            status=400,
+        )
+
+    with transaction.atomic():
+        Alumno.objects.filter(pk__in=[student.id for student in students], school=active_school).update(padre=parent)
+
+    _clear_parent_children_cache(parent_id=parent.id, school_id=getattr(active_school, "id", None))
+
+    return Response(
+        {
+            "detail": "Vínculo actualizado correctamente.",
+            "directory": _build_user_directory_payload(school=active_school),
         }
     )
 
