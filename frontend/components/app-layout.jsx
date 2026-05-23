@@ -14,7 +14,6 @@ import {
   Home,
   MessageSquare,
   NotebookText,
-  Plus,
   Shield,
   User,
   Users,
@@ -257,14 +256,6 @@ function ProtectedShell({ children, pathname }) {
     () => shouldHideHeader(roles, isSuper, pathname),
     [roles, isSuper, pathname]
   )
-  const canAgregarAlumno = useMemo(() => {
-    if (isSuper) return true
-    const names = Array.isArray(roles) ? roles : []
-    return names.some((r) => {
-      const role = String(r || "").toLowerCase()
-      return role.includes("precep") || role.includes("directiv")
-    })
-  }, [roles, isSuper])
   const actions = useMemo(() => {
     if (pathname.startsWith("/mis-cursos/")) {
       return (
@@ -274,19 +265,11 @@ function ProtectedShell({ children, pathname }) {
               <ChevronLeft className="h-4 w-4" /> Volver a cursos
             </Button>
           </Link>
-          {canAgregarAlumno && (
-            <Link href={`${pathname}?add=1`} prefetch>
-              <Button variant="primary" className="gap-2 primary-button">
-                <Plus className="h-4 w-4" />
-                Agregar alumno
-              </Button>
-            </Link>
-          )}
         </div>
       )
     }
     return meta.actions
-  }, [pathname, canAgregarAlumno, meta.actions])
+  }, [pathname, meta.actions])
 
   if (isPublic) {
     return children
