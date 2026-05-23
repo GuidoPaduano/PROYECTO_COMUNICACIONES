@@ -189,7 +189,7 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.get("/api/eventos/", {"school": self.school_a.slug})
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenes cursos asignados para ver eventos.")
+        self.assertEqual(res.json()["detail"], "No tenés cursos asignados para ver eventos.")
 
     def test_profesor_no_puede_crear_evento_en_otro_curso_del_mismo_colegio(self):
         self.client.force_authenticate(user=self.profesor_otro_curso)
@@ -441,7 +441,7 @@ class EventosSchoolScopingTests(TestCase):
         res = self.client.get("/api/eventos/", {"school": self.school_a.slug})
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenes cursos asignados para ver eventos.")
+        self.assertEqual(res.json()["detail"], "No tenés cursos asignados para ver eventos.")
 
     def test_preceptor_no_puede_editar_evento_de_otro_curso(self):
         evento = Evento.objects.create(

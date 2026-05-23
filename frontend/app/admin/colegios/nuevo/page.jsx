@@ -134,7 +134,7 @@ export default function NuevoColegioPage() {
           </Link>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Nuevo colegio</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Crea un colegio nuevo, deja el branding inicial listo y siembra el catalogo base de cursos.
+            Creá un colegio nuevo, dejá el branding inicial listo y sembrá el catálogo base de cursos.
           </p>
         </div>
       </div>
@@ -144,7 +144,7 @@ export default function NuevoColegioPage() {
           <CardHeader>
             <CardTitle>Alta de colegio</CardTitle>
             <CardDescription>
-              Si dejas `slug` vacio, se genera automaticamente. Los colores tambien pueden quedar vacios para usar el default de la plataforma.
+              Si dejás `slug` vacío, se genera automáticamente. Los colores también pueden quedar vacíos para usar el default de la plataforma.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -155,7 +155,7 @@ export default function NuevoColegioPage() {
                     <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
                     <div className="space-y-1">
                       <p className="text-sm font-semibold">Colegio creado correctamente</p>
-                      <p className="text-sm">{created?.school?.name} ya quedo disponible en tu sesion.</p>
+                      <p className="text-sm">{created?.school?.name} ya quedó disponible en tu sesión.</p>
                       <p className="text-sm">
                         `slug`: {created?.school?.slug} · cursos creados: {created?.seeded_courses}
                       </p>
@@ -183,7 +183,7 @@ export default function NuevoColegioPage() {
                       id="school-name"
                       value={form.name}
                       onChange={handleFieldChange("name")}
-                      placeholder="Ej. Colegio San Martin"
+                      placeholder="Ej. Colegio San Martín"
                       required
                     />
                   </div>
@@ -194,7 +194,7 @@ export default function NuevoColegioPage() {
                       id="school-short-name"
                       value={form.short_name}
                       onChange={handleFieldChange("short_name")}
-                      placeholder="Ej. San Martin"
+                      placeholder="Ej. San Martín"
                     />
                   </div>
 

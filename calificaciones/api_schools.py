@@ -281,7 +281,7 @@ def _course_payload_from_request(request, *, instance: SchoolCourse | None = Non
         payload["sort_order"] = 0
     value = payload.get("is_active", True)
     if isinstance(value, str):
-        payload["is_active"] = value.strip().lower() in {"1", "true", "yes", "on", "si", "sÃ­"}
+        payload["is_active"] = value.strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
     else:
         payload["is_active"] = bool(value)
     return payload
@@ -688,7 +688,7 @@ def admin_update_school_admins(request, school_id: int):
     admin_ids = _normalize_admin_ids((request.data or {}).get("admin_ids"))
     admins = list(User.objects.filter(id__in=admin_ids).exclude(is_superuser=True).order_by("id"))
     if len(admins) != len(admin_ids):
-        return Response({"detail": "Uno o mas usuarios no existen o no son asignables."}, status=400)
+        return Response({"detail": "Uno o más usuarios no existen o no son asignables."}, status=400)
 
     desired_ids = {user.id for user in admins}
     with transaction.atomic():
@@ -777,7 +777,7 @@ def admin_create_school_course(request, school_id: int):
     if school is None:
         return Response({"detail": "Colegio no encontrado."}, status=404)
     if not getattr(request.user, "is_superuser", False) and getattr(active_school, "id", None) != school.id:
-        return Response({"detail": "Solo podes crear cursos en el colegio activo."}, status=403)
+        return Response({"detail": "Solo podés crear cursos en el colegio activo."}, status=403)
 
     payload = _course_payload_from_request(request)
     if not payload["code"]:
@@ -809,7 +809,7 @@ def admin_update_school_course(request, course_id: int):
     if course is None:
         return Response({"detail": "Curso no encontrado."}, status=404)
     if not getattr(request.user, "is_superuser", False) and getattr(active_school, "id", None) != getattr(course.school, "id", None):
-        return Response({"detail": "Solo podes editar cursos del colegio activo."}, status=403)
+        return Response({"detail": "Solo podés editar cursos del colegio activo."}, status=403)
 
     payload = _course_payload_from_request(request, instance=course)
     if not payload["code"]:

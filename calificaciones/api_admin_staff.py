@@ -459,9 +459,9 @@ def _validate_new_user_payload(payload) -> dict:
     if not last_name:
         raise ValueError("El apellido es obligatorio.")
     if _contains_digit(first_name):
-        raise ValueError("El nombre no puede contener numeros.")
+        raise ValueError("El nombre no puede contener números.")
     if _contains_digit(last_name):
-        raise ValueError("El apellido no puede contener numeros.")
+        raise ValueError("El apellido no puede contener números.")
     if not username:
         raise ValueError("El nombre de usuario es obligatorio.")
     if not role:
@@ -606,7 +606,7 @@ def admin_user_create(request):
     linked_student = None
     if data["role"] == "Alumnos":
         if data["alumno_id"] is None:
-            return Response({"detail": "Selecciona el alumno que se va a vincular al usuario."}, status=400)
+            return Response({"detail": "Seleccioná el alumno que se va a vincular al usuario."}, status=400)
         linked_student = (
             Alumno.objects.select_related("school_course")
             .filter(pk=data["alumno_id"], school=active_school)
@@ -691,7 +691,7 @@ def admin_staff_update(request, user_id: int):
     course_ids = _normalize_course_ids(payload.get("school_course_ids"))
 
     if role in {"Profesores", "Preceptores"} and not course_ids:
-        return Response({"detail": "Selecciona al menos un curso para ese rol."}, status=400)
+        return Response({"detail": "Seleccioná al menos un curso para ese rol."}, status=400)
     if role not in {"Profesores", "Preceptores"} and course_ids:
         return Response({"detail": "Solo profesores y preceptores admiten asignaciones de cursos."}, status=400)
 

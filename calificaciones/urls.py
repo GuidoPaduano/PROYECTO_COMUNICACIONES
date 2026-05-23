@@ -30,7 +30,7 @@ urlpatterns = [
     # Notas (HTML)
     path("agregar_nota/", views.agregar_nota, name="agregar_nota"),
     path("ver_notas/", views.ver_notas, name="ver_notas"),
-    # Form masivo HTML; la API JSON esta en /api/agregar-nota-masiva/
+    # Form masivo HTML; la API JSON está en /api/agregar-nota-masiva/
     path("agregar_nota_masiva/", views.agregar_nota_masiva, name="agregar_nota_masiva_html"),
 
     # Mensajería (HTML)

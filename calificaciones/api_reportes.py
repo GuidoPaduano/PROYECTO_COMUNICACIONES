@@ -758,7 +758,7 @@ def reportes_por_curso(request, curso: str):
 
     # Permiso estricto: si no hay cursos asignados, se deniega.
     if not cursos_habilitados:
-        return Response({"detail": "No tenes cursos asignados."}, status=403)
+        return Response({"detail": "No tenés cursos asignados."}, status=403)
 
     if course_refs and not course_ref_matches(
         course_refs,
@@ -857,7 +857,7 @@ def reportes_materia_curso(request, id_materia: str, curso: str):
         cursos_habilitados = _resolve_profesor_cursos(user, school=active_school)
         course_refs = _resolve_profesor_course_refs(user, school=active_school)
         if not cursos_habilitados:
-            return Response({"detail": "No tenes cursos asignados."}, status=403)
+            return Response({"detail": "No tenés cursos asignados."}, status=403)
         if course_refs and not course_ref_matches(
             course_refs,
             school_course_id=getattr(school_course, "id", None),

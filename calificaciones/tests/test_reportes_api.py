@@ -530,7 +530,7 @@ class ReportesSchoolScopingTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenes cursos asignados.")
+        self.assertEqual(res.json()["detail"], "No tenés cursos asignados.")
 
     def test_preceptor_sin_asignacion_no_puede_ver_reporte_por_curso(self):
         self.client.force_authenticate(user=self.preceptor_sin_asignacion)
@@ -542,7 +542,7 @@ class ReportesSchoolScopingTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenes cursos asignados.")
+        self.assertEqual(res.json()["detail"], "No tenés cursos asignados.")
 
     def test_profesor_sin_asignacion_no_puede_ver_reporte_por_materia_y_curso(self):
         self.client.force_authenticate(user=self.profesor_sin_asignacion)
@@ -554,4 +554,4 @@ class ReportesSchoolScopingTests(TestCase):
         )
 
         self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.json()["detail"], "No tenes cursos asignados.")
+        self.assertEqual(res.json()["detail"], "No tenés cursos asignados.")

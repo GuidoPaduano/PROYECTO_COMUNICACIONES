@@ -49,7 +49,7 @@ export default function AdminColegioPage() {
         },
         {
           title: "Cursos por colegio",
-          description: "Administra el catalogo de cursos del colegio activo, sin salir del alcance de esta sesion.",
+          description: "Administra el catálogo de cursos del colegio activo, sin salir del alcance de esta sesión.",
           href: "/admin/colegio/cursos",
           icon: <Layers3 className="h-6 w-6" />,
           external: false,

@@ -124,20 +124,20 @@ def _normalize_catalog_text(value):
         return ""
 
     replacements = {
-        "Ã¡": "a",
-        "Ã©": "e",
-        "Ã­": "i",
-        "Ã³": "o",
-        "Ãº": "u",
-        "Ã": "A",
-        "Ã‰": "E",
-        "Ã": "I",
-        "Ã“": "O",
-        "Ãš": "U",
-        "Ã±": "n",
-        "Ã‘": "N",
-        "Ã¼": "u",
-        "Ãœ": "U",
+        "\u0102\u02c7": "a",
+        "\u0102\u00a9": "e",
+        "\u0102\u00ad": "i",
+        "\u0102\u0142": "o",
+        "\u0102\u015f": "u",
+        "\u0102\u0081": "A",
+        "\u0102\u2030": "E",
+        "\u0102\u008d": "I",
+        "\u0102\u201c": "O",
+        "\u0102\u0161": "U",
+        "\u0102\u00b1": "n",
+        "\u0102\u2018": "N",
+        "\u0102\u013d": "u",
+        "\u0102\u015b": "U",
     }
     for source, target in replacements.items():
         text = text.replace(source, target)

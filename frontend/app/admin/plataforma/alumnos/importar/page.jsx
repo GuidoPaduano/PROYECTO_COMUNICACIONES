@@ -36,7 +36,7 @@ import {
 function formatSummary(summary) {
   if (!summary) return "Sin previsualizacion"
   const coursesText = summary.courses_to_create ? `, ${summary.courses_to_create} cursos nuevos` : ""
-  return `${summary.valid || 0} validos, ${summary.errors || 0} con error, ${summary.skipped || 0} omitidos${coursesText}`
+  return `${summary.valid || 0} válidos, ${summary.errors || 0} con error, ${summary.skipped || 0} omitidos${coursesText}`
 }
 
 function schoolValue(item) {
@@ -121,11 +121,11 @@ export default function ImportarAlumnosPage() {
     setSubmitting(true)
     try {
       if (!school) {
-        setError("Selecciona un colegio.")
+        setError("Seleccioná un colegio.")
         return
       }
       if (!file) {
-        setError("Selecciona un archivo Excel o CSV.")
+        setError("Seleccioná un archivo Excel o CSV.")
         return
       }
 
@@ -189,7 +189,7 @@ export default function ImportarAlumnosPage() {
   if (loading || !allowed) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
-        <div className="text-sm font-medium text-slate-600">Cargando herramienta de importacion...</div>
+        <div className="text-sm font-medium text-slate-600">Cargando herramienta de importación...</div>
       </div>
     )
   }
@@ -212,7 +212,7 @@ export default function ImportarAlumnosPage() {
           <CardHeader>
             <CardTitle>Archivo de alumnos</CardTitle>
             <CardDescription>
-              Primero previsualiza. La importacion solo crea alumnos validos y no crea usuarios ni tutores.
+              Primero previsualizá. La importación solo crea alumnos válidos y no crea usuarios ni tutores.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -221,7 +221,7 @@ export default function ImportarAlumnosPage() {
                 <Label>Colegio</Label>
                 <Select value={school} onValueChange={setSchool}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecciona colegio" />
+                    <SelectValue placeholder="Seleccioná colegio" />
                   </SelectTrigger>
                   <SelectContent>
                     {schools.map((item) => (
@@ -284,7 +284,7 @@ export default function ImportarAlumnosPage() {
 
             {Array.isArray(result?.courses_to_create) && result.courses_to_create.length ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Se crearan estos cursos al importar: {result.courses_to_create.map((item) => item.code).join(", ")}.
+                Se crearán estos cursos al importar: {result.courses_to_create.map((item) => item.code).join(", ")}.
               </div>
             ) : null}
 
@@ -345,8 +345,8 @@ export default function ImportarAlumnosPage() {
           <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
             <p>Usa encabezados simples. La herramienta reconoce:</p>
             <p><span className="font-medium text-slate-900">apellido</span> y <span className="font-medium text-slate-900">nombre</span>.</p>
-            <p>La plantilla usa una hoja por curso. El nombre de la hoja sera el nombre del curso y, si no existe, se crea al importar.</p>
-            <p>El legajo se genera automaticamente por curso.</p>
+            <p>La plantilla usa una hoja por curso. El nombre de la hoja será el nombre del curso y, si no existe, se crea al importar.</p>
+            <p>El legajo se genera automáticamente por curso.</p>
           </CardContent>
         </Card>
       </div>
@@ -359,14 +359,14 @@ export default function ImportarAlumnosPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirmar importacion</DialogTitle>
+            <DialogTitle>Confirmar importación</DialogTitle>
             <DialogDescription>
-              ¿Esta seguro que desea importar {importCount} {importCount === 1 ? "alumno" : "alumnos"}?
+              ¿Está seguro que desea importar {importCount} {importCount === 1 ? "alumno" : "alumnos"}?
             </DialogDescription>
           </DialogHeader>
           {coursesToCreateCount ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Tambien se {coursesToCreateCount === 1 ? "creara" : "crearan"} {coursesToCreateCount}{" "}
+              También se {coursesToCreateCount === 1 ? "creará" : "crearán"} {coursesToCreateCount}{" "}
               {coursesToCreateCount === 1 ? "curso nuevo" : "cursos nuevos"}.
             </div>
           ) : null}

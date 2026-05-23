@@ -113,7 +113,7 @@ def notas_de_hijo(request, alumno_id):
     Filtros por querystring:
       - materia: nombre exacto (Nota.materia)
       - cuatrimestre: valor exacto (p.ej. "1", "2", "Anual")
-    Devuelve ademas catalogos: materias y cuatrimestres disponibles para ese alumno.
+    Devuelve además catálogos: materias y cuatrimestres disponibles para ese alumno.
     """
     active_school = get_request_school(request)
     alumnos_qs = scope_queryset_to_school(Alumno.objects.all(), active_school)
@@ -121,7 +121,7 @@ def notas_de_hijo(request, alumno_id):
 
     # Autorizacion: padre del alumno o superuser.
     if not request.user.is_superuser and alumno.padre_id != request.user.id:
-        return HttpResponseForbidden("No tenes permiso para ver las notas de este alumno.")
+        return HttpResponseForbidden("No tenés permiso para ver las notas de este alumno.")
 
     # Filtros desde querystring.
     materia_q = (request.GET.get("materia") or "").strip()
@@ -155,7 +155,7 @@ def notas_de_hijo(request, alumno_id):
         "id": getattr(alumno, "id", None),
         "id_alumno": getattr(alumno, "id_alumno", None),
         "nombre": getattr(alumno, "nombre", None),
-        "apellido": getattr(alumno, "apellido", None),  # Puede ser None en datos historicos.
+        "apellido": getattr(alumno, "apellido", None),  # Puede ser None en datos históricos.
         "school_course_id": getattr(alumno, "school_course_id", None),
         "school_course_name": getattr(school_course, "name", None)
         or getattr(school_course, "code", None)

@@ -190,7 +190,7 @@ function MisHijosPageInner() {
         router.replace(`/alumnos/${encodeURIComponent(String(chosenId))}?${qs.toString()}`)
       } catch {
         if (!alive) return
-        setError("No se pudo abrir el perfil de tus hijos. Proba de nuevo.")
+        setError("No se pudo abrir el perfil de tus hijos. Probá de nuevo.")
       } finally {
         if (alive) setLoading(false)
       }

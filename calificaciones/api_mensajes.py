@@ -1152,7 +1152,7 @@ def mensajes_eliminar(request, mensaje_id: int):
         and _message_is_unread(msg)
     ):
         return Response(
-            {"detail": "No podes eliminar mensajes no leidos."},
+            {"detail": "No podés eliminar mensajes no leídos."},
             status=403,
         )
 

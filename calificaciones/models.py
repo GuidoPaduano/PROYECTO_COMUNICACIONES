@@ -553,7 +553,7 @@ class Mensaje(models.Model):
     remitente = models.ForeignKey(User, on_delete=models.CASCADE, related_name="mensajes_enviados")
     destinatario = models.ForeignKey(User, on_delete=models.CASCADE, related_name="mensajes_recibidos")
 
-    # max_length grande para codigos historicos
+    # max_length grande para códigos históricos
     curso = models.CharField(max_length=20, blank=True, null=True, db_index=True)
     alumno = models.ForeignKey(
         Alumno,

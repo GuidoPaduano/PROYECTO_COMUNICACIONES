@@ -58,7 +58,7 @@ class CustomUserChangeForm(UserChangeForm):
         queryset=Alumno.objects.none(),
         required=False,
         label="Alumno vinculado",
-        help_text="Selecciona un alumno existente para vincular a este usuario.",
+        help_text="Seleccioná un alumno existente para vincular a este usuario.",
     )
 
     class Meta(UserChangeForm.Meta):

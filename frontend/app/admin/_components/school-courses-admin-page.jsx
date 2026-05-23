@@ -204,7 +204,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
       if (!isPlatformMode && rawItems.length && !items.length) {
         setSchools([])
         setSelectedId("")
-        setError("La herramienta recibio cursos de un colegio distinto al activo. Recarga la sesion antes de editar.")
+        setError("La herramienta recibió cursos de un colegio distinto al activo. Recargá la sesión antes de editar.")
         return
       }
       setSchools(items)
@@ -362,8 +362,8 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Cursos por colegio</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             {isPlatformMode
-              ? "Administra el catalogo de cursos de cada colegio."
-              : "Administra el catalogo de cursos del colegio activo de la sesion."}
+              ? "Administra el catálogo de cursos de cada colegio."
+              : "Administra el catálogo de cursos del colegio activo de la sesión."}
           </p>
         </div>
         <Button type="button" variant="outline" onClick={() => loadData()} disabled={loading}>
@@ -388,7 +388,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
           <Card className="min-w-0">
             <CardHeader className="pb-3">
               <CardTitle>Colegios</CardTitle>
-              <CardDescription>Selecciona el colegio que queres editar.</CardDescription>
+              <CardDescription>Seleccioná el colegio que querés editar.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-0">
               <div className="relative">
@@ -465,7 +465,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                 Cursos
               </CardTitle>
               <CardDescription>
-                {selectedSchool ? selectedSchool.name : "Selecciona un colegio para editar sus cursos."}
+                {selectedSchool ? selectedSchool.name : "Seleccioná un colegio para editar sus cursos."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-0">
@@ -476,7 +476,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                       <TableHead className="w-[58%]">Nombre</TableHead>
                       <TableHead className="w-[12%]">Activo</TableHead>
                       <TableHead className="w-[12%]">Alumnos</TableHead>
-                      <TableHead className="text-right">Accion</TableHead>
+                      <TableHead className="text-right">Acción</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -516,7 +516,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                     {!selectedCourses.length ? (
                       <TableRow>
                         <TableCell colSpan={4} className="py-8 text-center text-sm text-slate-500">
-                          Este colegio todavia no tiene cursos.
+                          Este colegio todavía no tiene cursos.
                         </TableCell>
                       </TableRow>
                     ) : null}
@@ -531,8 +531,8 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
               <CardTitle>Nuevo curso</CardTitle>
               <CardDescription>
                 {isPlatformMode
-                  ? "Agrega un curso al colegio seleccionado."
-                  : "Agrega un curso al colegio activo."}
+                  ? "Agregá un curso al colegio seleccionado."
+                  : "Agregá un curso al colegio activo."}
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-0">
