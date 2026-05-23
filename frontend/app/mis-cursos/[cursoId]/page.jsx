@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { use, useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch, getSessionProfile, useSessionContext } from "../../_lib/auth"
 import {
@@ -14,17 +14,7 @@ import {
 } from "../../_lib/courses"
 import { ChevronLeft, Users } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
 
 async function fetchJSON(url, opts) {
   const res = await authFetch(url, opts)
@@ -135,12 +125,6 @@ export default function CursoDetallePage({ params }) {
   const [busqueda, setBusqueda] = useState("")
   const [catalogLoaded, setCatalogLoaded] = useState(false)
 
-  const [openAdd, setOpenAdd] = useState(false)
-  const [idAlumno, setIdAlumno] = useState("")
-  const [nombre, setNombre] = useState("")
-  const [apellido, setApellido] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState("")
   const sessionBootstrapProfile = useMemo(
     () => buildMisCursoSessionProfile(session),
     [session?.groups, session?.isSuperuser, session?.role, session?.school, session?.userLabel, session?.username]
@@ -160,29 +144,6 @@ export default function CursoDetallePage({ params }) {
     } catch {}
   }, [cursoParam])
 
-  const canAgregarAlumno = useMemo(() => {
-    try {
-      if (!me) return false
-      if (me?.is_superuser) return true
-
-      const rawGroups =
-        (Array.isArray(me?.groups) && me.groups) ||
-        (Array.isArray(me?.user?.groups) && me.user.groups) ||
-        []
-
-      const names = rawGroups
-        .map((g) => (typeof g === "string" ? g : g?.name || ""))
-        .filter(Boolean)
-        .map((s) => String(s).toLowerCase())
-
-      const joined = names.join(" ")
-      return joined.includes("precep") || joined.includes("directiv")
-    } catch {
-      return false
-    }
-  }, [me])
-
-  const pathname = usePathname() || ""
   const router = useRouter()
   const searchParams = useSearchParams()
   const cursoCanonico = useMemo(
@@ -209,10 +170,6 @@ export default function CursoDetallePage({ params }) {
         : "",
     [cursoSchoolCourseId]
   )
-  const cursoCodigo = useMemo(
-    () => getCourseCode(cursoResuelto || cursoConsulta, cursos) || "",
-    [cursoResuelto, cursoConsulta, cursos]
-  )
   const cursoDetalleQuery = useMemo(
     () =>
       cursoSchoolCourseId != null
@@ -220,12 +177,6 @@ export default function CursoDetallePage({ params }) {
         : "",
     [cursoSchoolCourseId]
   )
-
-  useEffect(() => {
-    if (searchParams?.get("add") === "1" && canAgregarAlumno) {
-      setOpenAdd(true)
-    }
-  }, [searchParams, canAgregarAlumno])
 
   useEffect(() => {
     ;(async () => {
@@ -321,60 +272,6 @@ export default function CursoDetallePage({ params }) {
 
   const getAlumnoKey = (a) => a?.id ?? a?.id_alumno ?? a?.legajo ?? a?.uuid ?? a?.pk
 
-  async function handleAgregarAlumno(e) {
-    e?.preventDefault?.()
-    setFormError("")
-    setSaving(true)
-    try {
-      if (!cursoCodigo || cursoSchoolCourseId == null) {
-        setFormError("No se pudo resolver el curso.")
-        setSaving(false)
-        return
-      }
-      if (!idAlumno && (!nombre || !apellido)) {
-        setFormError("Completá legajo o nombre y apellido.")
-        setSaving(false)
-        return
-      }
-      const payload = {
-        school_course_id: cursoSchoolCourseId,
-        id_alumno: idAlumno || null,
-        nombre: nombre || null,
-        apellido: apellido || null,
-      }
-      const { ok, data } = await fetchJSON(
-        `/api/cursos/${encodeURIComponent(cursoCodigo)}/agregar-alumno/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      )
-      if (!ok) {
-        setFormError(data?.detail || "No se pudo guardar el alumno.")
-        setSaving(false)
-        return
-      }
-      invalidateMisCursoResource(`mis-curso-alumnos:${misCursoScopeKey}:${cursoQuery}`)
-      await loadAlumnos()
-      closeAddDialog()
-      setIdAlumno("")
-      setNombre("")
-      setApellido("")
-    } catch {
-      setFormError("No se pudo guardar el alumno.")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const closeAddDialog = () => {
-    setOpenAdd(false)
-    if (searchParams?.get("add") === "1") {
-      router.replace(pathname)
-    }
-  }
-
   return (
     <div className="space-y-6">
       <div className="surface-card surface-card-pad">
@@ -462,68 +359,6 @@ export default function CursoDetallePage({ params }) {
           })}
         </div>
       )}
-
-      <Dialog
-        open={openAdd}
-        onOpenChange={(next) => (next ? setOpenAdd(true) : closeAddDialog())}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Agregar alumno a {cursoNombre}</DialogTitle>
-          </DialogHeader>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              handleAgregarAlumno(e)
-            }}
-            className="space-y-4"
-          >
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <Label htmlFor="id_alumno">Legajo / ID de alumno (opcional)</Label>
-                <Input
-                  id="id_alumno"
-                  value={idAlumno}
-                  onChange={(e) => setIdAlumno(e.target.value)}
-                  placeholder="Ej: 1A-024"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="nombre">Nombre(s)</Label>
-                <Input
-                  id="nombre"
-                  value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                  placeholder="Ej: Juan Ignacio"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="apellido">Apellido(s)</Label>
-                <Input
-                  id="apellido"
-                  value={apellido}
-                  onChange={(e) => setApellido(e.target.value)}
-                  placeholder="Ej: Perez"
-                />
-              </div>
-            </div>
-
-            {formError && <div className="text-sm text-red-600">{formError}</div>}
-
-            <DialogFooter className="gap-2">
-              <Button type="button" onClick={closeAddDialog}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Guardando..." : "Guardar"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
