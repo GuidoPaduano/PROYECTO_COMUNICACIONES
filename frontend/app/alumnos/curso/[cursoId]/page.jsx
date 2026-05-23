@@ -14,17 +14,8 @@ import {
 } from "../../../_lib/courses"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Users as UsersIcon, User as UserIcon, Plus, ChevronLeft } from "lucide-react"
-
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
+import { Users as UsersIcon, User as UserIcon, ChevronLeft } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 
 async function fetchJSON(url, opts) {
   const res = await authFetch(url, opts)
@@ -110,12 +101,6 @@ export default function CursoAlumnosPage({ params }) {
   const [q, setQ] = useState("")
   const [catalogLoaded, setCatalogLoaded] = useState(false)
 
-  const [openAdd, setOpenAdd] = useState(false)
-  const [idAlumno, setIdAlumno] = useState("")
-  const [nombre, setNombre] = useState("")
-  const [apellido, setApellido] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState("")
   const alumnosCursoScopeKey = useMemo(
     () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
     [session?.school?.id, session?.username]
@@ -148,10 +133,6 @@ export default function CursoAlumnosPage({ params }) {
         ? `school_course_id=${encodeURIComponent(String(cursoSchoolCourseId))}`
         : "",
     [cursoSchoolCourseId]
-  )
-  const cursoCodigo = useMemo(
-    () => getCourseCode(cursoResuelto || cursoConsulta, cursos) || "",
-    [cursoResuelto, cursoConsulta, cursos]
   )
   const cursoDetalleQuery = useMemo(
     () =>
@@ -245,53 +226,6 @@ export default function CursoAlumnosPage({ params }) {
     })
   }, [alumnos, q])
 
-  async function handleAgregarAlumno(e) {
-    e?.preventDefault?.()
-    setFormError("")
-    setSaving(true)
-    try {
-      if (!cursoCodigo || cursoSchoolCourseId == null) {
-        setFormError("No se pudo resolver el curso.")
-        setSaving(false)
-        return
-      }
-      if (!idAlumno && (!nombre || !apellido)) {
-        setFormError("Completá legajo o nombre y apellido.")
-        setSaving(false)
-        return
-      }
-      const payload = {
-        school_course_id: cursoSchoolCourseId,
-        id_alumno: idAlumno || null,
-        nombre: nombre || null,
-        apellido: apellido || null,
-      }
-      const { ok, data } = await fetchJSON(
-        `/api/cursos/${encodeURIComponent(cursoCodigo)}/agregar-alumno/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      )
-      if (!ok) {
-        setFormError(data?.detail || "No se pudo guardar el alumno.")
-        setSaving(false)
-        return
-      }
-      invalidateCursoAlumnosResource(`alumnos-curso-list:${alumnosCursoScopeKey}:${cursoQuery}`)
-      await loadAlumnos({ force: true })
-      setOpenAdd(false)
-      setIdAlumno("")
-      setNombre("")
-      setApellido("")
-    } catch {
-      setFormError("No se pudo guardar el alumno.")
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <div className="space-y-6">
       <div className="surface-card surface-card-pad space-y-4">
@@ -303,10 +237,6 @@ export default function CursoAlumnosPage({ params }) {
               </Button>
             </Link>
 
-            <Button onClick={() => setOpenAdd(true)} variant="outline" className="gap-2">
-              <Plus className="h-4 w-4" />
-              Agregar alumno
-            </Button>
           </div>
 
           <div className="text-sm text-slate-500">
@@ -375,65 +305,6 @@ export default function CursoAlumnosPage({ params }) {
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={openAdd} onOpenChange={setOpenAdd}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Agregar alumno a {cursoNombre || cursoParam}</DialogTitle>
-          </DialogHeader>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              handleAgregarAlumno(e)
-            }}
-            className="space-y-4"
-          >
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <Label htmlFor="id_alumno">Legajo / ID de alumno (opcional)</Label>
-                <Input
-                  id="id_alumno"
-                  value={idAlumno}
-                  onChange={(e) => setIdAlumno(e.target.value)}
-                  placeholder="Ej: 1A-024"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="nombre">Nombre(s)</Label>
-                <Input
-                  id="nombre"
-                  value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                  placeholder="Ej: Juan Ignacio"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="apellido">Apellido(s)</Label>
-                <Input
-                  id="apellido"
-                  value={apellido}
-                  onChange={(e) => setApellido(e.target.value)}
-                  placeholder="Ej: Perez"
-                />
-              </div>
-            </div>
-
-            {formError && <div className="text-sm text-red-600">{formError}</div>}
-
-            <DialogFooter className="gap-2">
-              <Button type="button" onClick={() => setOpenAdd(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Guardando..." : "Guardar"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
