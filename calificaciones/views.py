@@ -1608,7 +1608,7 @@ def alumnos_por_curso_path(request, curso: str):
     """
     GET /api/alumnos/curso/<school_course_id>/
 
-    Este endpoint solo acepta ids numericos de SchoolCourse en la ruta.
+    Este endpoint solo acepta ids numéricos de SchoolCourse en la ruta.
     """
     active_school = get_request_school(request)
     selected_course = _resolve_path_course_selection(
@@ -1795,7 +1795,7 @@ def alumno_notas(request, alumno_id):
 @login_required
 def agregar_nota(request):
     if not (_has_role(request, "Profesores") or request.user.is_superuser):
-        return HttpResponse("No tenes permiso.", status=403)
+        return HttpResponse("No tenés permiso.", status=403)
 
     active_school = get_request_school(request)
     cursos = get_school_course_choices(school=active_school)
@@ -1817,7 +1817,7 @@ def agregar_nota(request):
                 school_course_id=curso_seleccionado_id,
                 course_code=curso_seleccionado,
             ):
-                return HttpResponse("No tenes permiso para ese curso.", status=403)
+                return HttpResponse("No tenés permiso para ese curso.", status=403)
 
     if request.method == "POST":
         alumnos_list = request.POST.getlist("alumno[]")
@@ -1952,7 +1952,7 @@ def agregar_nota(request):
 @login_required
 def agregar_nota_masiva(request):
     if not (_has_role(request, "Profesores") or request.user.is_superuser):
-        return HttpResponse("No tenes permiso.", status=403)
+        return HttpResponse("No tenés permiso.", status=403)
 
     active_school = get_request_school(request)
 

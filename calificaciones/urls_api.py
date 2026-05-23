@@ -24,7 +24,7 @@ from .views import (
     alumno_notas,
 )
 
-# Alias historicos para /api/notas/...
+# Alias históricos para /api/notas/...
 from .api_notas import (
     notas_listar,
     notas_por_codigo,
@@ -165,7 +165,7 @@ def alumnos_por_curso_path(request, curso):
     """
     Wrapper de transicion acotada:
     convierte /alumnos/curso/<school_course_id>/ en /alumnos/ con school_course_id.
-    Los codigos no numericos en path ya no se aceptan.
+    Los códigos no numéricos en path ya no se aceptan.
     """
     try:
         django_req = getattr(request, "_request", request)  # DRF Request -> Django HttpRequest
@@ -246,7 +246,7 @@ urlpatterns = [
     path("mi-perfil/", mi_perfil, name="mi_perfil_api"),
     path("perfil_api/", perfil_api, name="perfil_api"),
 
-    # Alias historicos (sin prefijo api/ aca adentro)
+    # Alias históricos (sin prefijo api/ acá adentro)
     path("mi_perfil/", mi_perfil, name="mi_perfil_alias"),
     path("mi_perfil", mi_perfil, name="mi_perfil_alias_noslash"),
     path("perfil/", perfil_api, name="perfil_alias"),
@@ -452,7 +452,7 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("asistencias/<int:pk>/observacion/", editar_detalle_asistencia, name="asistencias_observacion"),
     path("asistencias/<int:pk>/observacion", editar_detalle_asistencia, name="asistencias_observacion_noslash"),
 
-    # Alias historicos (orden invertido)
+    # Alias históricos (orden invertido)
     path("asistencias/detalle/<int:pk>/", editar_detalle_asistencia, name="asistencias_detalle_legacy"),
     path("asistencias/detalle/<int:pk>", editar_detalle_asistencia, name="asistencias_detalle_legacy_noslash"),
     path("asistencias/observacion/<int:pk>/", editar_detalle_asistencia, name="asistencias_observacion_legacy"),

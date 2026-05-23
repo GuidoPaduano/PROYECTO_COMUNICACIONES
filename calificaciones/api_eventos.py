@@ -514,7 +514,7 @@ def _profesor_puede_ver_curso(user, curso: str = "", school=None, school_course=
 # ------------------------------------------------------------
 def _serialize_cursos_para_selector(cursos, school=None):
     """
-    Entrada: iterable de codigos de curso.
+    Entrada: iterable de códigos de curso.
     Salida: {"cursos":[{"id":"5A","code":"5A","nombre":"5A","school_course_id": 1}, ...]}
     El frontend usa `school_course_id` como referencia principal y `code` como identificador legible.
     """
@@ -714,7 +714,7 @@ def eventos_listar(request):
             preceptor_refs = _preceptor_course_refs(request.user, school=active_school)
             if not preceptor_refs:
                 return Response(
-                    {"detail": "No tenes cursos asignados para ver eventos."},
+                    {"detail": "No tenés cursos asignados para ver eventos."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
             course_q = build_course_membership_q_for_refs(
@@ -725,7 +725,7 @@ def eventos_listar(request):
             )
             if course_q is None:
                 return Response(
-                    {"detail": "No tenes cursos asignados para ver eventos."},
+                    {"detail": "No tenés cursos asignados para ver eventos."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
             qs = qs.filter(course_q)
@@ -738,7 +738,7 @@ def eventos_listar(request):
         if selected_school_course_id is not None or curso:
             if not profesor_refs:
                 return Response(
-                    {"detail": "No tenes cursos asignados para ver eventos."},
+                    {"detail": "No tenés cursos asignados para ver eventos."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
             if not _profesor_puede_ver_curso(
@@ -754,7 +754,7 @@ def eventos_listar(request):
         else:
             if not profesor_refs:
                 return Response(
-                    {"detail": "No tenes cursos asignados para ver eventos."},
+                    {"detail": "No tenés cursos asignados para ver eventos."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
             course_q = build_course_membership_q_for_refs(
@@ -765,7 +765,7 @@ def eventos_listar(request):
             )
             if course_q is None:
                 return Response(
-                    {"detail": "No tenes cursos asignados para ver eventos."},
+                    {"detail": "No tenés cursos asignados para ver eventos."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
             qs = qs.filter(course_q)

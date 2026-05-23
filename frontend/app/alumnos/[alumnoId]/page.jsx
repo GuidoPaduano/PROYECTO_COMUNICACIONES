@@ -2191,7 +2191,7 @@ function AlumnoPerfilPageInner() {
       doc.save(fileName)
     } catch (err) {
       console.error("No se pudo generar el PDF de sanciones:", err)
-      alert("No se pudo generar el PDF. Proba nuevamente.")
+      alert("No se pudo generar el PDF. Probá nuevamente.")
     } finally {
       setDownloadingSancionesPdf(false)
     }
@@ -2389,7 +2389,7 @@ function AlumnoPerfilPageInner() {
       doc.save(fileName)
     } catch (err) {
       console.error("No se pudo generar el PDF de asistencias:", err)
-      alert("No se pudo generar el PDF. Proba nuevamente.")
+      alert("No se pudo generar el PDF. Probá nuevamente.")
     } finally {
       setDownloadingAsistenciasPdf(false)
     }
@@ -4208,7 +4208,7 @@ function AlumnoPerfilPageInner() {
           <DialogHeader>
             <DialogTitle>Detalle de la asistencia</DialogTitle>
             <DialogDescription>
-              {detalleModal.label || "Agrega un detalle para la asistencia seleccionada."}
+              {detalleModal.label || "Agregá un detalle para la asistencia seleccionada."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

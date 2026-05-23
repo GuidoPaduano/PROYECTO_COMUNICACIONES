@@ -275,7 +275,7 @@ class AdminStaffApiTests(TestCase):
             HTTP_X_SCHOOL=self.school.slug,
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "El nombre no puede contener numeros.")
+        self.assertEqual(response.json()["detail"], "El nombre no puede contener números.")
 
     def test_post_rechaza_usuario_con_numero_en_apellido(self):
         response = self.client.post(
@@ -293,7 +293,7 @@ class AdminStaffApiTests(TestCase):
             HTTP_X_SCHOOL=self.school.slug,
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "El apellido no puede contener numeros.")
+        self.assertEqual(response.json()["detail"], "El apellido no puede contener números.")
 
     def test_patch_directivo_limpia_asignaciones_del_colegio_activo(self):
         usuario = _make_user("usuario_directivo")

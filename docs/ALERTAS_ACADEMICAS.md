@@ -149,7 +149,7 @@ Incluye en la respuesta:
 Incluye:
 - `alertas`: cantidad de alertas creadas en la tanda
 
-Por defecto, la carga masiva tambiÃ©n evalÃºa alertas acadÃ©micas usando una evaluaciÃ³n agrupada por alumno, materia y cuatrimestre para evitar el costo de revisar cada nota individualmente. Si necesitÃ¡s desactivarlo temporalmente para una importaciÃ³n histÃ³rica, configurÃ¡:
+Por defecto, la carga masiva también evalúa alertas académicas usando una evaluación agrupada por alumno, materia y cuatrimestre para evitar el costo de revisar cada nota individualmente. Si necesitás desactivarlo temporalmente para una importación histórica, configurá:
 - `ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA=False`
 
 ---

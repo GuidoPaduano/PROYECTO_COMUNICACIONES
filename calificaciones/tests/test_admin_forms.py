@@ -144,7 +144,7 @@ class EventoFormSchoolTests(TestCase):
 
         self.assertEqual(
             form.fields["school_course_id"].choices,
-            [("", "Selecciona un curso..."), (str(self.course_a1.id), "1A Norte"), (str(self.course_a2.id), "2A Norte")],
+            [("", "Seleccioná un curso..."), (str(self.course_a1.id), "1A Norte"), (str(self.course_a2.id), "2A Norte")],
         )
 
     def test_evento_form_toma_school_del_evento_existente(self):
@@ -159,7 +159,7 @@ class EventoFormSchoolTests(TestCase):
 
         form = EventoForm(instance=evento)
 
-        self.assertEqual(form.fields["school_course_id"].choices, [("", "Selecciona un curso..."), (str(self.course_b1.id), "1A Sur")])
+        self.assertEqual(form.fields["school_course_id"].choices, [("", "Seleccioná un curso..."), (str(self.course_b1.id), "1A Sur")])
         self.assertEqual(form.fields["school_course_id"].initial, str(self.course_b1.id))
 
     def test_evento_form_guarda_school_course_desde_id(self):

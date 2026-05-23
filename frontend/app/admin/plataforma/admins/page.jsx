@@ -206,7 +206,7 @@ export default function AdminsPorColegioPage() {
         <Card className="min-w-0">
           <CardHeader className="pb-3">
             <CardTitle>Colegios</CardTitle>
-            <CardDescription>Selecciona el colegio que queres administrar.</CardDescription>
+            <CardDescription>Seleccioná el colegio que querés administrar.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-0">
             <div className="relative">
@@ -277,7 +277,7 @@ export default function AdminsPorColegioPage() {
               Administradores
             </CardTitle>
             <CardDescription>
-              {selectedSchool ? selectedSchool.name : "Selecciona un colegio para editar sus administradores."}
+              {selectedSchool ? selectedSchool.name : "Seleccioná un colegio para editar sus administradores."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

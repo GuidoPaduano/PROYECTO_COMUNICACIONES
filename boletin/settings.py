@@ -165,10 +165,10 @@ else:
         }
     }
 
-# Verificacion de configuracion para entorno local
+# Verificación de configuración para entorno local
 if 'ENGINE' not in DATABASES['default'] and not STATIC_BUILD:
     raise Exception(
-        "La base de datos no esta configurada.\n"
+        "La base de datos no está configurada.\n"
         "En desarrollo con DEBUG=True, si no definis DATABASE_URL se usa db.sqlite3 local.\n"
         "En otros entornos, defini DATABASE_URL con una URL valida.\n\n"
         "Windows (cmd):   set DATABASE_URL=postgres://usuario:contrasena@host:puerto/dbname\n"

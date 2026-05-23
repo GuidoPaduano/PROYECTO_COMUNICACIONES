@@ -21,14 +21,14 @@ export default function AdminPlataformaPage() {
     ? [
         {
           title: "Nuevo colegio",
-          description: "Alta asistida de un colegio nuevo con branding inicial y catalogo base de cursos.",
+          description: "Alta asistida de un colegio nuevo con branding inicial y catálogo base de cursos.",
           href: "/admin/plataforma/colegios/nuevo",
           icon: <Building2 className="h-6 w-6" />,
           external: false,
         },
         {
           title: "Importar alumnos",
-          description: "Carga alumnos por colegio desde un Excel o CSV con validacion previa de cursos y legajos.",
+          description: "Carga alumnos por colegio desde un Excel o CSV con validación previa de cursos y legajos.",
           href: "/admin/plataforma/alumnos/importar",
           icon: <FileSpreadsheet className="h-6 w-6" />,
           external: false,
@@ -49,14 +49,14 @@ export default function AdminPlataformaPage() {
         },
         {
           title: "Cursos por colegio",
-          description: "Administra el catalogo SchoolCourse de cada colegio, con nombre, codigo y orden.",
+          description: "Administra el catálogo SchoolCourse de cada colegio, con nombre, código y orden.",
           href: "/admin/plataforma/cursos",
           icon: <Layers3 className="h-6 w-6" />,
           external: false,
         },
         {
           title: "Admins por colegio",
-          description: "Asigna usuarios del grupo Administradores a un colegio especifico para habilitar su admin de escuela.",
+          description: "Asigna usuarios del grupo Administradores a un colegio específico para habilitar su admin de escuela.",
           href: "/admin/plataforma/admins",
           icon: <ShieldCheck className="h-6 w-6" />,
           external: false,

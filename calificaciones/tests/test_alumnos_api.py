@@ -566,7 +566,7 @@ class ImportarAlumnosApiTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
 
-    def test_superuser_previsualiza_xlsx_con_solo_apellidos(self):
+    def test_superuser_rechaza_xlsx_con_solo_apellidos(self):
         self.client.force_authenticate(user=self.admin)
 
         res = self.client.post(
@@ -586,10 +586,54 @@ class ImportarAlumnosApiTests(TestCase):
 
         self.assertEqual(res.status_code, 200)
         body = res.json()
-        self.assertEqual(body["summary"]["valid"], 2)
-        self.assertEqual(body["summary"]["errors"], 0)
-        self.assertEqual(body["preview"][0]["apellido"], "Perez")
-        self.assertEqual(body["preview"][0]["nombre"], body["preview"][0]["legajo"])
+        self.assertEqual(body["summary"]["valid"], 0)
+        self.assertEqual(body["summary"]["errors"], 2)
+        self.assertIn("Falta nombre.", body["errors"][0]["errors"])
+
+    def test_superuser_rechaza_importacion_con_solo_nombres(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "file": self._csv_file(
+                    "legajo,nombre,apellido,curso\n"
+                    "IMP006,Luz,,1A\n"
+                    "IMP007,Noa,,1A\n"
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["summary"]["valid"], 0)
+        self.assertEqual(body["summary"]["errors"], 2)
+        self.assertIn("Falta apellido.", body["errors"][0]["errors"])
+
+    def test_superuser_rechaza_importacion_con_numeros_en_nombre_o_apellido(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/admin/alumnos/import/",
+            {
+                "school": self.school.slug,
+                "file": self._csv_file(
+                    "legajo,nombre,apellido,curso\n"
+                    "IMP004,Luz1,Perez,1A\n"
+                    "IMP005,Noa,Diaz2,1A\n"
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["summary"]["valid"], 0)
+        self.assertEqual(body["summary"]["errors"], 2)
+        self.assertIn("El nombre no puede contener números.", body["errors"][0]["errors"])
+        self.assertIn("El apellido no puede contener números.", body["errors"][1]["errors"])
 
     def test_previsualizacion_rechaza_filas_identicas_sin_legajo(self):
         self.client.force_authenticate(user=self.admin)
