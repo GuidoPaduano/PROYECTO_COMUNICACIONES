@@ -195,6 +195,7 @@ def _serialize_directory_user(*, user, assigned_courses=None) -> dict:
 def _serialize_directory_student(student) -> dict:
     school_course = getattr(student, "school_course", None)
     linked_user = getattr(student, "usuario", None)
+    parent_user = getattr(student, "padre", None)
     return {
         "id": student.id,
         "id_alumno": str(getattr(student, "id_alumno", "") or "").strip(),
@@ -214,6 +215,15 @@ def _serialize_directory_student(student) -> dict:
             "full_name": _full_name(linked_user) or linked_user.username,
             "email": str(getattr(linked_user, "email", "") or "").strip(),
             "is_active": bool(getattr(linked_user, "is_active", True)),
+        },
+        "parent_user": None
+        if parent_user is None
+        else {
+            "id": parent_user.id,
+            "username": parent_user.username,
+            "full_name": _full_name(parent_user) or parent_user.username,
+            "email": str(getattr(parent_user, "email", "") or "").strip(),
+            "is_active": bool(getattr(parent_user, "is_active", True)),
         },
     }
 
@@ -281,8 +291,14 @@ def _build_user_directory_payload(*, school) -> dict:
         .exclude(is_superuser=True)
         .order_by("first_name", "last_name", "username", "id")
     )
+    directivos = list(
+        User.objects.filter(groups__name="Directivos")
+        .exclude(is_superuser=True)
+        .distinct()
+        .order_by("first_name", "last_name", "username", "id")
+    )
     alumnos = list(
-        Alumno.objects.select_related("school_course", "usuario")
+        Alumno.objects.select_related("school_course", "usuario", "padre")
         .filter(school=school)
         .order_by("school_course__sort_order", "school_course__name", "apellido", "nombre", "id")
     )
@@ -332,6 +348,10 @@ def _build_user_directory_payload(*, school) -> dict:
             _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []))
             for user in preceptores
         ],
+        "directivos": [
+            _serialize_directory_user(user=user, assigned_courses=[])
+            for user in directivos
+        ],
         "padres": [
             _serialize_directory_parent(user=user, children=children_by_parent.get(user.id, []))
             for user in padres
@@ -345,6 +365,7 @@ def _build_user_directory_payload(*, school) -> dict:
         "totals": {
             "profesores": len(profesores),
             "preceptores": len(preceptores),
+            "directivos": len(directivos),
             "padres": len(padres),
             "alumnos": len(alumnos),
             "cursos_con_alumnos": len(grouped_students),

@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 const DIRECTORY_SECTIONS = {
   profesores: "profesores",
   preceptores: "preceptores",
+  directivos: "directivos",
   padres: "padres",
   alumnos: "alumnos",
 }
@@ -194,6 +195,14 @@ function StudentsSection({ course }) {
                   <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Email</span>
                   <span className="break-all">{student.linked_user?.email || "-"}</span>
                 </div>
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Padre vinculado</span>
+                  {student.parent_user?.full_name || student.parent_user?.username ? (
+                    <span>{student.parent_user.full_name || student.parent_user.username}</span>
+                  ) : (
+                    <span className="text-amber-700">Sin padre vinculado</span>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -207,6 +216,7 @@ function StudentsSection({ course }) {
                 <TableHead>Alumno</TableHead>
                 <TableHead>Usuario vinculado</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Padre vinculado</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -222,6 +232,15 @@ function StudentsSection({ course }) {
                     )}
                   </TableCell>
                   <TableCell>{student.linked_user?.email || "-"}</TableCell>
+                  <TableCell>
+                    {student.parent_user?.full_name || student.parent_user?.username ? (
+                      <span className="text-sm text-slate-700">
+                        {student.parent_user.full_name || student.parent_user.username}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-amber-700">Sin padre vinculado</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -522,6 +541,11 @@ export default function SchoolUserDirectoryPage() {
     return rows.filter((row) => matchQuery([row.username, row.full_name, row.email], query))
   }, [payload, query])
 
+  const directivos = useMemo(() => {
+    const rows = Array.isArray(payload?.directivos) ? payload.directivos : []
+    return rows.filter((row) => matchQuery([row.username, row.full_name, row.email], query))
+  }, [payload, query])
+
   const padres = useMemo(() => {
     const rows = Array.isArray(payload?.padres) ? payload.padres : []
     return rows.filter((row) =>
@@ -612,7 +636,7 @@ export default function SchoolUserDirectoryPage() {
           </Link>
           <h1 className="mt-3 text-2xl font-semibold text-slate-900 sm:text-3xl">Usuarios del colegio</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Directorio del colegio activo con profesores, preceptores y alumnos agrupados por curso.
+            Directorio del colegio activo con directivos, profesores, preceptores, padres y alumnos agrupados por curso.
           </p>
         </div>
         <Button type="button" variant="outline" onClick={loadData} disabled={loading} className="w-full sm:w-auto">
@@ -637,7 +661,7 @@ export default function SchoolUserDirectoryPage() {
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
         <SummaryCard
           title="Profesores"
           value={payload?.totals?.profesores ?? 0}
@@ -653,6 +677,14 @@ export default function SchoolUserDirectoryPage() {
           interactive
           active={activeSection === DIRECTORY_SECTIONS.preceptores}
           onClick={() => setActiveSection(DIRECTORY_SECTIONS.preceptores)}
+        />
+        <SummaryCard
+          title="Directivos"
+          value={payload?.totals?.directivos ?? 0}
+          icon={<ShieldCheck className="h-5 w-5" />}
+          interactive
+          active={activeSection === DIRECTORY_SECTIONS.directivos}
+          onClick={() => setActiveSection(DIRECTORY_SECTIONS.directivos)}
         />
         <SummaryCard
           title="Alumnos"
@@ -685,6 +717,14 @@ export default function SchoolUserDirectoryPage() {
           title="Preceptores"
           rows={preceptores}
           emptyLabel="No hay preceptores asignados en el colegio activo."
+        />
+      ) : null}
+
+      {activeSection === DIRECTORY_SECTIONS.directivos ? (
+        <StaffSection
+          title="Directivos"
+          rows={directivos}
+          emptyLabel="No hay directivos registrados en el colegio activo."
         />
       ) : null}
 
