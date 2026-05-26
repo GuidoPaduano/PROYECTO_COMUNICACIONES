@@ -32,9 +32,10 @@ from .utils_cursos import (
 )
 
 try:
-    from .models_preceptores import PreceptorCurso  # type: ignore
+    from .models_preceptores import PreceptorCurso, SchoolAdmin  # type: ignore
 except Exception:
     PreceptorCurso = None
+    SchoolAdmin = None
 
 
 def _is_valid_curso(curso: str, school=None) -> bool:
@@ -157,8 +158,24 @@ def _is_preceptor_course_scoped_user(user) -> bool:
         return False
 
 
-def _can_manage_alumnos(user) -> bool:
-    return bool(getattr(user, "is_superuser", False) or _is_preceptor_user(user))
+def _is_school_admin_for(user, school=None) -> bool:
+    if SchoolAdmin is None or user is None:
+        return False
+    try:
+        qs = SchoolAdmin.objects.filter(admin=user)
+        if school is not None:
+            qs = qs.filter(school=school)
+        return qs.exists()
+    except Exception:
+        return False
+
+
+def _can_manage_alumnos(user, school=None) -> bool:
+    return bool(
+        getattr(user, "is_superuser", False)
+        or _is_preceptor_user(user)
+        or _is_school_admin_for(user, school=school)
+    )
 
 
 def _preceptor_assignment_refs(user, school=None):
@@ -332,7 +349,7 @@ def crear_alumno(request):
     )
     user_supplied_legajo = bool(id_alumno)
 
-    if not _can_manage_alumnos(request.user):
+    if not _can_manage_alumnos(request.user, school=active_school):
         return Response({"detail": "No autorizado."}, status=403)
 
     if course_error:
@@ -950,7 +967,7 @@ def transferir_alumno(request):
         required=True,
     )
 
-    if not _can_manage_alumnos(request.user):
+    if not _can_manage_alumnos(request.user, school=active_school):
         return Response({"detail": "No autorizado."}, status=403)
 
     if course_error:

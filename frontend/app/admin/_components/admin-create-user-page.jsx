@@ -2,11 +2,12 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState, startTransition } from "react"
-import { ArrowLeft, CheckCircle2, RefreshCcw, UserPlus, Users } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Plus, RefreshCcw, Users } from "lucide-react"
 
 import { authFetch, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -43,6 +44,13 @@ const INITIAL_FORM = {
   alumno_ids: [],
 }
 
+const INITIAL_STUDENT_FORM = {
+  apellido: "",
+  nombre: "",
+  id_alumno: "",
+  school_course_id: "",
+}
+
 export default function AdminCreateUserPage({
   backHref = "/admin/colegio",
   backLabel = "Volver a admin colegio",
@@ -77,6 +85,10 @@ export default function AdminCreateUserPage({
   const [form, setForm] = useState(INITIAL_FORM)
   const [studentQuery, setStudentQuery] = useState("")
   const [studentCourseFilter, setStudentCourseFilter] = useState("")
+  const [studentDialogOpen, setStudentDialogOpen] = useState(false)
+  const [studentForm, setStudentForm] = useState(INITIAL_STUDENT_FORM)
+  const [studentSaving, setStudentSaving] = useState(false)
+  const [studentError, setStudentError] = useState("")
 
   useEffect(() => {
     if (!allowed) return
@@ -191,6 +203,114 @@ export default function AdminCreateUserPage({
     }))
     setError("")
     setSuccess("")
+  }
+
+  const openStudentDialog = () => {
+    setStudentForm({
+      ...INITIAL_STUDENT_FORM,
+      school_course_id: studentCourseFilter || courses[0]?.id || "",
+    })
+    setStudentError("")
+    setStudentDialogOpen(true)
+  }
+
+  const setStudentField = (name, value) => {
+    setStudentForm((current) => ({ ...current, [name]: value }))
+    setStudentError("")
+  }
+
+  const normalizeCreatedStudent = (student) => {
+    const course = courses.find((item) => String(item.id) === String(student?.school_course_id))
+    return {
+      id: student?.id,
+      id_alumno: String(student?.id_alumno || "").trim(),
+      nombre: String(student?.nombre || "").trim(),
+      apellido: String(student?.apellido || "").trim(),
+      full_name: [student?.nombre, student?.apellido].filter(Boolean).join(" ").trim(),
+      school_course_id: student?.school_course_id,
+      school_course_label: courseLabel(course) || student?.school_course_name || "",
+      has_user: Boolean(student?.usuario),
+      has_parent: Boolean(student?.padre),
+    }
+  }
+
+  const handleCreateStudent = async (event) => {
+    event?.preventDefault?.()
+    const firstName = String(studentForm.nombre || "").trim()
+    const lastName = String(studentForm.apellido || "").trim()
+    const courseId = studentForm.school_course_id
+
+    if (!lastName || !firstName || !courseId) {
+      setStudentError("Completa apellido, nombre y curso.")
+      return
+    }
+    if (containsDigit(firstName)) {
+      setStudentError("El nombre no puede contener nÃºmeros.")
+      return
+    }
+    if (containsDigit(lastName)) {
+      setStudentError("El apellido no puede contener nÃºmeros.")
+      return
+    }
+
+    setStudentSaving(true)
+    setStudentError("")
+    try {
+      const res = await authFetch("/alumnos/crear/", {
+        method: "POST",
+        headers: activeSchoolRef
+          ? { "X-School": String(activeSchoolRef), "Content-Type": "application/json" }
+          : { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apellido: lastName,
+          nombre: firstName,
+          id_alumno: String(studentForm.id_alumno || "").trim(),
+          school_course_id: Number(courseId),
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setStudentError(data?.detail || "No se pudo crear el alumno.")
+        return
+      }
+
+      const created = normalizeCreatedStudent(data?.alumno || {})
+      if (!created.id) {
+        setStudentError("El servidor no devolviÃ³ el alumno creado.")
+        return
+      }
+
+      setPayload((current) => ({
+        ...current,
+        students: [...(Array.isArray(current.students) ? current.students : []), created].sort((a, b) =>
+          studentLabel(a).localeCompare(studentLabel(b), "es")
+        ),
+      }))
+      setStudentCourseFilter(String(created.school_course_id || ""))
+      setStudentQuery("")
+
+      if (form.role === "Alumnos") {
+        setForm((current) => ({
+          ...current,
+          alumno_id: String(created.id),
+          first_name: current.first_name || created.nombre,
+          last_name: current.last_name || created.apellido,
+          username: current.username || created.id_alumno,
+        }))
+      } else if (form.role === "Padres") {
+        setForm((current) => ({
+          ...current,
+          alumno_ids: Array.from(new Set([...(current.alumno_ids || []), created.id])).sort((a, b) => a - b),
+        }))
+      }
+
+      setStudentDialogOpen(false)
+      setStudentForm(INITIAL_STUDENT_FORM)
+    } catch {
+      setStudentError("No se pudo conectar con el servidor.")
+    } finally {
+      setStudentSaving(false)
+    }
   }
 
   const handleSubmit = async (event) => {
@@ -356,9 +476,13 @@ export default function AdminCreateUserPage({
 
             {form.role === "Alumnos" ? (
               <Card className="min-w-0">
-                <CardHeader>
+                <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <CardTitle>Vínculo con alumno</CardTitle>
                   <CardDescription>El usuario quedará asociado al alumno seleccionado para resolver su contexto automáticamente.</CardDescription>
+                  <Button type="button" variant="outline" onClick={openStudentDialog} disabled={!courses.length}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Crear alumno
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -420,9 +544,13 @@ export default function AdminCreateUserPage({
 
             {form.role === "Padres" ? (
               <Card className="min-w-0">
-                <CardHeader>
+                <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <CardTitle>Alumnos a cargo</CardTitle>
                   <CardDescription>Seleccioná los alumnos que deberían quedar asociados a esta familia.</CardDescription>
+                  <Button type="button" variant="outline" onClick={openStudentDialog} disabled={!courses.length}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Crear alumno
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -533,6 +661,66 @@ export default function AdminCreateUserPage({
               </CardContent>
             </Card>
           </div>
+
+          <Dialog open={studentDialogOpen} onOpenChange={setStudentDialogOpen}>
+            <DialogContent className="max-w-xl">
+              <DialogHeader>
+                <DialogTitle>Crear alumno</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="new-student-last-name">Apellido</Label>
+                  <Input
+                    id="new-student-last-name"
+                    value={studentForm.apellido}
+                    onChange={(event) => setStudentField("apellido", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-student-first-name">Nombre</Label>
+                  <Input
+                    id="new-student-first-name"
+                    value={studentForm.nombre}
+                    onChange={(event) => setStudentField("nombre", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-student-legajo">Legajo</Label>
+                  <Input
+                    id="new-student-legajo"
+                    value={studentForm.id_alumno}
+                    onChange={(event) => setStudentField("id_alumno", event.target.value)}
+                    placeholder="Opcional"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-student-course">Curso</Label>
+                  <select
+                    id="new-student-course"
+                    className="select-trigger-school h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                    value={studentForm.school_course_id}
+                    onChange={(event) => setStudentField("school_course_id", event.target.value)}
+                  >
+                    <option value="">Seleccionar curso</option>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {courseLabel(course)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {studentError ? <div className="text-sm text-red-600">{studentError}</div> : null}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setStudentDialogOpen(false)} disabled={studentSaving}>
+                  Cancelar
+                </Button>
+                <Button type="button" onClick={handleCreateStudent} disabled={studentSaving}>
+                  {studentSaving ? "Creando..." : "Crear alumno"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </form>
       )}
     </div>
