@@ -1,14 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useSyncExternalStore } from "react"
 import { getUnreadSnapshot, subscribeUnread } from "./unread-store"
 
 export function useUnreadMessages() {
-  const [unreadCount, setUnreadCount] = useState(() => getUnreadSnapshot().messages)
-
-  useEffect(() => {
-    return subscribeUnread((next) => setUnreadCount(Number(next?.messages || 0)))
-  }, [])
-
-  return unreadCount
+  return useSyncExternalStore(
+    subscribeUnread,
+    () => Number(getUnreadSnapshot().messages || 0),
+    () => Number(getUnreadSnapshot().messages || 0)
+  )
 }

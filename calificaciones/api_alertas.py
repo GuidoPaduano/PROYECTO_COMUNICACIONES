@@ -219,9 +219,7 @@ def preceptor_alertas_inasistencias(request):
         .order_by("-creada_en", "-id")
     )
 
-    alumno_ids = list(
-        set(top_alumno_ids)
-    )
+    alumno_ids = top_alumno_ids
     totales_por_alumno = {}
     if alumno_ids:
         rows = (
