@@ -611,23 +611,6 @@ def admin_staff_overview(request):
     courses = list(
         SchoolCourse.objects.filter(school=active_school, is_active=True).order_by("sort_order", "name", "id")
     )
-
-
-@api_view(["GET"])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def admin_school_user_directory(request):
-    denied = _require_school_admin(request)
-    if denied is not None:
-        return denied
-
-    active_school = get_request_school(request)
-    if active_school is None:
-        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
-    if not _user_is_school_admin_for(active_school, getattr(request, "user", None)):
-        return Response({"detail": "No autorizado para el colegio activo."}, status=403)
-
-    return Response(_build_user_directory_payload(school=active_school))
     users = _list_staff_users(school=active_school, query=query)
     preceptor_map = _build_assignment_map(school=active_school, role="Preceptores")
     profesor_map = _build_assignment_map(school=active_school, role="Profesores")
@@ -648,6 +631,23 @@ def admin_school_user_directory(request):
             ],
         }
     )
+
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_school_user_directory(request):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school = get_request_school(request)
+    if active_school is None:
+        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+    if not _user_is_school_admin_for(active_school, getattr(request, "user", None)):
+        return Response({"detail": "No autorizado para el colegio activo."}, status=403)
+
+    return Response(_build_user_directory_payload(school=active_school))
 
 
 @api_view(["PATCH"])
