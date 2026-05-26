@@ -175,11 +175,36 @@ def _safe_select_related(qs, *fields):
     return qs
 
 
+@lru_cache(maxsize=16)
+def _message_select_related_fields(fields: tuple[str, ...]) -> tuple[str, ...]:
+    ok_fields = []
+    for f in fields:
+        if not f:
+            continue
+        try:
+            mf = Mensaje._meta.get_field(f)
+            if getattr(mf, "is_relation", False):
+                ok_fields.append(f)
+        except Exception:
+            continue
+    return tuple(ok_fields)
+
+
+def _select_message_related(qs, *fields):
+    ok_fields = _message_select_related_fields(tuple(fields))
+    if not ok_fields:
+        return qs
+    try:
+        return qs.select_related(*ok_fields)
+    except Exception:
+        return qs
+
+
 def _message_base_queryset(*, school=None):
     sf = _sender_field()
     rf = _recipient_field()
     qs = scope_queryset_to_school(Mensaje.objects.all(), school)
-    return _safe_select_related(qs, sf, rf, "school_course", "alumno")
+    return _select_message_related(qs, sf, rf, "school_course", "alumno")
 
 
 def _user_label(u):
@@ -445,7 +470,7 @@ def _can_include_legacy_course_messages_for_alumno(user, alumno) -> bool:
         siblings = siblings.filter(curso__iexact=curso)
 
     try:
-        return siblings.count() == 1
+        return len(list(siblings.values_list("id", flat=True)[:2])) == 1
     except Exception:
         return False
 
@@ -1205,7 +1230,7 @@ def mensajes_recibidos(request):
 
     sf = _sender_field()
     rf = _recipient_field()
-    qs = _safe_select_related(qs, sf, rf, "school_course", "alumno")
+    qs = _select_message_related(qs, sf, rf, "school_course", "alumno")
 
     data = [_serialize_msg(m) for m in qs]
     return Response(data, status=200)
@@ -1247,7 +1272,7 @@ def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
             base.save(update_fields=["thread_id"])
 
         qs = scope_queryset_to_school(Mensaje.objects.filter(thread_id=base.thread_id), active_school)
-        qs = _safe_select_related(qs, sf, rf, "school_course")
+        qs = _select_message_related(qs, sf, rf, "school_course")
 
         # Ventana (últimos N)
         rows, has_more, next_before_id = _apply_conversation_window(qs, request)
@@ -1277,7 +1302,7 @@ def mensajes_conversacion_por_mensaje(request, mensaje_id: int):
 
     # Caso 2: SIN threads -> hilo virtual por participantes
     qs = _qs_conversacion_por_participantes(base, school=active_school)
-    qs = _safe_select_related(qs, sf, rf, "school_course")
+    qs = _select_message_related(qs, sf, rf, "school_course")
 
     rows, has_more, next_before_id = _apply_conversation_window(qs, request)
 
@@ -1328,7 +1353,7 @@ def mensajes_conversacion_por_thread(request, thread_id: str):
         return Response({"detail": "No autorizado o hilo inexistente."}, status=404)
 
     qs = thread_qs
-    qs = _safe_select_related(qs, sf, rf, "school_course")
+    qs = _select_message_related(qs, sf, rf, "school_course")
 
     rows, has_more, next_before_id = _apply_conversation_window(qs, request)
 
