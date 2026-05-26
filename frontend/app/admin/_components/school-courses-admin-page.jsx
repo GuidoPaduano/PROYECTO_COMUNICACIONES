@@ -111,6 +111,11 @@ function schoolStatusClasses(active) {
     : "bg-slate-100 text-slate-600 ring-slate-200"
 }
 
+function buildSchoolScopeHeaders({ isPlatformMode, schoolRef } = {}) {
+  if (isPlatformMode) return { "X-School": "" }
+  return schoolRef ? { "X-School": String(schoolRef) } : undefined
+}
+
 function isSchoolAdminContext(sessionContext) {
   if (sessionContext?.isSuperuser) return true
   const groups = Array.isArray(sessionContext?.groups) ? sessionContext.groups : []
@@ -192,7 +197,10 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
       if (!isPlatformMode && sessionSchoolRefs[0]) params.set("school", String(sessionSchoolRefs[0]))
       const suffix = params.toString() ? `?${params.toString()}` : ""
       const res = await authFetch(`/admin/school-courses/${suffix}`, {
-        headers: !isPlatformMode && sessionSchoolRefs[0] ? { "X-School": String(sessionSchoolRefs[0]) } : undefined,
+        headers: buildSchoolScopeHeaders({
+          isPlatformMode,
+          schoolRef: sessionSchoolRefs[0],
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -278,7 +286,10 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
     try {
       const res = await authFetch(`/admin/school-courses/course/${courseId}`, {
         method: "PATCH",
-        headers: !isPlatformMode && sessionSchoolRefs[0] ? { "X-School": String(sessionSchoolRefs[0]) } : undefined,
+        headers: buildSchoolScopeHeaders({
+          isPlatformMode,
+          schoolRef: sessionSchoolRefs[0],
+        }),
         body: JSON.stringify({
           name: form.name,
           is_active: !!form.is_active,
@@ -312,7 +323,10 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
     try {
       const res = await authFetch(`/admin/school-courses/${selectedSchool.id}`, {
         method: "POST",
-        headers: !isPlatformMode && sessionSchoolRefs[0] ? { "X-School": String(sessionSchoolRefs[0]) } : undefined,
+        headers: buildSchoolScopeHeaders({
+          isPlatformMode,
+          schoolRef: sessionSchoolRefs[0],
+        }),
         body: JSON.stringify({
           code: buildCourseCodeFromName(newCourse.name),
           name: newCourse.name,
