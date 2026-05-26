@@ -30,8 +30,8 @@ def _parse_limit(request, default=5, max_limit=12):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_unread_count(request):
-    user = request.user
-    count = Notificacion.objects.filter(destinatario=user, leida=False).count()
+    user_id = getattr(request.user, "id", None)
+    count = Notificacion.objects.filter(destinatario_id=user_id, leida=False).count()
     return Response({"count": count}, status=200)
 
 
@@ -40,8 +40,8 @@ def notificaciones_unread_count(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_recientes(request):
-    user = request.user
-    qs = Notificacion.objects.filter(destinatario=user)
+    user_id = getattr(request.user, "id", None)
+    qs = Notificacion.objects.filter(destinatario_id=user_id)
 
     if request.GET.get("solo_no_leidas") in ("1", "true", "True"):
         qs = qs.filter(leida=False)
@@ -72,8 +72,8 @@ def notificaciones_recientes(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_marcar_leida(request, notif_id: int):
-    user = request.user
-    updated = Notificacion.objects.filter(destinatario=user, id=notif_id, leida=False).update(leida=True)
+    user_id = getattr(request.user, "id", None)
+    updated = Notificacion.objects.filter(destinatario_id=user_id, id=notif_id, leida=False).update(leida=True)
     return Response({"updated": int(updated)}, status=200)
 
 
@@ -82,6 +82,6 @@ def notificaciones_marcar_leida(request, notif_id: int):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def notificaciones_marcar_todas_leidas(request):
-    user = request.user
-    updated = Notificacion.objects.filter(destinatario=user, leida=False).update(leida=True)
+    user_id = getattr(request.user, "id", None)
+    updated = Notificacion.objects.filter(destinatario_id=user_id, leida=False).update(leida=True)
     return Response({"updated": int(updated)}, status=200)

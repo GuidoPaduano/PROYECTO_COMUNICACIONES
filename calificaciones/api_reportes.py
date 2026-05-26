@@ -94,13 +94,14 @@ def _mis_estadisticas_cache_key(*, user_id, role, school_id, alumno_param, anio,
 
 
 def _serialize_alumno(a: Alumno) -> dict:
+    school_course = getattr(a, "school_course", None)
     return {
         "id": a.id,
         "id_alumno": getattr(a, "id_alumno", None),
         "nombre": getattr(a, "nombre", ""),
         "school_course_id": getattr(a, "school_course_id", None),
-        "school_course_name": getattr(getattr(a, "school_course", None), "name", None)
-        or getattr(getattr(a, "school_course", None), "code", None)
+        "school_course_name": getattr(school_course, "name", None)
+        or getattr(school_course, "code", None)
         or getattr(a, "curso", ""),
     }
 
@@ -587,13 +588,15 @@ def _build_alumno_historico_payload(
 ):
     notas_payload = _build_notas_payload(notas_qs)
     historial_anual = _build_historial_anual_payload(notas_qs_historicas)
-    detalle_qs = notas_qs.order_by("-fecha", "-id")
-    historial_detallado = [_serialize_nota_detalle(nota) for nota in detalle_qs]
-    promedio_general = detalle_qs.aggregate(
-        promedio_numerico=Avg("nota_numerica"),
-        evaluaciones_numericas=Count("nota_numerica"),
-    )
-    ultima_nota = detalle_qs.first()
+    detalle_rows = list(notas_qs.order_by("-fecha", "-id"))
+    historial_detallado = [_serialize_nota_detalle(nota) for nota in detalle_rows]
+    notas_numericas = [
+        float(nota.nota_numerica)
+        for nota in detalle_rows
+        if getattr(nota, "nota_numerica", None) is not None
+    ]
+    promedio_numerico = (sum(notas_numericas) / len(notas_numericas)) if notas_numericas else None
+    ultima_nota = detalle_rows[0] if detalle_rows else None
 
     return {
         "scope": "alumno_historico",
@@ -603,8 +606,8 @@ def _build_alumno_historico_payload(
         "filtros": {"cuatrimestre": cuatrimestre, "anio": anio, "materia": materia},
         "anios_disponibles": [row["anio"] for row in historial_anual],
         "historial_anual": historial_anual,
-        "promedio_general_numerico": _round2(promedio_general.get("promedio_numerico")) if promedio_general.get("promedio_numerico") is not None else None,
-        "evaluaciones_numericas": int(promedio_general.get("evaluaciones_numericas") or 0),
+        "promedio_general_numerico": _round2(promedio_numerico) if promedio_numerico is not None else None,
+        "evaluaciones_numericas": len(notas_numericas),
         "ultima_evaluacion": _serialize_nota_detalle(ultima_nota) if ultima_nota else None,
         "historial_detallado": historial_detallado,
         **notas_payload,
