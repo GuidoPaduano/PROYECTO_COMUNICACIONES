@@ -352,9 +352,45 @@ async function fetchJSON(url, opts) {
   return { ok: res.ok, data, status: res.status }
 }
 
-async function getAlumnoIdsFromAny(idParam) {
+async function getAlumnoIdsFromCourseRoster(idParam, schoolCourseId) {
+  const normalizedId = String(idParam ?? "").trim()
+  const normalizedSchoolCourseId = String(schoolCourseId ?? "").trim()
+  if (!normalizedId || !normalizedSchoolCourseId) {
+    return { detail: null, pk: null, code: idParam }
+  }
+
+  try {
+    const r = await fetchJSON(`/alumnos/?school_course_id=${encodeURIComponent(normalizedSchoolCourseId)}`)
+    const alumnos = r.ok && Array.isArray(r.data?.alumnos) ? r.data.alumnos : []
+    const match = alumnos.find((a) => {
+      const candidates = [kidPk(a), kidLegajo(a), kidValue(a), a?.alumno_id, a?.codigo]
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean)
+      return candidates.includes(normalizedId)
+    })
+
+    if (match) {
+      const pk = kidPk(match)
+      const code = kidLegajo(match) ?? normalizedId
+      return {
+        detail: {
+          ...match,
+          id: pk,
+          id_alumno: code,
+        },
+        pk,
+        code,
+      }
+    }
+  } catch {}
+
+  return { detail: null, pk: null, code: idParam }
+}
+
+async function getAlumnoIdsFromAny(idParam, options = {}) {
   const encoded = encodeURIComponent(idParam)
   const normalizedId = String(idParam ?? "").trim()
+  const schoolCourseId = String(options?.schoolCourseId ?? "").trim()
   try {
     const r = await fetchJSON(`/api/alumnos/${encoded}/`)
     if (r.ok) {
@@ -366,6 +402,9 @@ async function getAlumnoIdsFromAny(idParam) {
       }
     }
   } catch {}
+
+  const rosterMatch = await getAlumnoIdsFromCourseRoster(idParam, schoolCourseId)
+  if (rosterMatch.detail) return rosterMatch
 
   try {
     const r = await fetchJSON("/api/padres/mis-hijos/")
@@ -953,6 +992,10 @@ function AlumnoPerfilPageInner() {
     }
   }, [session])
 
+  const cursoParam = searchParams.get("curso")
+  const schoolCourseParam = searchParams.get("school_course_id")
+  const fromParam = searchParams.get("from")
+
   // Carga detalle -> pk/code -> (notas, sanciones, asistencias)
   useEffect(() => {
     let alive = true
@@ -986,7 +1029,9 @@ function AlumnoPerfilPageInner() {
 
     ;(async () => {
       try {
-        const { detail, pk, code } = await getAlumnoIdsFromAny(alumnoid)
+        const { detail, pk, code } = await getAlumnoIdsFromAny(alumnoid, {
+          schoolCourseId: schoolCourseParam,
+        })
         if (!detail && !cachedDetail) throw new Error("No se encontró información del alumno.")
         if (!alive) return
         if (!detail && cachedDetail) return
@@ -1005,7 +1050,7 @@ function AlumnoPerfilPageInner() {
     return () => {
       alive = false
     }
-  }, [alumnoid])
+  }, [alumnoid, schoolCourseParam])
 
   // Catálogo de materias (opcional)
   useEffect(() => {
@@ -1031,10 +1076,6 @@ function AlumnoPerfilPageInner() {
   }, [alumnoPageScopeKey])
 
   // Curso sugerido para el modal de “Enviar mensaje”
-  const cursoParam = searchParams.get("curso")
-  const schoolCourseParam = searchParams.get("school_course_id")
-  const fromParam = searchParams.get("from")
-
   /* ====================== FIX: tab por URL + persistencia para /mis-hijos ====================== */
   const initialTabParam = String(searchParams.get("tab") || "").toLowerCase().trim()
   const initialFromParam = String(searchParams.get("from") || "").trim()
