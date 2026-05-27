@@ -1652,8 +1652,27 @@ def alumnos_por_curso_path(request, curso: str):
     )
 
 
+def _resolve_alumno_by_pk_or_legajo(alumnos_qs, alumno_id):
+    raw_id = str(alumno_id or "").strip()
+    if not raw_id:
+        raise Alumno.DoesNotExist
+
+    if raw_id.isdigit():
+        try:
+            return alumnos_qs.get(pk=int(raw_id))
+        except Alumno.DoesNotExist:
+            pass
+
+    try:
+        return alumnos_qs.get(id_alumno__iexact=raw_id)
+    except Alumno.DoesNotExist:
+        if raw_id.isdigit():
+            raise
+        raise
+
+
 # =========================================================
-#  ðŸ”Ž API Detalle de Alumno (preferir legajo sobre PK)
+#  ðŸ”Ž API Detalle de Alumno
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -1664,8 +1683,8 @@ def alumno_detalle(request, alumno_id):
     GET /api/alumnos/<alumno_id>/
 
     Prioridad de resolución:
-      1) Buscar por legajo `id_alumno` (string exacto).
-      2) Si no existe y es numérico, intentar como PK (id interno).
+      1) Si es numérico, buscar por PK (id interno, usado por los links del front).
+      2) Si no existe o no es numérico, buscar por legajo `id_alumno`.
     """
     active_school = get_request_school(request)
     alumnos_qs = scope_queryset_to_school(
@@ -1674,17 +1693,9 @@ def alumno_detalle(request, alumno_id):
     )
 
     try:
-        # 1) intentar por legajo
-        a = alumnos_qs.get(id_alumno=str(alumno_id))
+        a = _resolve_alumno_by_pk_or_legajo(alumnos_qs, alumno_id)
     except Alumno.DoesNotExist:
-        # 2) fallback a PK si es numérico
-        if str(alumno_id).isdigit():
-            try:
-                a = alumnos_qs.get(pk=int(alumno_id))
-            except Alumno.DoesNotExist:
-                return Response({"detail": "No encontrado"}, status=404)
-        else:
-            return Response({"detail": "No encontrado"}, status=404)
+        return Response({"detail": "No encontrado"}, status=404)
 
     # ✅ NUEVO: autorización consistente (incluye preceptor por curso)
     user = request.user
@@ -1718,7 +1729,7 @@ def alumno_detalle(request, alumno_id):
 
 
 # =========================================================
-#  ðŸ“˜ API Notas de un alumno (preferir legajo sobre PK)
+#  ðŸ“˜ API Notas de un alumno
 # =========================================================
 @csrf_exempt
 @api_view(["GET"])
@@ -1729,24 +1740,19 @@ def alumno_notas(request, alumno_id):
     GET /api/alumnos/<alumno_id>/notas/
 
     Prioridad de resolución:
-      1) Buscar por legajo `id_alumno`.
-      2) Si no existe y es numérico, intentar como PK (id).
+      1) Si es numérico, buscar por PK (id interno, usado por los links del front).
+      2) Si no existe o no es numérico, buscar por legajo `id_alumno`.
     """
     active_school = get_request_school(request)
     alumnos_qs = scope_queryset_to_school(Alumno.objects.all(), active_school)
 
     try:
-        alumno = alumnos_qs.get(id_alumno=str(alumno_id))
+        alumno = _resolve_alumno_by_pk_or_legajo(alumnos_qs, alumno_id)
     except Alumno.DoesNotExist:
-        if str(alumno_id).isdigit():
-            try:
-                alumno = alumnos_qs.get(pk=int(alumno_id))
-            except Alumno.DoesNotExist:
-                return Response({"detail": "Alumno no encontrado"}, status=404)
-        else:
-            return Response({"detail": "Alumno no encontrado"}, status=404)
+        return Response({"detail": "Alumno no encontrado"}, status=404)
 
     user = request.user
+    viewer_groups = set(_effective_groups(request))
 
     # Alumno propio (mismo criterio que en alumno_detalle)
     is_alumno_mismo = (getattr(alumno, "usuario_id", None) == user.id)
