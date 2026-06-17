@@ -23,11 +23,11 @@ COPY . ./
 # Genera los estaticos de Django en build para que WhiteNoise los sirva en runtime
 RUN RAILWAY_STATIC_BUILD=1 python manage.py collectstatic --noinput
 
-# Expone el puerto (por defecto en Railway es 8000)
-EXPOSE 8000
+# Expone el puerto por defecto que Railway inyecta en runtime
+EXPOSE 8080
 
 # Comando de inicio: aplica migraciones y arranca Gunicorn en el puerto de Railway
-CMD ["sh", "-c", "python manage.py migrate && gunicorn boletin.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-3} --timeout ${GUNICORN_TIMEOUT:-45} --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "python manage.py migrate && gunicorn boletin.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers ${WEB_CONCURRENCY:-3} --timeout ${GUNICORN_TIMEOUT:-45} --access-logfile - --error-logfile -"]
 
 
 
