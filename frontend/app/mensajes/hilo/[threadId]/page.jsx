@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useAuthGuard, authFetch, getCachedSessionProfileData, getSessionProfile, useSessionContext } from "../../../_lib/auth"
+import { notifyInboxChanged } from "../../../_lib/inbox"
 import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, Send, RefreshCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import SuccessMessage from "@/components/ui/success-message"
+import { createClientRequestId } from "../../../_lib/idempotency"
 
 async function fetchJSON(url, opts) {
   const res = await authFetch(url, {
@@ -57,15 +59,6 @@ function getReadReceiptLabel(message, myId) {
   if (!mine) return ""
   if (!message.leido_en) return ""
   return `Visto el ${fmtFecha(message.leido_en)}`
-}
-
-/* === Helper local para notificar cambios en la bandeja (badge/contador) === */
-function notifyInboxChanged() {
-  try {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("inbox-changed"))
-    }
-  } catch {}
 }
 
 function getThreadConversationUrl(threadIdParam) {
@@ -292,7 +285,12 @@ export default function HiloMensajesPage() {
     }
     setSending(true)
     setSendMsg("")
-    const payload = { mensaje_id: replyToId, asunto: replyAsunto || "Re:", contenido: replyText.trim() }
+    const payload = {
+      mensaje_id: replyToId,
+      asunto: replyAsunto || "Re:",
+      contenido: replyText.trim(),
+      client_request_id: createClientRequestId(),
+    }
     const r = await fetchJSON("/api/mensajes/responder/", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },

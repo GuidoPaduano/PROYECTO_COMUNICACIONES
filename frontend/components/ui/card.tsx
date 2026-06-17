@@ -5,6 +5,7 @@ import * as React from "react"
 type DivProps = React.HTMLAttributes<HTMLDivElement>
 type H3Props = React.HTMLAttributes<HTMLHeadingElement>
 type PProps = React.HTMLAttributes<HTMLParagraphElement>
+type CardTitleProps = H3Props & { as?: "h2" | "h3" | "h4" }
 
 export const Card = React.forwardRef<HTMLDivElement, DivProps>(
   ({ className = "", ...props }, ref) => (
@@ -28,9 +29,9 @@ export const CardHeader = React.forwardRef<HTMLDivElement, DivProps>(
 )
 CardHeader.displayName = "CardHeader"
 
-export const CardTitle = React.forwardRef<HTMLHeadingElement, H3Props>(
-  ({ className = "", ...props }, ref) => (
-    <h3
+export const CardTitle = React.forwardRef<HTMLHeadingElement, CardTitleProps>(
+  ({ as: Component = "h3", className = "", ...props }, ref) => (
+    <Component
       ref={ref}
       className={`text-lg font-semibold leading-none tracking-tight ${className}`}
       {...props}

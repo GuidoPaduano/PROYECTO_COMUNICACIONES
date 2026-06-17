@@ -1,14 +1,16 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from calificaciones.api_asistencias import _bulk_upsert_asistencias
-from calificaciones.models import Alumno, Asistencia, Nota, School, SchoolCourse
-from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso
+from calificaciones.models import Alumno, Asistencia, Nota, Sancion, School, SchoolCourse
+from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
 
 
 def _make_user(username: str, groups: list[str] | None = None, *, is_superuser: bool = False):
@@ -36,8 +38,8 @@ class CursosDisponiblesSchoolCatalogTests(TestCase):
         self.admin = _make_superuser("admin_alumnos_school")
         self.school_a = School.objects.create(name="Colegio Cursos Norte", slug="colegio-cursos-norte")
         self.school_b = School.objects.create(name="Colegio Cursos Sur", slug="colegio-cursos-sur")
-        SchoolCourse.objects.create(school=self.school_a, code="1A", name="Primer A Norte", sort_order=1)
-        SchoolCourse.objects.create(school=self.school_a, code="2A", name="Segundo A Norte", sort_order=2)
+        self.course_a_1 = SchoolCourse.objects.create(school=self.school_a, code="1A", name="Primer A Norte", sort_order=1)
+        self.course_a_2 = SchoolCourse.objects.create(school=self.school_a, code="2A", name="Segundo A Norte", sort_order=2)
         SchoolCourse.objects.create(school=self.school_b, code="1A", name="Primer A Sur", sort_order=1)
         self.client.force_authenticate(user=self.admin)
 
@@ -51,8 +53,8 @@ class CursosDisponiblesSchoolCatalogTests(TestCase):
         self.assertEqual(
             res.json()["cursos"],
             [
-                {"id": "1A", "nombre": "Primer A Norte"},
-                {"id": "2A", "nombre": "Segundo A Norte"},
+                {"id": "1A", "code": "1A", "nombre": "Primer A Norte", "school_course_id": self.course_a_1.id},
+                {"id": "2A", "code": "2A", "nombre": "Segundo A Norte", "school_course_id": self.course_a_2.id},
             ],
         )
 
@@ -357,6 +359,129 @@ class AlumnoSchoolCourseSyncTests(TestCase):
         self.assertEqual(alumno.school_course_id, self.default_curso_2a.id)
         self.assertEqual(alumno.curso, "2A")
 
+    def test_transferir_alumno_conserva_historial_y_vinculos(self):
+        padre = _make_user("padre_transferencia_historial", ["Padres"])
+        usuario = _make_user("alumno_transferencia_historial", ["Alumnos"])
+        alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.curso_1a,
+            nombre="Lara",
+            apellido="Mendez",
+            id_alumno="LEG204",
+            curso="1A",
+            padre=padre,
+            usuario=usuario,
+        )
+        nota = Nota.objects.create(
+            school=self.school,
+            alumno=alumno,
+            materia="Matemática",
+            tipo="Examen",
+            calificacion="8",
+            resultado="TEA",
+            nota_numerica="8",
+            cuatrimestre=1,
+        )
+        asistencia = Asistencia.objects.create(
+            school=self.school,
+            alumno=alumno,
+            presente=False,
+            justificada=True,
+        )
+        sancion = Sancion.objects.create(
+            school=self.school,
+            alumno=alumno,
+            tipo="Llamado de atención",
+            motivo="Conservar tras transferencia",
+        )
+        SchoolAdmin.objects.create(school=self.school, admin=self.admin)
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/alumnos/transferir/",
+            {
+                "alumno_id": alumno.id,
+                "school_course_id": self.curso_2a.id,
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+
+        self.assertEqual(res.status_code, 200)
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.school_course_id, self.curso_2a.id)
+        self.assertEqual(alumno.padre_id, padre.id)
+        self.assertEqual(alumno.usuario_id, usuario.id)
+        self.assertTrue(Nota.objects.filter(pk=nota.id, alumno=alumno).exists())
+        self.assertTrue(Asistencia.objects.filter(pk=asistencia.id, alumno=alumno).exists())
+        self.assertTrue(Sancion.objects.filter(pk=sancion.id, alumno=alumno).exists())
+
+    def test_transferir_alumno_invalida_cache_de_mis_hijos(self):
+        padre = _make_user("padre_transferencia_cache", ["Padres"])
+        alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.curso_1a,
+            nombre="Lila",
+            apellido="Rios",
+            id_alumno="LEG206",
+            curso="1A",
+            padre=padre,
+        )
+        self.client.force_authenticate(user=padre)
+        before = self.client.get("/api/padres/mis-hijos/", HTTP_X_SCHOOL=self.school.slug)
+        self.assertEqual(before.status_code, 200)
+        self.assertEqual(before.json()["results"][0]["school_course_id"], self.curso_1a.id)
+
+        self.client.force_authenticate(user=self.admin)
+        transfer = self.client.post(
+            "/api/alumnos/transferir/",
+            {
+                "alumno_id": alumno.id,
+                "school_course_id": self.curso_2a.id,
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(transfer.status_code, 200)
+
+        self.client.force_authenticate(user=padre)
+        after = self.client.get("/api/padres/mis-hijos/", HTTP_X_SCHOOL=self.school.slug)
+        self.assertEqual(after.status_code, 200)
+        self.assertEqual(after.json()["results"][0]["school_course_id"], self.curso_2a.id)
+        cache.clear()
+
+    def test_transferir_alumno_rechaza_curso_de_otro_colegio(self):
+        other_school = School.objects.create(name="Colegio Transferencia Externo", slug="transferencia-externo")
+        other_course = SchoolCourse.objects.create(
+            school=other_school,
+            code="2A",
+            name="Segundo A Externo",
+            sort_order=1,
+        )
+        alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.curso_1a,
+            nombre="Noa",
+            apellido="Perez",
+            id_alumno="LEG205",
+            curso="1A",
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.post(
+            "/api/alumnos/transferir/",
+            {
+                "alumno_id": alumno.id,
+                "school_course_id": other_course.id,
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+
+        self.assertEqual(res.status_code, 400)
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.school_course_id, self.curso_1a.id)
+
     def test_asignaciones_docente_y_preceptor_se_enlazan_a_school_course(self):
         asignacion_preceptor = PreceptorCurso.objects.create(
             school=self.school,
@@ -566,6 +691,28 @@ class ImportarAlumnosApiTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
 
+    @override_settings(STUDENT_IMPORT_MAX_BYTES=64)
+    def test_superuser_rechaza_archivo_que_supera_limite_antes_de_parsearlo(self):
+        self.client.force_authenticate(user=self.admin)
+        oversized = self._csv_file(
+            "legajo,nombre,apellido,curso\n"
+            + ("IMP999,Luz,Perez,1A\n" * 10)
+        )
+
+        with patch("calificaciones.api_alumnos._parse_import_file") as parser:
+            res = self.client.post(
+                "/api/admin/alumnos/import/",
+                {
+                    "school": self.school.slug,
+                    "file": oversized,
+                },
+                format="multipart",
+            )
+
+        self.assertEqual(res.status_code, 413)
+        self.assertIn("limite permitido", res.json()["detail"])
+        parser.assert_not_called()
+
     def test_superuser_rechaza_xlsx_con_solo_apellidos(self):
         self.client.force_authenticate(user=self.admin)
 
@@ -720,6 +867,8 @@ class SchoolIntegrityGuardrailsTests(TestCase):
         self.preceptor = _make_user("preceptor_guardrails", ["Preceptores"])
 
     def test_alumno_nuevo_en_single_school_hereda_school_y_school_course(self):
+        School.objects.exclude(pk=self.default_school.pk).update(is_active=False)
+
         alumno = Alumno.objects.create(
             nombre="Lia",
             apellido="Perez",
@@ -813,7 +962,9 @@ class VincularLegajoContractTests(TestCase):
                 "sort_order": 1,
             },
         )
-        self.user = _make_user("alumno_vincular_api")
+        self.user = _make_user("VINC100")
+        alumnos_group, _ = Group.objects.get_or_create(name="Alumnos")
+        self.user.groups.add(alumnos_group)
         self.alumno = Alumno.objects.create(
             school=self.school,
             school_course=self.course,

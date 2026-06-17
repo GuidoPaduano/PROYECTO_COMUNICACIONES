@@ -354,11 +354,24 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
     }
   }
 
-  if (loadingSession || !allowed) {
+  if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando herramienta de cursos...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-800">
+            No tenes permisos para administrar los cursos de este colegio.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -373,7 +386,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
             <ArrowLeft className="h-4 w-4" />
             {backLabel}
           </Link>
-          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Cursos por colegio</h1>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-900">Cursos por colegio</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             {isPlatformMode
               ? "Administra el catálogo de cursos de cada colegio."
@@ -387,12 +400,12 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
       {success ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {success}
         </div>
       ) : null}

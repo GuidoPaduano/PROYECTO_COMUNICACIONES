@@ -27,7 +27,7 @@ from .models import (
     SchoolCourse,
     SchoolDeletionJob,
 )
-from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
+from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
 from .schools import (
     get_available_school_dicts_for_user,
     get_default_school,
@@ -399,6 +399,7 @@ def _delete_school_tree(school: School) -> None:
         clear_school_course_cache(school)
 
         SchoolAdmin.objects.filter(school=school).delete()
+        SchoolMembership.objects.filter(school=school).delete()
         PreceptorCurso.objects.filter(school=school).delete()
         ProfesorCurso.objects.filter(school=school).delete()
 
@@ -631,6 +632,19 @@ def admin_update_school(request, school_id: int):
         },
         status=200,
     )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_school_deletion_job(request, job_id: int):
+    if not _require_platform_admin(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    job = SchoolDeletionJob.objects.filter(pk=job_id).first()
+    if job is None:
+        return Response({"detail": "Trabajo de borrado no encontrado."}, status=404)
+
+    return Response({"job": _school_deletion_job_to_dict(job)}, status=200)
 
 
 @api_view(["GET"])

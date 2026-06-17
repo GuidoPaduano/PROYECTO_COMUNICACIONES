@@ -24,12 +24,28 @@ def _make_staff_user(username="staff"):
     return user
 
 
+def _get_test_school_course(curso="1A", school=None):
+    if school is None:
+        school, _ = School.objects.get_or_create(
+            slug="colegio-asistencias-test",
+            defaults={"name": "Colegio Asistencias Test"},
+        )
+    school_course, _ = SchoolCourse.objects.get_or_create(
+        school=school,
+        code=curso,
+        defaults={"name": curso, "sort_order": 1},
+    )
+    return school, school_course
+
+
 def _make_alumno(nombre, apellido, legajo, curso="1A", padre=None, school=None):
+    school, school_course = _get_test_school_course(curso=curso, school=school)
     return Alumno.objects.create(
         nombre=nombre,
         apellido=apellido,
         id_alumno=legajo,
         school=school,
+        school_course=school_course,
         curso=curso,
         padre=padre,
     )
@@ -151,7 +167,12 @@ class AsistenciasApiTests(TestCase):
         preceptor.groups.add(grp)
 
         alumno = _make_alumno("Noa", "Garcia", "LEG401", curso="1A")
-        PreceptorCurso.objects.create(preceptor=preceptor, curso="1A")
+        PreceptorCurso.objects.create(
+            school=alumno.school,
+            school_course=alumno.school_course,
+            preceptor=preceptor,
+            curso="1A",
+        )
 
         alerta = AlertaInasistencia.objects.create(
             alumno=alumno,
@@ -283,6 +304,7 @@ class AsistenciasAccessControlTests(TestCase):
         SchoolCourse.objects.create(school=self.school, code="2A", name="2A Norte", sort_order=2)
         self.alumno = Alumno.objects.create(
             school=self.school,
+            school_course=self.school_course_1a,
             nombre="Mia",
             apellido="Sosa",
             id_alumno="LEGACC01",
@@ -608,6 +630,17 @@ class AsistenciasSchoolScopingTests(TestCase):
         self.assertNotIn("curso", body["alumno"])
         self.assertNotIn("curso", body["results"][0])
 
+    def test_asistencias_por_codigo_no_envuelve_request_drf_dos_veces(self):
+        res = self.client.get(
+            f"/api/asistencias/alumno_codigo/{self.alumno_a.id_alumno}/",
+            {"school": self.school_a.slug},
+        )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["alumno"]["id"], self.alumno_a.id)
+        self.assertEqual(body["count"], 1)
+
 
 @override_settings(SECURE_SSL_REDIRECT=False)
 class AsistenciasLegacyPreceptorFallbackTests(TestCase):
@@ -628,6 +661,7 @@ class AsistenciasLegacyPreceptorFallbackTests(TestCase):
         )
         self.alumno = Alumno.objects.create(
             school=self.school,
+            school_course=self.school_course,
             nombre="Lia",
             apellido="Fallback",
             id_alumno="LEGFALL01",
@@ -663,15 +697,15 @@ class InasistenciasSchoolRecipientTests(TestCase):
         self.preceptor_a.groups.add(grp)
         self.preceptor_b.groups.add(grp)
         self.alumno = _make_alumno("Nora", "Diaz", "LEGINA01", curso="1A", school=self.school_a)
-        self.alumno.school_course = self.school_course_a
-        self.alumno.save(update_fields=["school_course"])
         PreceptorCurso.objects.create(
             school=self.school_a,
+            school_course=self.school_course_a,
             preceptor=self.preceptor_a,
             curso="1A",
         )
         PreceptorCurso.objects.create(
             school=self.school_b,
+            school_course=self.school_course_b,
             preceptor=self.preceptor_b,
             curso="1A",
         )
@@ -703,8 +737,6 @@ class InasistenciasSchoolRecipientTests(TestCase):
 
     def test_batch_no_mezcla_preceptores_de_otro_school_con_mismo_codigo(self):
         alumno_b = _make_alumno("Olga", "Ruiz", "LEGINA02", curso="1A", school=self.school_b)
-        alumno_b.school_course = self.school_course_b
-        alumno_b.save(update_fields=["school_course"])
 
         Asistencia.objects.create(
             school=self.school_a,

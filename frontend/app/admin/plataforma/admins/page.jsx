@@ -161,11 +161,24 @@ export default function AdminsPorColegioPage() {
     }
   }
 
-  if (loadingSession || !allowed) {
+  if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando herramienta de admins...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-900">
+            Esta herramienta es exclusiva para administradores de plataforma.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -180,7 +193,7 @@ export default function AdminsPorColegioPage() {
             <ArrowLeft className="h-4 w-4" />
             Volver a admin plataforma
           </Link>
-          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Admins por colegio</h1>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-900">Admins por colegio</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             Asigna usuarios como administradores del colegio seleccionado.
           </p>
@@ -192,12 +205,12 @@ export default function AdminsPorColegioPage() {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
       {success ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {success}
         </div>
       ) : null}
@@ -216,6 +229,7 @@ export default function AdminsPorColegioPage() {
                 onChange={(event) => setSchoolQuery(event.target.value)}
                 className="pl-9"
                 placeholder="Buscar colegio"
+                aria-label="Buscar colegio"
               />
             </div>
 
@@ -238,7 +252,15 @@ export default function AdminsPorColegioPage() {
                         className={`cursor-pointer ${selected ? "bg-slate-50" : ""}`}
                       >
                         <TableCell>
-                          <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            className="flex w-full items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)]"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedId(String(school.id))
+                            }}
+                            aria-pressed={selected}
+                          >
                             <div
                               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white"
                               style={{ backgroundColor: school.primary_color || DEFAULT_SCHOOL_PRIMARY_COLOR }}
@@ -249,7 +271,7 @@ export default function AdminsPorColegioPage() {
                               <div className="truncate font-medium text-slate-900">{school.name}</div>
                               <div className="truncate text-xs text-slate-500">{school.slug}</div>
                             </div>
-                          </div>
+                          </button>
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">{school.admins_count || 0}</TableCell>
                         <TableCell>
@@ -264,6 +286,13 @@ export default function AdminsPorColegioPage() {
                       </TableRow>
                     )
                   })}
+                  {!visibleSchools.length ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="py-8 text-center text-sm text-slate-500">
+                        No hay colegios para mostrar.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
                 </TableBody>
               </Table>
             </div>
@@ -289,6 +318,7 @@ export default function AdminsPorColegioPage() {
                   onChange={(event) => setUserQuery(event.target.value)}
                   className="pl-9"
                   placeholder="Buscar usuarios por nombre, usuario o email"
+                  aria-label="Buscar usuarios"
                 />
               </div>
               <Button type="button" variant="outline" onClick={() => loadData()} disabled={loading}>

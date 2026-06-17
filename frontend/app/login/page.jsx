@@ -170,6 +170,8 @@ export default function LoginPage() {
               id="username"
               type="text"
               required
+              aria-invalid={error ? "true" : undefined}
+              aria-describedby={error ? "login-error" : undefined}
               className="w-full mt-1 rounded-md border px-4 py-2"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -185,6 +187,8 @@ export default function LoginPage() {
               id="password"
               type="password"
               required
+              aria-invalid={error ? "true" : undefined}
+              aria-describedby={error ? "login-error" : undefined}
               className="w-full mt-1 rounded-md border px-4 py-2"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -192,7 +196,11 @@ export default function LoginPage() {
             />
           </div>
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? (
+            <p id="login-error" role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          ) : null}
 
           <div className="flex flex-row flex-wrap items-center justify-center gap-2 pt-1">
             <button

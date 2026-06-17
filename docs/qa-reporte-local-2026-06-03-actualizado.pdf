@@ -1,0 +1,756 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 6268
+>>
+stream
+0.200025 w
+0 G
+BT
+/F2 18 Tf
+20.6999999999999993 TL
+0 g
+42. 799.8899999999999864 Td
+(Reporte QA Local - Proyecto Comunicaciones) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 771.8899999999999864 Td
+(Fecha: 03/06/2026) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 756.8899999999999864 Td
+(Entorno: local, colegio qa-local, datos sembrados con seed_qa_data.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 741.8899999999999864 Td
+(Credenciales QA usadas: qa_platform_admin, qa_school_admin, qa_directivo, qa_profesor, qa_preceptor,) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 726.8899999999999864 Td
+(qa_padre, qa_alumno. Password local: QaLocal123!.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0 g
+42. 703.8899999999999864 Td
+(Resumen Ejecutivo) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 685.8899999999999864 Td
+(- Resultado final de la suite E2E local: 13 tests ejecutados, 13 pasaron, 0 fallaron.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 670.8899999999999864 Td
+(- Comando final ejecutado: npm run test:e2e desde frontend.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 655.8899999999999864 Td
+(- La suite cubre login, carga de notas, asistencia, mensajes, sanciones, permisos por rol, firmas y doble firma.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 640.8899999999999864 Td
+(- No quedaron fallas abiertas en la corrida final.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0 g
+42. 617.8899999999999864 Td
+(Detalle de Tests Automatizados) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 599.8899999999999864 Td
+(- Smoke: home publica carga con CSS y lista el colegio QA | Resultado: PASO.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 584.8899999999999864 Td
+(  Valida pantalla publica, estilos y colegio qa-local visible.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 569.8899999999999864 Td
+(- Smoke: profesor QA inicia sesion y llega al dashboard | Resultado: PASO. Login con qa_profesor y redireccion a) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 554.8899999999999864 Td
+(  dashboard.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 539.8899999999999864 Td
+(- Smoke: admin de colegio QA inicia sesion y llega al panel del colegio | Resultado: PASO. Login con) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 524.8899999999999864 Td
+(  qa_school_admin y acceso al panel correspondiente.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 509.8899999999999864 Td
+(- Flujo: profesor carga una nota y queda persistida | Resultado: PASO. Crea nota desde UI y confirma persistencia) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 494.8899999999999864 Td
+(  por API /api/notas.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 479.8899999999999864 Td
+(- Flujo: preceptor registra asistencia tarde y queda persistida | Resultado: PASO. Carga tardanza desde UI y) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 464.8899999999999864 Td
+(  confirma persistencia por API de asistencias.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 449.8899999999999864 Td
+(- Flujo: profesor envia mensaje a familia y padre lo ve en bandeja | Resultado: PASO. Crea comunicado y valida) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 434.8899999999999864 Td
+(  visibilidad desde cuenta padre.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 419.8899999999999864 Td
+(- Flujo: profesor registra sancion y padre la firma | Resultado: PASO. Crea sancion, padre firma desde detalle de) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 404.8899999999999864 Td
+(  alumno y API queda firmada.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 389.8899999999999864 Td
+(- Flujo: padre responde un mensaje en hilo y profesor ve la respuesta | Resultado: PASO. Valida conversacion) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 374.8899999999999864 Td
+(  bidireccional familia-profesor.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 359.8899999999999864 Td
+(- Permisos: alumno QA no puede leer datos academicos de otro alumno | Resultado: PASO. Bloquea notas,) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 344.8899999999999864 Td
+(  sanciones y asistencias de QA002 con usuario qa_alumno.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 329.8899999999999864 Td
+(- Permisos: profesor QA no puede operar sobre alumno de curso no asignado | Resultado: PASO. Bloquea) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 314.8899999999999864 Td
+(  lectura, carga de nota y sancion sobre QA002.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 299.8899999999999864 Td
+(- Permisos: padre QA no puede listar roster ni crear registros academicos | Resultado: PASO. Bloquea roster del) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 284.8899999999999864 Td
+(  curso, creacion de nota y sancion desde cuenta padre.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 269.8899999999999864 Td
+(- Firmas: padre firma una nota y no puede firmarla dos veces | Resultado: PASO. Crea nota, firma desde UI,) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 254.8899999999999864 Td
+(  confirma firmada=true y segundo POST devuelve 400.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 239.8899999999999864 Td
+(- Firmas: padre firma una inasistencia y no puede firmarla dos veces | Resultado: PASO. Crea ausencia, firma) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 224.8899999999999864 Td
+(  desde UI, confirma firmada=true y segundo POST devuelve 400.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0 g
+42. 201.8899999999999864 Td
+(Hallazgos Intermedios Durante QA) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 183.8899999999999864 Td
+(- Se habia observado una pantalla sin estilos/carga incompleta en la seleccion de) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 168.8899999999999864 Td
+(  colegio; se corrigio el problema de configuracion/carga frontend antes de la) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 153.8899999999999864 Td
+(  suite final.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 138.8899999999999864 Td
+(- Se habia reportado un Internal Server Error durante los flujos locales; fue corregido antes de consolidar la) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 123.8899999999999864 Td
+(  corrida E2E final.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 108.8899999999999864 Td
+(- Al agregar los tests de firmas, el primer intento uso una materia fuera del catalogo y fallo por validacion. Se) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 93.8899999999999864 Td
+(  ajusto el test para tomar la materia desde el catalogo real de la API.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 78.8899999999999864 Td
+(- El test de firma de asistencia tambien expuso un locator fragil: despues de firmar, la fila ya no contenia el boton) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 63.8899999999999864 Td
+(  Firmar. Se ajusto la verificacion para localizar la fila firmada por tipo de asistencia.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 3191
+>>
+stream
+0.200025 w
+0 G
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0 g
+42. 799.8899999999999864 Td
+(Cobertura Actual) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 781.8899999999999864 Td
+(- Autenticacion: cubierta por smoke de profesor y admin colegio.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 766.8899999999999864 Td
+(- Notas: cubierta carga, persistencia, visibilidad para padre, firma y bloqueo de doble firma.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 751.8899999999999864 Td
+(- Asistencias: cubierta tardanza, ausencia, persistencia, firma y bloqueo de doble firma.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 736.8899999999999864 Td
+(- Mensajes: cubierto envio a familia, recepcion por padre, respuesta en hilo y visibilidad por profesor.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 721.8899999999999864 Td
+(- Sanciones: cubierta creacion por profesor, visibilidad y firma por padre.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 706.8899999999999864 Td
+(- Permisos: cubiertos casos negativos de alumno, padre y profesor con curso no asignado.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0 g
+42. 683.8899999999999864 Td
+(Pendientes Recomendados) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 665.8899999999999864 Td
+(- Firmar todo: validar varias inasistencias pendientes y que no se firmen) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 650.8899999999999864 Td
+(  presentes.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 635.8899999999999864 Td
+(- Justificacion de inasistencia: preceptor justifica, padre ve estado, padre/alumno no pueden justificar.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 620.8899999999999864 Td
+(- Detalle de asistencia: preceptor edita detalle, padre lo ve, padre no puede editar.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 605.8899999999999864 Td
+(- Edicion de nota: profesor edita una nota propia, padre ve cambio, profesor no edita curso no asignado.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 590.8899999999999864 Td
+(- Filtros en detalle de alumno: notas, sanciones, asistencias por mes/tipo y busqueda.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 575.8899999999999864 Td
+(- Mobile/regresion visual: login, dashboard, mis hijos, alumno y mensajes en viewport movil.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0 g
+42. 552.8899999999999864 Td
+(Archivos de Tests Relevantes) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 534.8899999999999864 Td
+(- frontend/e2e/qa-smoke.spec.ts) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 519.8899999999999864 Td
+(- frontend/e2e/qa-flows.spec.ts) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 504.8899999999999864 Td
+(- frontend/e2e/qa-permissions.spec.ts) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 489.8899999999999864 Td
+(- frontend/e2e/qa-signatures.spec.ts) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 474.8899999999999864 Td
+(- frontend/e2e/helpers.ts) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0 g
+42. 451.8899999999999864 Td
+(Conclusion) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 433.8899999999999864 Td
+(La QA local automatizada quedo en verde con 13/13 tests pasando. La base actual ya sirve para validar) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 418.8899999999999864 Td
+(regresiones funcionales principales y permisos sensibles. El siguiente bloque recomendado es profundizar) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0 g
+42. 403.8899999999999864 Td
+(asistencias: firmar todo, justificar y editar detalle.) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.0.0)
+/CreationDate (D:20260603032000-03'00')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000009852 00000 n 
+0000011677 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000006472 00000 n 
+0000006609 00000 n 
+0000009915 00000 n 
+0000010040 00000 n 
+0000010170 00000 n 
+0000010303 00000 n 
+0000010441 00000 n 
+0000010565 00000 n 
+0000010694 00000 n 
+0000010826 00000 n 
+0000010962 00000 n 
+0000011090 00000 n 
+0000011217 00000 n 
+0000011346 00000 n 
+0000011479 00000 n 
+0000011581 00000 n 
+0000011927 00000 n 
+0000012013 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <6CBD37446C25073FDF78200239AE5EA0> <6CBD37446C25073FDF78200239AE5EA0> ]
+>>
+startxref
+12117
+%%EOF

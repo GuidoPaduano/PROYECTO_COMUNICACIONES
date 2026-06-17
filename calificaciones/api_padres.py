@@ -18,6 +18,14 @@ def _mis_hijos_cache_key(user_id, school_id, is_superuser: bool) -> str:
     return f"mis_hijos:user:{user_id or 'x'}:school:{school_id or 'none'}:super:{int(bool(is_superuser))}"
 
 
+def invalidate_mis_hijos_cache(*, user_id, school_id) -> None:
+    for is_superuser in (False, True):
+        try:
+            cache.delete(_mis_hijos_cache_key(user_id, school_id, is_superuser))
+        except Exception:
+            pass
+
+
 def _serialize_alumnos_public(qs):
     """Serializa alumnos para la API publica de padres."""
     out = []

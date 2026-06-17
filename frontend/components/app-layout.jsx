@@ -171,17 +171,8 @@ function resolveMeta(pathname, userLabel) {
   }
 }
 
-function shouldHideHeader(roles, isSuper, pathname) {
-  if (isSuper) return false
-  if (!Array.isArray(roles) || roles.length === 0) return false
-  if (pathname === "/dashboard") return false
-  const set = new Set(roles.map((r) => String(r || "").toLowerCase()).filter(Boolean))
-  const isAlumnoOnly =
-    set.has("alumnos") &&
-    !set.has("profesores") &&
-    !set.has("preceptores") &&
-    !set.has("padres")
-  return isAlumnoOnly
+function shouldHideHeader() {
+  return false
 }
 
 function ProtectedShell({ children, pathname }) {
@@ -253,8 +244,8 @@ function ProtectedShell({ children, pathname }) {
 
   const meta = useMemo(() => resolveMeta(pathname, userLabel), [pathname, userLabel])
   const hideHeader = useMemo(
-    () => shouldHideHeader(roles, isSuper, pathname),
-    [roles, isSuper, pathname]
+    () => shouldHideHeader(),
+    []
   )
   const actions = useMemo(() => {
     if (pathname.startsWith("/mis-cursos/")) {

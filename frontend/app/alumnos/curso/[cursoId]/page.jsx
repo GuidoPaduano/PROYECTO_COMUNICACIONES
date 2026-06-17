@@ -259,7 +259,7 @@ export default function CursoAlumnosPage({ params }) {
               <UsersIcon className="h-6 w-6" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 leading-tight">Alumnos del curso</h2>
+              <h1 className="text-xl font-semibold text-gray-900 leading-tight">Alumnos del curso</h1>
               <p className="text-sm text-gray-600">Toca una tarjeta para abrir el perfil</p>
             </div>
           </div>

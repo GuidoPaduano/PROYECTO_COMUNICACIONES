@@ -491,7 +491,7 @@ export default function PasarAsistenciaPage() {
           </div>
 
           <div>
-            {errMsg && <p className="mb-2 text-sm text-red-600">{errMsg}</p>}
+            {errMsg && <p className="mb-2 text-sm text-red-600" role="alert">{errMsg}</p>}
             {okMsg && <SuccessMessage className="mb-3">{okMsg}</SuccessMessage>}
             {!loadingCursos && cursos.length === 0 && (
               <p className="text-gray-600">No tenés cursos asignados.</p>
@@ -500,7 +500,7 @@ export default function PasarAsistenciaPage() {
 
           <div className="overflow-x-auto">
             {loadingAlumnos ? (
-              <p className="text-gray-600">Cargando alumnos...</p>
+              <p className="text-gray-600" role="status" aria-live="polite">Cargando alumnos...</p>
             ) : !alumnos.length ? (
               <p className="text-gray-600">No hay alumnos para este curso.</p>
             ) : (

@@ -28,15 +28,31 @@ class EditarNotaApiTests(TestCase):
         self.client = APIClient()
         self.profesor = _make_user("profe_editor", ["Profesores"])
         self.profesor_otro = _make_user("profe_otro", ["Profesores"])
+        self.school = School.objects.create(name="Colegio Editar Nota", slug="colegio-editar-nota")
+        self.course_1a = SchoolCourse.objects.create(school=self.school, code="1A", name="1A", sort_order=1)
+        self.course_2a = SchoolCourse.objects.create(school=self.school, code="2A", name="2A", sort_order=2)
         self.alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.course_1a,
             nombre="Luz",
             apellido="Perez",
             id_alumno="LEG777",
             curso="1A",
         )
-        ProfesorCurso.objects.create(profesor=self.profesor, curso="1A")
-        ProfesorCurso.objects.create(profesor=self.profesor_otro, curso="2A")
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_1a,
+            profesor=self.profesor,
+            curso="1A",
+        )
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_2a,
+            profesor=self.profesor_otro,
+            curso="2A",
+        )
         self.nota = Nota.objects.create(
+            school=self.school,
             alumno=self.alumno,
             materia="Lengua",
             tipo="Examen",
@@ -50,6 +66,7 @@ class EditarNotaApiTests(TestCase):
     def test_profesor_puede_editar_nota_de_su_curso(self):
         self.client.force_authenticate(user=self.profesor)
         payload = {
+            "version": self.nota.version,
             "resultado": "TEP",
             "calificacion": "TEP",
             "nota_numerica": "4.50",
@@ -63,13 +80,50 @@ class EditarNotaApiTests(TestCase):
         self.assertEqual(self.nota.resultado, "TEP")
         self.assertEqual(str(self.nota.nota_numerica), "4.50")
         self.assertEqual(self.nota.observaciones, "Corregida")
+        self.assertEqual(self.nota.version, 2)
+        self.assertEqual(res.json()["nota"]["version"], 2)
+
+    def test_edicion_obsoleta_devuelve_conflicto_y_no_pisa_la_version_actual(self):
+        self.client.force_authenticate(user=self.profesor)
+        initial_version = self.nota.version
+
+        first = self.client.patch(
+            f"/api/calificaciones/notas/{self.nota.id}/",
+            {"version": initial_version, "observaciones": "Guardado por pestaña A"},
+            format="json",
+        )
+        stale = self.client.patch(
+            f"/api/calificaciones/notas/{self.nota.id}/",
+            {"version": initial_version, "observaciones": "Guardado por pestaña B"},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.json()["nota"]["version"], 2)
+        self.assertEqual(stale.json()["nota"]["observaciones"], "Guardado por pestaña A")
+        self.nota.refresh_from_db()
+        self.assertEqual(self.nota.observaciones, "Guardado por pestaña A")
+        self.assertEqual(self.nota.version, 2)
+
+    def test_edicion_requiere_version(self):
+        self.client.force_authenticate(user=self.profesor)
+
+        res = self.client.patch(
+            f"/api/calificaciones/notas/{self.nota.id}/",
+            {"observaciones": "Sin control de concurrencia"},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("versión", res.json()["detail"])
 
     def test_profesor_no_puede_editar_nota_de_otro_curso(self):
         self.client.force_authenticate(user=self.profesor_otro)
 
         res = self.client.patch(
             f"/api/calificaciones/notas/{self.nota.id}/",
-            {"calificacion": "TED", "resultado": "TED"},
+            {"version": self.nota.version, "calificacion": "TED", "resultado": "TED"},
             format="json",
         )
 
@@ -226,7 +280,11 @@ class FirmaNotaApiTests(TestCase):
         self.client = APIClient()
         self.padre = _make_user("padre_firma_nota", ["Padres"])
         self.padre_otro = _make_user("padre_firma_otro", ["Padres"])
+        self.school = School.objects.create(name="Colegio Firma Nota", slug="colegio-firma-nota")
+        self.school_course = SchoolCourse.objects.create(school=self.school, code="1A", name="1A", sort_order=1)
         self.alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.school_course,
             nombre="Mora",
             apellido="Gimenez",
             id_alumno="LEG333",
@@ -234,6 +292,7 @@ class FirmaNotaApiTests(TestCase):
             padre=self.padre,
         )
         self.nota = Nota.objects.create(
+            school=self.school,
             alumno=self.alumno,
             materia="Lengua",
             tipo="Examen",

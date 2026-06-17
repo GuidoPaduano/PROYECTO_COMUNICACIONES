@@ -1,13 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState, startTransition } from "react"
+import { useEffect, useMemo, useRef, useState, startTransition } from "react"
 import { ArrowLeft, CheckCircle2, Plus, RefreshCcw, Users } from "lucide-react"
 
 import { authFetch, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -86,6 +86,7 @@ export default function AdminCreateUserPage({
   const [studentQuery, setStudentQuery] = useState("")
   const [studentCourseFilter, setStudentCourseFilter] = useState("")
   const [studentDialogOpen, setStudentDialogOpen] = useState(false)
+  const studentDialogTriggerRef = useRef(null)
   const [studentForm, setStudentForm] = useState(INITIAL_STUDENT_FORM)
   const [studentSaving, setStudentSaving] = useState(false)
   const [studentError, setStudentError] = useState("")
@@ -367,7 +368,7 @@ export default function AdminCreateUserPage({
     }
   }
 
-  if (loadingSession || !allowed) {
+  if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando alta de usuarios...</div>
@@ -375,11 +376,24 @@ export default function AdminCreateUserPage({
     )
   }
 
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-800">
+            Solo los administradores del colegio pueden crear usuarios.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Nuevo usuario</h1>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-900">Nuevo usuario</h2>
         </div>
         <Link
           href={backHref}
@@ -391,13 +405,13 @@ export default function AdminCreateUserPage({
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
       {success ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {success}
         </div>
       ) : null}
@@ -479,7 +493,7 @@ export default function AdminCreateUserPage({
                 <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <CardTitle>Vínculo con alumno</CardTitle>
                   <CardDescription>El usuario quedará asociado al alumno seleccionado para resolver su contexto automáticamente.</CardDescription>
-                  <Button type="button" variant="outline" onClick={openStudentDialog} disabled={!courses.length}>
+                  <Button ref={studentDialogTriggerRef} type="button" variant="outline" onClick={openStudentDialog} disabled={!courses.length}>
                     <Plus className="mr-2 h-4 w-4" />
                     Crear alumno
                   </Button>
@@ -547,7 +561,7 @@ export default function AdminCreateUserPage({
                 <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <CardTitle>Alumnos a cargo</CardTitle>
                   <CardDescription>Seleccioná los alumnos que deberían quedar asociados a esta familia.</CardDescription>
-                  <Button type="button" variant="outline" onClick={openStudentDialog} disabled={!courses.length}>
+                  <Button ref={studentDialogTriggerRef} type="button" variant="outline" onClick={openStudentDialog} disabled={!courses.length}>
                     <Plus className="mr-2 h-4 w-4" />
                     Crear alumno
                   </Button>
@@ -663,9 +677,18 @@ export default function AdminCreateUserPage({
           </div>
 
           <Dialog open={studentDialogOpen} onOpenChange={setStudentDialogOpen}>
-            <DialogContent className="max-w-xl">
+            <DialogContent
+              className="max-w-xl"
+              onCloseAutoFocus={(event) => {
+                event.preventDefault()
+                studentDialogTriggerRef.current?.focus()
+              }}
+            >
               <DialogHeader>
                 <DialogTitle>Crear alumno</DialogTitle>
+                <DialogDescription>
+                  Completa los datos del alumno y asignalo a un curso del colegio.
+                </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">

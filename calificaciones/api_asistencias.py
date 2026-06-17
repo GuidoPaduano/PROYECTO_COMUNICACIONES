@@ -36,6 +36,7 @@ from .models import resolve_school_course_for_value
 from .utils_cursos import get_course_label, get_school_course_choices, resolve_course_reference
 from .alerts_inasistencias import evaluar_alertas_inasistencia_por_alumnos, evaluar_alerta_inasistencia
 from .schools import get_request_school, scope_queryset_to_school
+from .signatures import claim_signature
 from .user_groups import get_user_group_names, user_in_groups
 
 try:
@@ -1485,10 +1486,17 @@ def firmar_asistencia(request, pk: int):
             },
         )
 
-    obj.firmada = True
-    obj.firmada_en = timezone.now()
-    obj.firmada_por = request.user
-    obj.save(update_fields=["firmada", "firmada_en", "firmada_por"])
+    if not claim_signature(obj, user=request.user):
+        return _err(
+            "La inasistencia ya fue firmada.",
+            400,
+            {
+                "id": obj.id,
+                "alumno_id": obj.alumno_id,
+                "firmada": True,
+                "firmada_en": obj.firmada_en.isoformat() if obj.firmada_en else None,
+            },
+        )
 
     return _ok_response({
         "id": obj.id,
@@ -1619,17 +1627,22 @@ def asistencias_por_alumno(request, alumno_id=None):
     if not _can_view_alumno_asistencia(request.user, alumno):
         return Response({"detail": "No autorizado."}, status=403)
 
-    qs = _asistencia_base_qs(active_school).filter(alumno=alumno).order_by("-fecha", "-id")
+    return _asistencias_alumno_response(alumno, school=active_school)
 
-    results = []
-    for a in qs:
-        results.append(_serialize_asistencia_item(a, alumno=alumno, school=active_school))
 
-    return Response({
-        "alumno": _serialize_alumno_brief(alumno, school=active_school),
-        "results": results,
-        "count": len(results),
-    })
+def _asistencias_alumno_response(alumno, *, school=None):
+    qs = _asistencia_base_qs(school).filter(alumno=alumno).order_by("-fecha", "-id")
+    results = [
+        _serialize_asistencia_item(asistencia, alumno=alumno, school=school)
+        for asistencia in qs
+    ]
+    return Response(
+        {
+            "alumno": _serialize_alumno_brief(alumno, school=school),
+            "results": results,
+            "count": len(results),
+        }
+    )
 
 
 @api_view(["GET"])
@@ -1641,7 +1654,9 @@ def asistencias_por_codigo(request, id_alumno):
         alumno = _alumno_base_qs(active_school).get(id_alumno=str(id_alumno))
     except Exception:
         return Response({"detail": "Alumno no encontrado"}, status=404)
-    return asistencias_por_alumno(request, alumno_id=alumno.id)
+    if not _can_view_alumno_asistencia(request.user, alumno):
+        return Response({"detail": "No autorizado."}, status=403)
+    return _asistencias_alumno_response(alumno, school=active_school)
 
 
 @api_view(["GET"])

@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from http.cookiejar import CookieJar
 from typing import Any
 
 
@@ -20,7 +21,6 @@ from typing import Any
 class EndpointSpec:
     method: str
     path: str
-    body: dict[str, Any] | None = None
 
 
 @dataclass
@@ -37,265 +37,198 @@ DEFAULT_ENDPOINTS = [
     "GET:/api/notificaciones/unread_count/",
     "GET:/api/preceptor/alertas-academicas/?limit=12",
     "GET:/api/preceptor/alertas-inasistencias/?limit=12",
-    "GET:/api/reportes/curso/1A/?cuatrimestre=1",
+    "GET:/api/alumnos/cursos/",
 ]
 
 
-def _percentile(values: list[float], p: float) -> float:
+def percentile(values: list[float], value: float) -> float:
     if not values:
         return 0.0
-    if p <= 0:
-        return min(values)
-    if p >= 100:
-        return max(values)
-    sorted_vals = sorted(values)
-    rank = (len(sorted_vals) - 1) * (p / 100.0)
+    ordered = sorted(values)
+    rank = (len(ordered) - 1) * value / 100
     low = math.floor(rank)
     high = math.ceil(rank)
     if low == high:
-        return sorted_vals[low]
-    weight = rank - low
-    return sorted_vals[low] * (1.0 - weight) + sorted_vals[high] * weight
+        return ordered[low]
+    return ordered[low] * (high - rank) + ordered[high] * (rank - low)
 
 
-def _build_url(base_url: str, path: str) -> str:
-    if path.startswith("http://") or path.startswith("https://"):
-        return path
+def build_url(base_url: str, path: str) -> str:
     return urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
 
 
-def _parse_endpoint(raw: str) -> EndpointSpec:
-    txt = (raw or "").strip()
-    if not txt:
-        raise ValueError("Endpoint vacío.")
-    if ":" not in txt:
-        return EndpointSpec(method="GET", path=txt)
-    method, path = txt.split(":", 1)
-    m = method.strip().upper()
-    p = path.strip()
-    if not p:
+def parse_endpoint(raw: str) -> EndpointSpec:
+    method, separator, path = raw.strip().partition(":")
+    if not separator:
+        return EndpointSpec("GET", method)
+    method = method.upper()
+    if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"} or not path:
         raise ValueError(f"Endpoint invalido: {raw}")
-    if m not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
-        raise ValueError(f"Metodo no soportado: {m}")
-    return EndpointSpec(method=m, path=p)
+    return EndpointSpec(method, path)
 
 
-def _request_json(
-    method: str,
-    url: str,
-    headers: dict[str, str] | None = None,
-    body: dict[str, Any] | None = None,
-    timeout_s: float = 20.0,
-) -> tuple[int, Any]:
-    data = None
-    req_headers = dict(headers or {})
-    if body is not None:
-        data = json.dumps(body).encode("utf-8")
-        req_headers.setdefault("Content-Type", "application/json")
-    req = urllib.request.Request(url=url, data=data, headers=req_headers, method=method)
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        status = int(resp.getcode())
-        raw = resp.read().decode("utf-8", errors="replace")
-        if not raw:
-            return status, None
-        try:
-            return status, json.loads(raw)
-        except Exception:
-            return status, raw
-
-
-def _obtain_jwt(base_url: str, username: str, password: str, timeout_s: float) -> str:
-    url = _build_url(base_url, "/api/token/")
-    status, payload = _request_json(
+def login(base_url: str, username: str, password: str, school: str, timeout: float):
+    cookie_jar = CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+    request = urllib.request.Request(
+        build_url(base_url, "/api/token/"),
+        data=json.dumps(
+            {"username": username, "password": password, "school": school}
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
-        url=url,
-        body={"username": username, "password": password},
-        timeout_s=timeout_s,
     )
-    if status < 200 or status >= 300:
-        raise RuntimeError(f"Fallo login JWT ({status}) en {url}: {payload}")
-    token = None
-    if isinstance(payload, dict):
-        token = payload.get("access")
-    if not token:
-        raise RuntimeError(f"No se recibió access token en {url}: {payload}")
-    return str(token)
+    with opener.open(request, timeout=timeout) as response:
+        response.read()
+    if not any(cookie.name == "access_token" for cookie in cookie_jar):
+        raise RuntimeError("El login no devolvio la cookie access_token.")
+    return opener
 
 
-def _hit(
-    base_url: str,
-    spec: EndpointSpec,
-    auth_header: str | None,
-    timeout_s: float,
-) -> HitResult:
-    url = _build_url(base_url, spec.path)
-    headers: dict[str, str] = {}
+def hit(opener, base_url, endpoint, auth_header, school, timeout):
+    headers = {"Accept": "application/json"}
     if auth_header:
         headers["Authorization"] = auth_header
-
-    start = time.perf_counter()
-    try:
-        req = urllib.request.Request(url=url, headers=headers, method=spec.method)
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            status = int(resp.getcode())
-            _ = resp.read()
-        elapsed = (time.perf_counter() - start) * 1000.0
-        ok = 200 <= status < 300
-        return HitResult(ok=ok, status=status, elapsed_ms=elapsed, endpoint=f"{spec.method} {spec.path}")
-    except urllib.error.HTTPError as e:
-        elapsed = (time.perf_counter() - start) * 1000.0
-        return HitResult(
-            ok=False,
-            status=int(getattr(e, "code", 0) or 0),
-            elapsed_ms=elapsed,
-            endpoint=f"{spec.method} {spec.path}",
-            error=f"HTTPError: {e}",
-        )
-    except Exception as e:
-        elapsed = (time.perf_counter() - start) * 1000.0
-        return HitResult(
-            ok=False,
-            status=0,
-            elapsed_ms=elapsed,
-            endpoint=f"{spec.method} {spec.path}",
-            error=str(e),
-        )
-
-
-def _run_phase(
-    *,
-    phase_name: str,
-    base_url: str,
-    endpoints: list[EndpointSpec],
-    auth_header: str | None,
-    total_requests: int,
-    concurrency: int,
-    timeout_s: float,
-) -> list[HitResult]:
-    print(f"\n[{phase_name}] requests={total_requests} concurrency={concurrency}")
-    if total_requests <= 0:
-        return []
-
-    jobs: list[EndpointSpec] = []
-    for _ in range(total_requests):
-        jobs.append(random.choice(endpoints))
-
-    results: list[HitResult] = []
+    if school:
+        headers["X-School"] = school
+    request = urllib.request.Request(
+        build_url(base_url, endpoint.path), headers=headers, method=endpoint.method
+    )
     started = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            response.read()
+            status = int(response.status)
+        elapsed = (time.perf_counter() - started) * 1000
+        return HitResult(200 <= status < 300, status, elapsed, f"{endpoint.method} {endpoint.path}")
+    except urllib.error.HTTPError as error:
+        elapsed = (time.perf_counter() - started) * 1000
+        return HitResult(False, int(error.code), elapsed, f"{endpoint.method} {endpoint.path}", str(error))
+    except Exception as error:
+        elapsed = (time.perf_counter() - started) * 1000
+        return HitResult(False, 0, elapsed, f"{endpoint.method} {endpoint.path}", str(error))
+
+
+def run_phase(name, opener, base_url, endpoints, auth_header, school, requests, concurrency, timeout):
+    print(f"\n[{name}] requests={requests} concurrency={concurrency}")
+    jobs = [random.choice(endpoints) for _ in range(requests)]
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
         futures = [
-            ex.submit(_hit, base_url, spec, auth_header, timeout_s)
-            for spec in jobs
+            executor.submit(hit, opener, base_url, endpoint, auth_header, school, timeout)
+            for endpoint in jobs
         ]
-        for fut in as_completed(futures):
-            results.append(fut.result())
+        results = [future.result() for future in as_completed(futures)]
     elapsed = time.perf_counter() - started
-    rps = (len(results) / elapsed) if elapsed > 0 else 0.0
-    print(f"[{phase_name}] done in {elapsed:.2f}s ({rps:.2f} req/s)")
+    print(f"[{name}] done in {elapsed:.2f}s ({len(results) / elapsed:.2f} req/s)")
     return results
 
 
-def _print_summary(results: list[HitResult]) -> None:
-    if not results:
-        print("\nSin resultados.")
-        return
+def summarize(results: list[HitResult]) -> dict[str, Any]:
+    latencies = [result.elapsed_ms for result in results]
+    statuses: dict[str, int] = {}
+    for result in results:
+        key = str(result.status)
+        statuses[key] = statuses.get(key, 0) + 1
+    return {
+        "total": len(results),
+        "ok": sum(result.ok for result in results),
+        "errors": sum(not result.ok for result in results),
+        "latency_ms": {
+            "min": min(latencies, default=0.0),
+            "mean": statistics.mean(latencies) if latencies else 0.0,
+            "p50": percentile(latencies, 50),
+            "p95": percentile(latencies, 95),
+            "p99": percentile(latencies, 99),
+            "max": max(latencies, default=0.0),
+        },
+        "status_counts": statuses,
+    }
 
-    lat = [r.elapsed_ms for r in results]
-    ok_count = sum(1 for r in results if r.ok)
-    err_count = len(results) - ok_count
-    by_status: dict[int, int] = {}
-    for r in results:
-        by_status[r.status] = by_status.get(r.status, 0) + 1
 
+def print_summary(results):
+    summary = summarize(results)
+    latency = summary["latency_ms"]
     print("\n=== RESUMEN GLOBAL ===")
-    print(f"Total: {len(results)}")
-    print(f"OK: {ok_count}")
-    print(f"Errores: {err_count}")
-    print(f"Latencia ms: min={min(lat):.2f} mean={statistics.mean(lat):.2f} p50={_percentile(lat, 50):.2f} p95={_percentile(lat, 95):.2f} p99={_percentile(lat, 99):.2f} max={max(lat):.2f}")
-    print("Status counts:", ", ".join(f"{k}:{v}" for k, v in sorted(by_status.items())))
+    print(f"Total: {summary['total']}")
+    print(f"OK: {summary['ok']}")
+    print(f"Errores: {summary['errors']}")
+    print(
+        "Latencia ms: "
+        f"min={latency['min']:.2f} mean={latency['mean']:.2f} "
+        f"p50={latency['p50']:.2f} p95={latency['p95']:.2f} "
+        f"p99={latency['p99']:.2f} max={latency['max']:.2f}"
+    )
+    print("Status counts:", ", ".join(f"{key}:{value}" for key, value in summary["status_counts"].items()))
 
     by_endpoint: dict[str, list[HitResult]] = {}
-    for r in results:
-        by_endpoint.setdefault(r.endpoint, []).append(r)
-
+    for result in results:
+        by_endpoint.setdefault(result.endpoint, []).append(result)
     print("\n=== RESUMEN POR ENDPOINT ===")
-    for ep in sorted(by_endpoint.keys()):
-        vals = by_endpoint[ep]
-        e_lat = [x.elapsed_ms for x in vals]
-        e_ok = sum(1 for x in vals if x.ok)
+    for endpoint, values in sorted(by_endpoint.items()):
+        latencies = [value.elapsed_ms for value in values]
         print(
-            f"{ep} | n={len(vals)} ok={e_ok} err={len(vals)-e_ok} "
-            f"mean={statistics.mean(e_lat):.2f} p95={_percentile(e_lat, 95):.2f} p99={_percentile(e_lat, 99):.2f}"
+            f"{endpoint} | n={len(values)} ok={sum(value.ok for value in values)} "
+            f"err={sum(not value.ok for value in values)} "
+            f"mean={statistics.mean(latencies):.2f} p95={percentile(latencies, 95):.2f} "
+            f"p99={percentile(latencies, 99):.2f}"
         )
-
-    errors = [r for r in results if not r.ok]
-    if errors:
-        print("\n=== EJEMPLOS DE ERROR (max 10) ===")
-        for r in errors[:10]:
-            print(f"{r.endpoint} status={r.status} err={r.error}")
+    return summary
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Benchmark simple para endpoints API (con JWT opcional).")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Base URL, ej: http://127.0.0.1:8000")
-    parser.add_argument("--username", default="", help="Usuario para obtener JWT en /api/token/")
-    parser.add_argument("--password", default="", help="Password para obtener JWT")
-    parser.add_argument("--token", default="", help="JWT ya emitido (si se setea, no usa username/password)")
-    parser.add_argument("--endpoints", default=",".join(DEFAULT_ENDPOINTS), help="Lista separada por coma, formato METHOD:/path")
-    parser.add_argument("--warmup", type=int, default=20, help="Requests de warmup")
-    parser.add_argument("--requests", type=int, default=300, help="Requests medidos")
-    parser.add_argument("--concurrency", type=int, default=20, help="Concurrencia")
-    parser.add_argument("--timeout", type=float, default=20.0, help="Timeout por request en segundos")
-    parser.add_argument("--seed", type=int, default=42, help="Seed RNG")
+    parser = argparse.ArgumentParser(description="Benchmark concurrente para la API.")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--username", default="")
+    parser.add_argument("--password", default="")
+    parser.add_argument("--school", default="qa-local")
+    parser.add_argument("--token", default="")
+    parser.add_argument("--endpoints", default=",".join(DEFAULT_ENDPOINTS))
+    parser.add_argument("--warmup", type=int, default=20)
+    parser.add_argument("--requests", type=int, default=300)
+    parser.add_argument("--concurrency", type=int, default=20)
+    parser.add_argument("--timeout", type=float, default=20.0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-errors", type=int, default=0)
+    parser.add_argument("--max-p95-ms", type=float, default=1500.0)
+    parser.add_argument("--max-p99-ms", type=float, default=3000.0)
+    parser.add_argument("--json-output", default="")
     args = parser.parse_args()
 
     random.seed(args.seed)
-
-    endpoint_specs = []
-    for raw in (args.endpoints or "").split(","):
-        txt = raw.strip()
-        if not txt:
-            continue
-        endpoint_specs.append(_parse_endpoint(txt))
-    if not endpoint_specs:
-        print("No hay endpoints válidos para testear.", file=sys.stderr)
+    endpoints = [parse_endpoint(raw) for raw in args.endpoints.split(",") if raw.strip()]
+    if not endpoints:
+        print("No hay endpoints para medir.", file=sys.stderr)
         return 2
 
-    auth_header = None
-    token = (args.token or "").strip()
-    if token:
-        auth_header = f"Bearer {token}"
-    elif args.username and args.password:
+    opener = urllib.request.build_opener()
+    auth_header = f"Bearer {args.token.strip()}" if args.token.strip() else ""
+    if not auth_header and args.username and args.password:
         try:
-            token = _obtain_jwt(args.base_url, args.username, args.password, args.timeout)
-            auth_header = f"Bearer {token}"
-            print("JWT obtenido correctamente.")
-        except Exception as e:
-            print(f"Error obteniendo JWT: {e}", file=sys.stderr)
+            opener = login(args.base_url, args.username, args.password, args.school, args.timeout)
+            print("Sesion autenticada correctamente.")
+        except Exception as error:
+            print(f"Error obteniendo sesion: {error}", file=sys.stderr)
             return 3
-    else:
-        print("Sin auth JWT: se ejecuta en modo anonimo (puede devolver 401/403 en endpoints protegidos).")
 
-    _ = _run_phase(
-        phase_name="warmup",
-        base_url=args.base_url,
-        endpoints=endpoint_specs,
-        auth_header=auth_header,
-        total_requests=max(0, args.warmup),
-        concurrency=max(1, args.concurrency),
-        timeout_s=max(1.0, args.timeout),
-    )
+    run_phase("warmup", opener, args.base_url, endpoints, auth_header, args.school, max(0, args.warmup), max(1, args.concurrency), max(1.0, args.timeout))
+    results = run_phase("measure", opener, args.base_url, endpoints, auth_header, args.school, max(1, args.requests), max(1, args.concurrency), max(1.0, args.timeout))
+    summary = print_summary(results)
+    if args.json_output:
+        with open(args.json_output, "w", encoding="utf-8") as output:
+            json.dump(summary, output, ensure_ascii=False, indent=2)
 
-    results = _run_phase(
-        phase_name="measure",
-        base_url=args.base_url,
-        endpoints=endpoint_specs,
-        auth_header=auth_header,
-        total_requests=max(1, args.requests),
-        concurrency=max(1, args.concurrency),
-        timeout_s=max(1.0, args.timeout),
-    )
-    _print_summary(results)
+    failures = []
+    if summary["errors"] > max(0, args.max_errors):
+        failures.append(f"errores={summary['errors']}")
+    if summary["latency_ms"]["p95"] > args.max_p95_ms:
+        failures.append(f"p95={summary['latency_ms']['p95']:.2f}ms")
+    if summary["latency_ms"]["p99"] > args.max_p99_ms:
+        failures.append(f"p99={summary['latency_ms']['p99']:.2f}ms")
+    if failures:
+        print("\nBenchmark rechazado: " + ", ".join(failures), file=sys.stderr)
+        return 4
+    print("\nBenchmark aprobado.")
     return 0
 
 

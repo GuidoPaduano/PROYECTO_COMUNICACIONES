@@ -507,6 +507,7 @@ class Nota(models.Model):
     cuatrimestre = models.IntegerField(choices=[(1, "1"), (2, "2")])
     fecha = models.DateField(default=timezone.now)
     observaciones = models.TextField(blank=True, null=True)
+    version = models.PositiveIntegerField(default=1)
     firmada = models.BooleanField(default=False, db_index=True)
     firmada_en = models.DateTimeField(null=True, blank=True)
     firmada_por = models.ForeignKey(
@@ -571,9 +572,16 @@ class Mensaje(models.Model):
     fecha_envio = models.DateTimeField(auto_now_add=True)
     leido = models.BooleanField(default=False)
     leido_en = models.DateTimeField(null=True, blank=True, db_index=True)
+    client_request_id = models.UUIDField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ["-fecha_envio", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["remitente", "client_request_id"],
+                name="unique_mensaje_sender_request",
+            ),
+        ]
         indexes = [
             models.Index(fields=["destinatario", "leido", "fecha_envio"]),
             models.Index(fields=["destinatario", "fecha_envio"]),

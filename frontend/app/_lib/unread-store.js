@@ -1,7 +1,7 @@
 "use client"
 
 import { authFetch } from "./auth"
-import { INBOX_EVENT } from "./inbox"
+import { INBOX_EVENT, INBOX_STORAGE_KEY } from "./inbox"
 
 const state = {
   messages: 0,
@@ -77,17 +77,22 @@ function setupBrowserListeners() {
   }
 
   const onInboxChanged = () => refreshUnread()
+  const onStorage = (event) => {
+    if (event.key === INBOX_STORAGE_KEY) refreshUnread()
+  }
   const onFocus = () => refreshUnread()
   const onVisibility = () => {
     if (document.visibilityState === "visible") refreshUnread()
   }
 
   window.addEventListener(INBOX_EVENT, onInboxChanged)
+  window.addEventListener("storage", onStorage)
   window.addEventListener("focus", onFocus)
   document.addEventListener("visibilitychange", onVisibility)
 
   return () => {
     window.removeEventListener(INBOX_EVENT, onInboxChanged)
+    window.removeEventListener("storage", onStorage)
     window.removeEventListener("focus", onFocus)
     document.removeEventListener("visibilitychange", onVisibility)
   }

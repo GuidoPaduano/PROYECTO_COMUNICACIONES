@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.utils.decorators import method_decorator
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
@@ -23,6 +25,22 @@ from .models import School
 from .schools import get_requested_school_identifier, get_school_by_identifier, user_can_access_school
 
 logger = logging.getLogger(__name__)
+
+
+class LoginRateThrottle(SimpleRateThrottle):
+    scope = "login"
+
+    def get_rate(self):
+        rates = getattr(settings, "REST_FRAMEWORK", {}).get("DEFAULT_THROTTLE_RATES", {})
+        return rates.get(self.scope, "10/min")
+
+    def get_cache_key(self, request, view):
+        username = str((getattr(request, "data", {}) or {}).get("username") or "").strip().lower()
+        username_key = hashlib.sha256(username.encode("utf-8")).hexdigest()[:24]
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": f"{self.get_ident(request)}:{username_key}",
+        }
 
 
 def _cookie_kwargs():
@@ -81,6 +99,7 @@ def _refresh_from_request(request) -> str:
 class SafeTokenObtainPairView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request, *args, **kwargs):
         try:
@@ -175,6 +194,9 @@ class SafeTokenVerifyView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
         except (InvalidToken, TokenError) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+        except (AuthenticationFailed, ValidationError) as exc:
+            detail = getattr(exc, "detail", None) or "Token invÃ¡lido"
+            return Response({"detail": detail}, status=status.HTTP_401_UNAUTHORIZED)
         except Exception:
             logger.exception("Error en /api/token/verify/")
             return Response({"detail": "Error interno al verificar el token"}, status=500)

@@ -74,6 +74,8 @@ export default function ForgotPasswordPage() {
               id="email"
               type="email"
               required
+              aria-invalid={error ? "true" : undefined}
+              aria-describedby={error ? "forgot-password-error" : undefined}
               className="mt-1 w-full rounded-md border px-4 py-2"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -81,8 +83,16 @@ export default function ForgotPasswordPage() {
             />
           </div>
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
-          {message ? <p className="text-sm text-green-700">{message}</p> : null}
+          {error ? (
+            <p id="forgot-password-error" role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          ) : null}
+          {message ? (
+            <p role="status" aria-live="polite" className="text-sm text-green-700">
+              {message}
+            </p>
+          ) : null}
 
           <button
             type="submit"

@@ -63,11 +63,24 @@ export default function PlataformaBackupsPage() {
     }
   }
 
-  if (loading || !allowed) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando herramienta de backups...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-900">
+            Esta herramienta es exclusiva para administradores de plataforma.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -81,7 +94,7 @@ export default function PlataformaBackupsPage() {
           <ArrowLeft className="h-4 w-4" />
           Volver a admin plataforma
         </Link>
-        <h1 className="mt-3 text-3xl font-semibold text-slate-900">Backups manuales</h1>
+        <h2 className="mt-3 text-3xl font-semibold text-slate-900">Backups manuales</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
           Genera un dump completo de la base de datos activa. En Railway, este archivo sale desde PostgreSQL usando
           <code className="mx-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">pg_dump</code>

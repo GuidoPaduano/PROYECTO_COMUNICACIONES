@@ -92,6 +92,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
     )
     fecha = serializers.DateField(required=False, allow_null=True)
     observaciones = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    version = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Nota
@@ -105,6 +106,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
             "cuatrimestre",
             "fecha",
             "observaciones",
+            "version",
         ]
 
     def validate_calificacion(self, value):
@@ -226,6 +228,7 @@ class NotaSerializer(serializers.ModelSerializer):
             "cuatrimestre",
             "fecha",
             "observaciones",
+            "version",
             "firmada",
             "firmada_en",
         ]
@@ -320,6 +323,7 @@ class NotaPublicSerializer(serializers.ModelSerializer):
             "cuatrimestre",
             "fecha",
             "observaciones",
+            "version",
             "firmada",
             "firmada_en",
         )

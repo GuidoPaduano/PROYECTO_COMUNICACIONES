@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { authFetch } from "@/app/_lib/auth"
-import { INBOX_EVENT } from "@/app/_lib/inbox"
+import { notifyInboxChanged } from "@/app/_lib/inbox"
 import { getUnreadSnapshot, requestUnreadRefresh, subscribeUnread } from "@/app/_lib/unread-store"
 
 /**
@@ -160,13 +160,7 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
   }
 
   function dispatchInboxRefresh() {
-    try {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event(INBOX_EVENT))
-      }
-    } catch {
-      // ignore
-    }
+    notifyInboxChanged()
   }
 
   async function postIfOk(url) {
@@ -311,7 +305,8 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
         <Button
           variant="ghost"
           size="icon"
-          className="relative !text-white !border-transparent hover:!bg-white/15 data-[state=open]:!bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 focus:outline-none focus-visible:outline-none outline-none ring-0"
+          aria-label={badgeCount > 0 ? `Abrir notificaciones, ${badgeCount} sin leer` : "Abrir notificaciones"}
+          className="relative !text-white !border-transparent hover:!bg-white/15 data-[state=open]:!bg-transparent focus-visible:!ring-2 focus-visible:!ring-white focus-visible:!ring-offset-2 focus-visible:!ring-offset-[var(--school-primary)]"
         >
           <Bell className="h-5 w-5" />
           {badgeCount > 0 && (

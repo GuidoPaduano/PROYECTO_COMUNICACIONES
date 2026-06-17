@@ -187,6 +187,14 @@ class LegacyCourseNavigationApiTests(TestCase):
             ],
         )
 
+    def test_notas_catalogos_sin_barra_no_redirige(self):
+        self.client.force_authenticate(user=self.admin)
+
+        res = self.client.get("/api/notas/catalogos", {"school": self.school_a.slug})
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("cursos", res.json())
+
     def test_notas_catalogos_profesor_respeta_school_activo(self):
         self.client.force_authenticate(user=self.profesor)
 
@@ -296,6 +304,17 @@ class LegacyCourseNavigationApiTests(TestCase):
         self.assertNotIn("curso", body)
         self.assertEqual(body["school_course_id"], self.course_a1.id)
         self.assertEqual(body["school_course_name"], "1A Norte")
+
+    def test_alumno_detalle_sin_barra_no_redirige(self):
+        self.client.force_authenticate(user=self.preceptor)
+
+        res = self.client.get(
+            f"/api/alumnos/{self.alumno_a1.id}",
+            {"school": self.school_a.slug},
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["id"], self.alumno_a1.id)
 
     def test_profesor_alumno_detalle_prioriza_school_course_sobre_curso_legacy(self):
         Alumno.objects.filter(pk=self.alumno_a2.pk).update(

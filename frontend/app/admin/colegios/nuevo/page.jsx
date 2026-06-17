@@ -113,11 +113,24 @@ export default function NuevoColegioPage() {
     }
   }
 
-  if (loading || !allowed) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando herramienta de colegios...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-900">
+            Esta herramienta es exclusiva para administradores de plataforma.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -132,7 +145,7 @@ export default function NuevoColegioPage() {
             <ArrowLeft className="h-4 w-4" />
             Volver a admin plataforma
           </Link>
-          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Nuevo colegio</h1>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-900">Nuevo colegio</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Creá un colegio nuevo, dejá el branding inicial listo y sembrá el catálogo base de cursos.
           </p>
@@ -150,7 +163,7 @@ export default function NuevoColegioPage() {
           <CardContent>
             {created ? (
               <div className="space-y-5">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+                <div role="status" aria-live="polite" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
                     <div className="space-y-1">
@@ -241,7 +254,7 @@ export default function NuevoColegioPage() {
                 </div>
 
                 {error ? (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                     {error}
                   </div>
                 ) : null}

@@ -1,5 +1,6 @@
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
@@ -53,7 +54,17 @@ def _sqlite_backup_response():
     temp_dir = tempfile.mkdtemp(prefix="platform-backup-")
     backup_name = _build_backup_filename(extension="sqlite3", database_name=db_name.stem or "sqlite")
     backup_path = os.path.join(temp_dir, backup_name)
-    shutil.copy2(db_name, backup_path)
+    try:
+        source = sqlite3.connect(str(db_name), timeout=30)
+        destination = sqlite3.connect(backup_path)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+            source.close()
+    except sqlite3.Error:
+        _cleanup_temp_path(backup_path, temp_dir)
+        return None, Response({"detail": "No se pudo generar el backup de SQLite."}, status=500)
 
     response = FileResponse(
         open(backup_path, "rb"),

@@ -634,9 +634,9 @@ export default function Profile() {
       {/* Main Content */}
       <div className="space-y-6">
         {loading ? (
-          <div className="text-sm text-gray-600">Cargando perfil…</div>
+          <div className="text-sm text-gray-600" role="status" aria-live="polite">Cargando perfil…</div>
         ) : error ? (
-          <div className="text-sm text-red-600">Error: {String(error)}</div>
+          <div className="text-sm text-red-600" role="alert">Error: {String(error)}</div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Columna izquierda — Avatar y datos rápidos */}
@@ -648,9 +648,9 @@ export default function Profile() {
                       <User className="h-16 w-16" />
                     </div>
                   </div>
-                  <h3 className="font-semibold text-gray-900 text-lg mb-1">
+                  <h2 className="font-semibold text-gray-900 text-lg mb-1">
                     {displayName}
-                  </h3>
+                  </h2>
                   <p className="text-sm text-gray-600 mb-2">{rolPrincipal}</p>
                   
 
@@ -667,9 +667,9 @@ export default function Profile() {
                         <Link2 className="h-6 w-6" />
                       </div>
                       <div className="w-full">
-                        <h3 className="font-semibold text-gray-900 text-lg">
+                        <h2 className="font-semibold text-gray-900 text-lg">
                           Vincular mi legajo
-                        </h3>
+                        </h2>
                         <p className="text-sm text-gray-600 mt-1">
                           Para que el sistema sepa quién sos (y puedas ver tus notas,
                           asistencias, sanciones y calendario), vinculá tu usuario con tu
@@ -712,9 +712,9 @@ export default function Profile() {
               <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <h4 className="font-semibold text-gray-900 text-lg">
+                    <h2 className="font-semibold text-gray-900 text-lg">
                       Información personal
-                    </h4>
+                    </h2>
                     <div className="flex gap-2">
                       {!isAlumno && (
                         <Button
@@ -829,9 +829,9 @@ export default function Profile() {
 
                   {!isAlumno && showPasswordForm && (
                     <div className="mt-8 border-t pt-6">
-                      <h5 className="font-semibold text-gray-900 text-base mb-4">
+                      <h3 className="font-semibold text-gray-900 text-base mb-4">
                         Cambiar contraseña
-                      </h5>
+                      </h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                           <Label
@@ -906,16 +906,16 @@ export default function Profile() {
               {isPadre && (
                   <Card className="mt-8 shadow-sm border-0 bg-white/80 backdrop-blur-sm">
                     <CardContent className="p-6">
-                      <h4 className="font-semibold text-gray-900 text-lg mb-4">
+                      <h2 className="font-semibold text-gray-900 text-lg mb-4">
                         Vínculos
-                      </h4>
+                      </h2>
                       <p className="text-sm text-gray-600 mb-4">
                         Hijos asociados a este usuario padre.
                       </p>
                       {parentChildrenLoading ? (
-                        <p className="text-sm text-gray-600">Cargando vínculos...</p>
+                        <p className="text-sm text-gray-600" role="status" aria-live="polite">Cargando vínculos...</p>
                       ) : parentChildrenError ? (
-                        <p className="text-sm text-red-600">{parentChildrenError}</p>
+                        <p className="text-sm text-red-600" role="alert">{parentChildrenError}</p>
                       ) : vinculosHijos.length > 0 ? (
                         <ul className="text-sm text-gray-800 list-disc pl-5 space-y-1">
                         {vinculosHijos.map((a) => {

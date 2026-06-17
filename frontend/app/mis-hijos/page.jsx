@@ -95,7 +95,7 @@ export default function MisHijosPage() {
     <Suspense
       fallback={
         <div className="flex items-center justify-center">
-          <div className="surface-card surface-card-pad text-gray-700">Cargando...</div>
+          <div className="surface-card surface-card-pad text-gray-700" role="status" aria-live="polite">Cargando...</div>
         </div>
       }
     >
@@ -113,6 +113,7 @@ function MisHijosPageInner() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [reloadTick, setReloadTick] = useState(0)
   const misHijosScopeKey = useMemo(
     () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
     [session?.school?.id, session?.username]
@@ -133,8 +134,16 @@ function MisHijosPageInner() {
           `mis-hijos-list:${misHijosScopeKey}`,
           async () => {
             const hijosRes = await fetchJSON("/api/padres/mis-hijos/")
-            return hijosRes?.ok ? hijosRes.data?.results || [] : []
-          }
+            if (!hijosRes?.ok) {
+              throw new Error(
+                hijosRes?.data?.detail ||
+                  hijosRes?.data?.error ||
+                  `No se pudieron cargar los alumnos asociados (HTTP ${hijosRes?.status || "ERR"}).`
+              )
+            }
+            return hijosRes.data?.results || []
+          },
+          { force: reloadTick > 0 }
         )
 
         if (!alive) return
@@ -188,9 +197,9 @@ function MisHijosPageInner() {
         }
 
         router.replace(`/alumnos/${encodeURIComponent(String(chosenId))}?${qs.toString()}`)
-      } catch {
+      } catch (e) {
         if (!alive) return
-        setError("No se pudo abrir el perfil de tus hijos. Probá de nuevo.")
+        setError(e?.message || "No se pudo abrir el perfil de tus hijos. Probá de nuevo.")
       } finally {
         if (alive) setLoading(false)
       }
@@ -199,26 +208,26 @@ function MisHijosPageInner() {
     return () => {
       alive = false
     }
-  }, [desiredAlumnoQS, desiredTabQS, misHijosScopeKey, router])
+  }, [desiredAlumnoQS, desiredTabQS, misHijosScopeKey, reloadTick, router])
 
   return (
     <div className="space-y-6">
       {error ? (
         <Card>
           <CardContent className="space-y-4">
-            <div className="text-red-600">{error}</div>
+            <div className="text-red-600" role="alert">{error}</div>
             <div className="flex gap-3">
               <Link href="/dashboard">
                 <Button >Volver al panel</Button>
               </Link>
-              <Button onClick={() => window.location.reload()}>Reintentar</Button>
+              <Button onClick={() => setReloadTick((tick) => tick + 1)}>Reintentar</Button>
             </div>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardContent>
-            <div className="text-gray-800 font-medium">
+            <div className="text-gray-800 font-medium" role="status" aria-live="polite">
               {loading ? "Abriendo perfil del alumno..." : "Redirigiendo..."}
             </div>
             <div className="text-sm text-gray-600 mt-1">

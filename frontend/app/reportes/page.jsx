@@ -88,7 +88,7 @@ function DistribucionEstados({ conteos }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Distribucion general</CardTitle>
+        <CardTitle as="h2" className="text-base">Distribucion general</CardTitle>
         <CardDescription>Conteo por estado TEA/TEP/TED</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -112,7 +112,7 @@ function EvolucionMensual({ rows }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Evolucion mensual</CardTitle>
+        <CardTitle as="h2" className="text-base">Evolucion mensual</CardTitle>
         <CardDescription>Barras apiladas por TEA / TEP / TED</CardDescription>
       </CardHeader>
       <CardContent>
@@ -542,7 +542,7 @@ export default function ReportesPage() {
 
       {error ? (
         <Card className="border-red-200">
-          <CardContent className="flex items-start gap-3 pt-6 text-sm text-red-700">
+          <CardContent className="flex items-start gap-3 pt-6 text-sm text-red-700" role="alert">
             <AlertTriangle className="mt-0.5 h-4 w-4" />
             <div className="flex-1">
               <div>{error}</div>
@@ -586,7 +586,7 @@ export default function ReportesPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Por materia</CardTitle>
+              <CardTitle as="h2" className="text-base">Por materia</CardTitle>
               <CardDescription>Resumen TEA/TEP/TED por materia</CardDescription>
             </CardHeader>
             <CardContent>
@@ -622,7 +622,7 @@ export default function ReportesPage() {
           {alumnoHistoricoActivo ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Resumen anual comparativo</CardTitle>
+                <CardTitle as="h2" className="text-base">Resumen anual comparativo</CardTitle>
                 <CardDescription>Porcentajes TEA / TEP / TED del alumno comparados entre años</CardDescription>
               </CardHeader>
               <CardContent>

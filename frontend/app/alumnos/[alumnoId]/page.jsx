@@ -70,6 +70,24 @@ const LOGO_SRC = "/imagenes/Logo%20Color.png"
 const MIS_HIJOS_LAST_TAB_KEY = "mis_hijos_last_tab"
 const MIS_HIJOS_LAST_ALUMNO_KEY = "mis_hijos_last_alumno"
 const VALID_TABS = new Set(["notas", "sanciones", "asistencias"])
+
+function handleSectionTabKeyDown(event) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
+  event.preventDefault()
+  const tabs = Array.from(
+    event.currentTarget.parentElement?.querySelectorAll('[role="tab"]') || []
+  )
+  const currentIndex = tabs.indexOf(event.currentTarget)
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) %
+          tabs.length
+  tabs[nextIndex]?.focus()
+  tabs[nextIndex]?.click()
+}
 const ALUMNO_DETAIL_CACHE_PREFIX = "alumno_detail_cache:"
 const ALUMNO_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000
 const ALUMNO_DATA_CACHE_TTL_MS = 5 * 60 * 1000
@@ -392,7 +410,7 @@ async function getAlumnoIdsFromAny(idParam, options = {}) {
   const normalizedId = String(idParam ?? "").trim()
   const schoolCourseId = String(options?.schoolCourseId ?? "").trim()
   try {
-    const r = await fetchJSON(`/api/alumnos/${encoded}/`)
+    const r = await fetchJSON(`/api/alumnos/${encoded}`)
     if (r.ok) {
       const obj = r.data || {}
       const pk = obj?.id
@@ -469,35 +487,65 @@ async function getNotasByPkOrCode(pk, code) {
   ].filter(Boolean)
 
   let fallback = null
+  let lastError = null
   for (const url of tries) {
     try {
       const r = await fetchJSON(url)
-      if (!r.ok) continue
+      if (!r.ok) {
+        lastError = new Error(
+          r.data?.detail || r.data?.error || `No se pudieron cargar las notas (HTTP ${r.status}).`
+        )
+        continue
+      }
       const arr = r.data?.notas || []
-      if (!Array.isArray(arr)) continue
+      if (!Array.isArray(arr)) {
+        lastError = new Error("La respuesta de notas no tiene un formato válido.")
+        continue
+      }
       if (arr.length > 0) return arr
       if (fallback === null) fallback = arr
-    } catch {}
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("No se pudieron cargar las notas.")
+    }
   }
-  return Array.isArray(fallback) ? fallback : []
+  if (Array.isArray(fallback)) return fallback
+  throw lastError || new Error("No se pudieron cargar las notas.")
 }
 
 /** Sanciones por PK o id_alumno */
 async function getSancionesByPkOrCode(pk, code) {
   const tries = [
-    code && `/api/sanciones/?id_alumno=${encodeURIComponent(code)}`,
+    code && `/api/sanciones/?alumno=${encodeURIComponent(code)}`,
     pk && `/api/sanciones/?alumno=${pk}`,
   ].filter(Boolean)
 
+  let fallback = null
+  let lastError = null
   for (const url of tries) {
     try {
       const r = await fetchJSON(url)
-      if (!r.ok) continue
+      if (!r.ok) {
+        lastError = new Error(
+          r.data?.detail ||
+            r.data?.error ||
+            `No se pudieron cargar las sanciones (HTTP ${r.status}).`
+        )
+        continue
+      }
       const arr = r.data?.results || []
-      if (Array.isArray(arr)) return arr
-    } catch {}
+      if (!Array.isArray(arr)) {
+        lastError = new Error("La respuesta de sanciones no tiene un formato válido.")
+        continue
+      }
+      if (arr.length > 0) return arr
+      if (fallback === null) fallback = arr
+    } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error("No se pudieron cargar las sanciones.")
+    }
   }
-  return []
+  if (Array.isArray(fallback)) return fallback
+  throw lastError || new Error("No se pudieron cargar las sanciones.")
 }
 
 /** Asistencias por PK o id_alumno */
@@ -510,15 +558,33 @@ async function getAsistenciasByPkOrCode(pk, code) {
     pkStr && `/api/asistencias/?alumno=${pkStr}`,
   ].filter(Boolean)
 
+  let fallback = null
+  let lastError = null
   for (const url of tries) {
     try {
       const r = await fetchJSON(url)
-      if (!r.ok) continue
+      if (!r.ok) {
+        lastError = new Error(
+          r.data?.detail ||
+            r.data?.error ||
+            `No se pudieron cargar las asistencias (HTTP ${r.status}).`
+        )
+        continue
+      }
       const arr = r.data?.results || []
-      if (Array.isArray(arr)) return arr
-    } catch {}
+      if (!Array.isArray(arr)) {
+        lastError = new Error("La respuesta de asistencias no tiene un formato válido.")
+        continue
+      }
+      if (arr.length > 0) return arr
+      if (fallback === null) fallback = arr
+    } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error("No se pudieron cargar las asistencias.")
+    }
   }
-  return []
+  if (Array.isArray(fallback)) return fallback
+  throw lastError || new Error("No se pudieron cargar las asistencias.")
 }
 
 /* ------------------------------------------------------------
@@ -858,6 +924,7 @@ function AlumnoPerfilPageInner() {
     () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
     [session?.school?.id, session?.username]
   )
+  const sessionReady = Boolean(session?.username)
   const userLabel = useMemo(
     () => (me?.full_name?.trim?.() ? me.full_name : me?.username || ""),
     [me]
@@ -935,6 +1002,10 @@ function AlumnoPerfilPageInner() {
   const [loadingNotas, setLoadingNotas] = useState(false)
   const [loadingSanciones, setLoadingSanciones] = useState(false)
   const [loadingAsistencias, setLoadingAsistencias] = useState(false)
+  const [errorNotas, setErrorNotas] = useState("")
+  const [errorSanciones, setErrorSanciones] = useState("")
+  const [errorAsistencias, setErrorAsistencias] = useState("")
+  const identifiersReady = Boolean(alumnoDetail && (pk || String(code || "").trim()))
 
   // sección activa (tarjeta clickeada)
   const [activeSection, setActiveSection] = useState(null)
@@ -998,6 +1069,7 @@ function AlumnoPerfilPageInner() {
 
   // Carga detalle -> pk/code -> (notas, sanciones, asistencias)
   useEffect(() => {
+    if (!sessionReady) return
     let alive = true
     setLoading(true)
     setError("")
@@ -1007,6 +1079,9 @@ function AlumnoPerfilPageInner() {
     setLoadingNotas(false)
     setLoadingSanciones(false)
     setLoadingAsistencias(false)
+    setErrorNotas("")
+    setErrorSanciones("")
+    setErrorAsistencias("")
     // ✅ reset filtros asistencia al cambiar de alumno
     setFilAsisMes("ALL")
     setFilAsisTipo("ALL")
@@ -1029,9 +1104,13 @@ function AlumnoPerfilPageInner() {
 
     ;(async () => {
       try {
-        const { detail, pk, code } = await getAlumnoIdsFromAny(alumnoid, {
-          schoolCourseId: schoolCourseParam,
-        })
+        const { detail, pk, code } = await loadAlumnoResource(
+          `alumno-detail:${alumnoPageScopeKey}:${alumnoid}:${schoolCourseParam || "sin-curso"}`,
+          () =>
+            getAlumnoIdsFromAny(alumnoid, {
+              schoolCourseId: schoolCourseParam,
+            })
+        )
         if (!detail && !cachedDetail) throw new Error("No se encontró información del alumno.")
         if (!alive) return
         if (!detail && cachedDetail) return
@@ -1050,17 +1129,18 @@ function AlumnoPerfilPageInner() {
     return () => {
       alive = false
     }
-  }, [alumnoid, schoolCourseParam])
+  }, [alumnoPageScopeKey, alumnoid, schoolCourseParam, sessionReady])
 
   // Catálogo de materias (opcional)
   useEffect(() => {
+    if (!sessionReady) return
     let alive = true
     ;(async () => {
       try {
         const d = await loadAlumnoResource(
           `alumno-materias:${alumnoPageScopeKey}`,
           async () => {
-            const r = await fetchJSON("/notas/catalogos/")
+            const r = await fetchJSON("/notas/catalogos")
             if (!r.ok) throw new Error("No se pudo cargar el catálogo de materias.")
             return r.data || {}
           }
@@ -1073,7 +1153,7 @@ function AlumnoPerfilPageInner() {
     return () => {
       alive = false
     }
-  }, [alumnoPageScopeKey])
+  }, [alumnoPageScopeKey, sessionReady])
 
   // Curso sugerido para el modal de “Enviar mensaje”
   /* ====================== FIX: tab por URL + persistencia para /mis-hijos ====================== */
@@ -1106,6 +1186,7 @@ function AlumnoPerfilPageInner() {
   const isAlumno = (hasGroup("alumnos") || hasGroup("alumno")) && !me?.is_superuser
   const isPreceptor = hasGroup("preceptores") || hasGroup("preceptor")
   const isDirectivo = hasGroup("directivos") || hasGroup("directivo")
+  const isSchoolAdmin = hasGroup("administradores") || hasGroup("administrador")
   const canEditNotas = !!me && (me?.is_superuser || hasGroup("profesores") || hasGroup("profesor"))
   const canJustifyAsistencias =
     !!me && (me?.is_superuser || isPreceptor || isDirectivo)
@@ -1115,7 +1196,7 @@ function AlumnoPerfilPageInner() {
   const canViewFirmaEstado =
     !!me && (me?.is_superuser || isPreceptor || isDirectivo || isPadre)
   const canTransferAlumno =
-    !!me && (me?.is_superuser || isPreceptor || isDirectivo)
+    !!me && (me?.is_superuser || isSchoolAdmin || isPreceptor || isDirectivo)
   const meLoaded = !!me
   const rolesReady = meLoaded
   const hidePadreNavAndMessage = isFromMisHijos || isPadre
@@ -1156,7 +1237,7 @@ function AlumnoPerfilPageInner() {
         setHijos(list)
 
         const currentCandidates = new Set(
-          [String(alumnoid || ""), String(code || ""), pk != null ? String(pk) : ""]
+          [String(alumnoid || "")]
             .map((s) => String(s).trim())
             .filter(Boolean)
         )
@@ -1203,7 +1284,7 @@ function AlumnoPerfilPageInner() {
     return () => {
       alive = false
     }
-  }, [showKidSelector, alumnoid, code, pk, alumnoPageScopeKey])
+  }, [showKidSelector, alumnoid, alumnoPageScopeKey])
 
   // ✅ Persistimos "último hijo visto" aunque todavía no haya cargado el listado
   useEffect(() => {
@@ -1574,6 +1655,7 @@ function AlumnoPerfilPageInner() {
     setNotaModal({
       open: true,
       notaId: nota?.id ?? null,
+      version: Number(nota?.version || 1),
       materia: String(nota?.materia || ""),
       tipo: String(nota?.tipo || ""),
       resultado: String(nota?.resultado || ""),
@@ -1590,6 +1672,7 @@ function AlumnoPerfilPageInner() {
     setNotaModal({
       open: false,
       notaId: null,
+      version: 1,
       materia: "",
       tipo: "",
       resultado: "",
@@ -1622,6 +1705,7 @@ function AlumnoPerfilPageInner() {
     setNotaModal((prev) => ({ ...prev, saving: true, error: "" }))
     const targetNotaId = draft.notaId
     const payload = {
+      version: Number(draft.version || 1),
       materia: draft.materia,
       tipo: draft.tipo,
       resultado: draft.resultado || null,
@@ -1657,6 +1741,7 @@ function AlumnoPerfilPageInner() {
     })
 
     if (!r.ok) {
+      const currentNota = r.status === 409 ? r.data?.nota : null
       const detail =
         r.data?.detail ||
         Object.values(r.data?.errors || {})
@@ -1666,7 +1751,9 @@ function AlumnoPerfilPageInner() {
       if (previousNota) {
         setNotas((prev) =>
           (Array.isArray(prev) ? prev : []).map((item) =>
-            String(item?.id) === String(targetNotaId) ? previousNota : item
+            String(item?.id) === String(targetNotaId)
+              ? currentNota || previousNota
+              : item
           )
         )
       }
@@ -1674,6 +1761,14 @@ function AlumnoPerfilPageInner() {
       setNotaModal({
         ...draft,
         open: true,
+        version: Number(currentNota?.version || draft.version || 1),
+        materia: String(currentNota?.materia || draft.materia || ""),
+        tipo: String(currentNota?.tipo || draft.tipo || ""),
+        resultado: String(currentNota?.resultado || draft.resultado || ""),
+        nota_numerica: String(currentNota?.nota_numerica ?? draft.nota_numerica ?? ""),
+        cuatrimestre: String(currentNota?.cuatrimestre || draft.cuatrimestre || "1"),
+        fecha: String(currentNota?.fecha || draft.fecha || ""),
+        observaciones: String(currentNota?.observaciones ?? draft.observaciones ?? ""),
         error: detail,
         saving: false,
       })
@@ -1744,7 +1839,7 @@ function AlumnoPerfilPageInner() {
   }, [alumnoCacheId])
 
   const fetchNotas = useCallback(async () => {
-    if (!pk && !code) return
+    if (!identifiersReady) return
     const key = `${pk || ""}:${code || ""}`
     if (lastLoadedRef.current.notas === key) return
     if (inFlightRef.current.notas === key) return
@@ -1767,21 +1862,24 @@ function AlumnoPerfilPageInner() {
 
     inFlightRef.current.notas = key
     setLoadingNotas(true)
+    setErrorNotas("")
     try {
       const n = await getNotasByPkOrCode(pk, code)
       setNotas(Array.isArray(n) ? n : [])
       setCachedList(NOTAS_CACHE_PREFIX, alumnoCacheId, Array.isArray(n) ? n : [])
       lastLoadedRef.current.notas = key
+    } catch (error) {
+      setErrorNotas(error?.message || "No se pudieron cargar las notas.")
     } finally {
       if (inFlightRef.current.notas === key) {
         inFlightRef.current.notas = ""
       }
       setLoadingNotas(false)
     }
-  }, [pk, code, alumnoCacheId])
+  }, [pk, code, alumnoCacheId, identifiersReady])
 
   const fetchSanciones = useCallback(async () => {
-    if (!pk && !code) return
+    if (!identifiersReady) return
     const key = `${pk || ""}:${code || ""}`
     if (lastLoadedRef.current.sanciones === key) return
     if (inFlightRef.current.sanciones === key) return
@@ -1803,21 +1901,24 @@ function AlumnoPerfilPageInner() {
 
     inFlightRef.current.sanciones = key
     setLoadingSanciones(true)
+    setErrorSanciones("")
     try {
       const s = await getSancionesByPkOrCode(pk, code)
       setSanciones(Array.isArray(s) ? s : [])
       setCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId, Array.isArray(s) ? s : [])
       lastLoadedRef.current.sanciones = key
+    } catch (error) {
+      setErrorSanciones(error?.message || "No se pudieron cargar las sanciones.")
     } finally {
       if (inFlightRef.current.sanciones === key) {
         inFlightRef.current.sanciones = ""
       }
       setLoadingSanciones(false)
     }
-  }, [pk, code, alumnoCacheId])
+  }, [pk, code, alumnoCacheId, identifiersReady])
 
   const fetchAsistencias = useCallback(async () => {
-    if (!pk && !code) return
+    if (!identifiersReady) return
     const codeStr = String(code || "").trim()
     // Evita 404 ruidosos cuando todavía no resolvimos pk y el "code" es numérico.
     if (!pk && codeStr && /^\d+$/.test(codeStr)) {
@@ -1851,18 +1952,21 @@ function AlumnoPerfilPageInner() {
 
     inFlightRef.current.asistencias = key
     setLoadingAsistencias(true)
+    setErrorAsistencias("")
     try {
       const a = await getAsistenciasByPkOrCode(pk, code)
       setAsistencias(Array.isArray(a) ? a : [])
       setCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId, Array.isArray(a) ? a : [])
       lastLoadedRef.current.asistencias = key
+    } catch (error) {
+      setErrorAsistencias(error?.message || "No se pudieron cargar las asistencias.")
     } finally {
       if (inFlightRef.current.asistencias === key) {
         inFlightRef.current.asistencias = ""
       }
       setLoadingAsistencias(false)
     }
-  }, [pk, code, alumnoCacheId])
+  }, [pk, code, alumnoCacheId, identifiersReady])
 
   useEffect(() => {
     notasRef.current = Array.isArray(notas) ? notas : []
@@ -2521,7 +2625,7 @@ function AlumnoPerfilPageInner() {
                 {icon}
               </div>
               <div className="flex-1">
-                <h3 className="tile-title">{title}</h3>
+                <h2 className="tile-title">{title}</h2>
                 {subtitle ? <p className="tile-subtitle">{subtitle}</p> : null}
               </div>
             </div>
@@ -2702,7 +2806,7 @@ function AlumnoPerfilPageInner() {
                         onValueChange={onChangeKid}
                         disabled={!hijosLoaded || !hasHijos}
                       >
-                        <SelectTrigger className="w-full min-w-0">
+                        <SelectTrigger className="w-full min-w-0" aria-label="Alumno">
                           <SelectValue
                             placeholder={
                               hijosLoaded ? (hasHijos ? "Seleccionar" : "Sin hijos") : "Cargando…"
@@ -2739,7 +2843,16 @@ function AlumnoPerfilPageInner() {
                     alumnoPk={pk}
                     alumnoCode={code}
                     cursoActual={cursoAlumno}
-                    onTransferred={() => {
+                    onTransferred={(payload) => {
+                      const transferred = payload?.alumno
+                      if (transferred && typeof transferred === "object") {
+                        const nextDetail = {
+                          ...(alumnoDetail || {}),
+                          ...transferred,
+                        }
+                        setAlumnoDetail(nextDetail)
+                        setCachedAlumnoDetail(alumnoid, nextDetail)
+                      }
                       try {
                         router.refresh?.()
                       } catch {}
@@ -2766,12 +2879,23 @@ function AlumnoPerfilPageInner() {
 
         {!isAlumno && rolesReady && (
           <>
-            {/* ===== Tarjetas resumen (clickeables) ===== */}
-        <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4">
-          <Card
+            {/* ===== Tarjetas resumen ===== */}
+        <div
+          className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4"
+          role="tablist"
+          aria-label="Secciones de la ficha del alumno"
+        >
+          <button
+            type="button"
+            id="alumno-tab-notas"
+            role="tab"
+            aria-selected={activeSection === "notas"}
+            aria-controls="alumno-panel-notas"
+            tabIndex={activeSection === "notas" || !activeSection ? 0 : -1}
             onClick={() => setActiveSection("notas")}
+            onKeyDown={handleSectionTabKeyDown}
             className={[
-              "border-0 shadow-sm cursor-pointer transition-all school-hover-card",
+              "rounded-2xl border-0 bg-white text-left shadow-sm cursor-pointer transition-all school-hover-card",
               activeSection === "notas" ? "school-primary-selected" : "",
             ].join(" ")}
           >
@@ -2785,12 +2909,19 @@ function AlumnoPerfilPageInner() {
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </button>
 
-          <Card
+          <button
+            type="button"
+            id="alumno-tab-sanciones"
+            role="tab"
+            aria-selected={activeSection === "sanciones"}
+            aria-controls="alumno-panel-sanciones"
+            tabIndex={activeSection === "sanciones" ? 0 : -1}
             onClick={() => setActiveSection("sanciones")}
+            onKeyDown={handleSectionTabKeyDown}
             className={[
-              "border-0 shadow-sm cursor-pointer transition-all",
+              "rounded-2xl border-0 bg-white text-left shadow-sm cursor-pointer transition-all",
               activeSection === "sanciones"
                 ? "ring-2 ring-amber-500 bg-amber-50"
                 : "hover:bg-amber-50/70",
@@ -2806,12 +2937,19 @@ function AlumnoPerfilPageInner() {
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </button>
 
-          <Card
+          <button
+            type="button"
+            id="alumno-tab-asistencias"
+            role="tab"
+            aria-selected={activeSection === "asistencias"}
+            aria-controls="alumno-panel-asistencias"
+            tabIndex={activeSection === "asistencias" ? 0 : -1}
             onClick={() => setActiveSection("asistencias")}
+            onKeyDown={handleSectionTabKeyDown}
             className={[
-              "col-span-2 border-0 shadow-sm cursor-pointer transition-all sm:col-span-1",
+              "col-span-2 rounded-2xl border-0 bg-white text-left shadow-sm cursor-pointer transition-all sm:col-span-1",
               activeSection === "asistencias"
                 ? "ring-2 ring-emerald-500 bg-emerald-50"
                 : "hover:bg-emerald-50/70",
@@ -2829,7 +2967,7 @@ function AlumnoPerfilPageInner() {
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </button>
         </div>
 
         {!loading && !error && !activeSection && (
@@ -2841,16 +2979,27 @@ function AlumnoPerfilPageInner() {
         )}
 
         {shouldHideAlumnoContent ? null : error ? (
-          <div className="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
+          <div
+            className="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200"
+            role="alert"
+          >
             {error}
           </div>
         ) : loading || !rolesReady ? (
-          <div className="text-sm text-gray-600">Cargando información del alumno…</div>
+          <div className="text-sm text-gray-600" role="status" aria-live="polite">
+            Cargando información del alumno…
+          </div>
         ) : (
           <>
             {/* ===== Sección: Notas ===== */}
             {activeSection === "notas" && (
-              <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+              <Card
+                id="alumno-panel-notas"
+                role="tabpanel"
+                aria-labelledby={!isAlumno ? "alumno-tab-notas" : undefined}
+                tabIndex={0}
+                className="shadow-sm border-0 bg-white/80 backdrop-blur-sm"
+              >
                 <CardContent className="p-4 sm:p-6">
                   <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="flex items-start gap-4">
@@ -2858,7 +3007,7 @@ function AlumnoPerfilPageInner() {
                         <ClipboardList className="h-6 w-6" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="tile-title">Notas</h3>
+                        <h2 className="tile-title">Notas</h2>
                         <p className="tile-subtitle">
                           Calificaciones registradas por materia
                         </p>
@@ -2957,8 +3106,27 @@ function AlumnoPerfilPageInner() {
                   </div>
 
                   {/* Tabla de notas */}
-                  {loadingNotas && notas.length === 0 ? (
-                    <div className="text-sm text-gray-600">Cargando notas...</div>
+                  {errorNotas ? (
+                    <div
+                      className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                      role="alert"
+                    >
+                      <div>{errorNotas}</div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          lastLoadedRef.current.notas = ""
+                          fetchNotas()
+                        }}
+                      >
+                        Reintentar notas
+                      </Button>
+                    </div>
+                  ) : loadingNotas && notas.length === 0 ? (
+                    <div className="text-sm text-gray-600" role="status" aria-live="polite">
+                      Cargando notas...
+                    </div>
                   ) : notasFiltradas.length === 0 ? (
                     <div className="text-sm text-gray-600">
                       No se encontraron notas con los filtros actuales.
@@ -3217,7 +3385,13 @@ function AlumnoPerfilPageInner() {
 
             {/* ===== Sección: Sanciones ===== */}
             {activeSection === "sanciones" && (
-              <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+              <Card
+                id="alumno-panel-sanciones"
+                role="tabpanel"
+                aria-labelledby={!isAlumno ? "alumno-tab-sanciones" : undefined}
+                tabIndex={0}
+                className="shadow-sm border-0 bg-white/80 backdrop-blur-sm"
+              >
                 <CardContent className="p-4 sm:p-6">
                   <div className="flex flex-col gap-4 mb-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
@@ -3225,7 +3399,7 @@ function AlumnoPerfilPageInner() {
                         <Gavel className="h-6 w-6 text-amber-700" />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="tile-title">Sanciones</h3>
+                        <h2 className="tile-title">Sanciones</h2>
                         <p className="tile-subtitle">
                           Historial disciplinario del alumno
                         </p>
@@ -3301,8 +3475,27 @@ function AlumnoPerfilPageInner() {
                       />
                     </div>
                   </div>
-                  {loadingSanciones && sanciones.length === 0 ? (
-                    <div className="text-sm text-gray-600">Cargando sanciones...</div>
+                  {errorSanciones ? (
+                    <div
+                      className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                      role="alert"
+                    >
+                      <div>{errorSanciones}</div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          lastLoadedRef.current.sanciones = ""
+                          fetchSanciones()
+                        }}
+                      >
+                        Reintentar sanciones
+                      </Button>
+                    </div>
+                  ) : loadingSanciones && sanciones.length === 0 ? (
+                    <div className="text-sm text-gray-600" role="status" aria-live="polite">
+                      Cargando sanciones...
+                    </div>
                   ) : sancionesFiltradas.length === 0 ? (
                     <div className="text-sm text-gray-600">
                       No hay sanciones registradas.
@@ -3491,7 +3684,13 @@ function AlumnoPerfilPageInner() {
 
             {/* ===== Sección: Asistencias ===== */}
             {activeSection === "asistencias" && (
-              <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+              <Card
+                id="alumno-panel-asistencias"
+                role="tabpanel"
+                aria-labelledby={!isAlumno ? "alumno-tab-asistencias" : undefined}
+                tabIndex={0}
+                className="shadow-sm border-0 bg-white/80 backdrop-blur-sm"
+              >
                 <CardContent className="p-6">
                   {/* ✅ header con filtros a la derecha */}
                   <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -3500,7 +3699,7 @@ function AlumnoPerfilPageInner() {
                         <CalendarDays className="h-6 w-6 text-emerald-700" />
                       </div>
                       <div>
-                        <h3 className="tile-title">Asistencias</h3>
+                        <h2 className="tile-title">Asistencias</h2>
                       </div>
                     </div>
 
@@ -3569,8 +3768,25 @@ function AlumnoPerfilPageInner() {
                     </div>
                   </div>
 
-                  {loadingAsistencias && asistencias.length === 0 ? (
-                    <div className="text-sm text-gray-600">
+                  {errorAsistencias ? (
+                    <div
+                      className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                      role="alert"
+                    >
+                      <div>{errorAsistencias}</div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          lastLoadedRef.current.asistencias = ""
+                          fetchAsistencias()
+                        }}
+                      >
+                        Reintentar asistencias
+                      </Button>
+                    </div>
+                  ) : loadingAsistencias && asistencias.length === 0 ? (
+                    <div className="text-sm text-gray-600" role="status" aria-live="polite">
                       Cargando asistencias...
                     </div>
                   ) : asistencias.length === 0 ? (

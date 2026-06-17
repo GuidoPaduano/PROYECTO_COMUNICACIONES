@@ -13,8 +13,14 @@ from rest_framework.response import Response
 
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from .models import Alumno, SchoolCourse
-from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
-from .schools import get_request_school, school_to_dict
+from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
+from .schools import (
+    clear_user_school_resolution_cache,
+    get_request_school,
+    get_requested_school_identifier,
+    get_school_by_identifier,
+    school_to_dict,
+)
 
 User = get_user_model()
 
@@ -277,6 +283,40 @@ def _user_is_school_admin_for(school, user) -> bool:
     return SchoolAdmin.objects.filter(school=school, admin=user).exists()
 
 
+def _user_belongs_to_school(*, user, school) -> bool:
+    user_id = getattr(user, "id", None)
+    if user_id is None or school is None:
+        return False
+    return any(
+        (
+            SchoolAdmin.objects.filter(school=school, admin_id=user_id).exists(),
+            SchoolMembership.objects.filter(school=school, user_id=user_id).exists(),
+            ProfesorCurso.objects.filter(school=school, profesor_id=user_id).exists(),
+            PreceptorCurso.objects.filter(school=school, preceptor_id=user_id).exists(),
+            Alumno.objects.filter(school=school, usuario_id=user_id).exists(),
+            Alumno.objects.filter(school=school, padre_id=user_id).exists(),
+        )
+    )
+
+
+def _resolve_requested_admin_school(request):
+    requested = get_requested_school_identifier(request)
+    if requested:
+        school = get_school_by_identifier(requested)
+        if school is None:
+            return None, Response({"detail": "Colegio no encontrado."}, status=404)
+        if not _user_is_school_admin_for(school, getattr(request, "user", None)):
+            return None, Response({"detail": "No autorizado para el colegio activo."}, status=403)
+        return school, None
+
+    active_school = get_request_school(request)
+    if active_school is None:
+        return None, Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+    if not _user_is_school_admin_for(active_school, getattr(request, "user", None)):
+        return None, Response({"detail": "No autorizado para el colegio activo."}, status=403)
+    return active_school, None
+
+
 def _build_user_directory_payload(*, school) -> dict:
     profesor_map = _build_assignment_map(school=school, role="Profesores")
     preceptor_map = _build_assignment_map(school=school, role="Preceptores")
@@ -292,7 +332,7 @@ def _build_user_directory_payload(*, school) -> dict:
         .order_by("first_name", "last_name", "username", "id")
     )
     directivos = list(
-        User.objects.filter(groups__name="Directivos")
+        User.objects.filter(groups__name="Directivos", school_memberships__school=school)
         .exclude(is_superuser=True)
         .distinct()
         .order_by("first_name", "last_name", "username", "id")
@@ -381,8 +421,13 @@ def _list_staff_users(*, school, query: str = "") -> list[User]:
         ProfesorCurso.objects.filter(school=school).values_list("profesor_id", flat=True).distinct()
     )
 
-    base_filter = Q(id__in=preceptor_user_ids) | Q(id__in=profesor_user_ids) | Q(groups__name__in=STAFF_ROLE_NAMES)
-    qs = User.objects.exclude(is_superuser=True)
+    directivo_user_ids = list(
+        SchoolMembership.objects.filter(school=school, user__groups__name="Directivos")
+        .values_list("user_id", flat=True)
+        .distinct()
+    )
+    base_filter = Q(id__in=preceptor_user_ids) | Q(id__in=profesor_user_ids) | Q(id__in=directivo_user_ids)
+    qs = User.objects.exclude(is_superuser=True).filter(base_filter)
 
     if query:
         qs = qs.filter(
@@ -391,15 +436,15 @@ def _list_staff_users(*, school, query: str = "") -> list[User]:
             | Q(last_name__icontains=query)
             | Q(email__icontains=query)
         )
-    else:
-        qs = qs.filter(base_filter)
-
     return list(qs.order_by("first_name", "last_name", "username", "id")[:100])
 
 
 def _set_staff_role_group(*, user, role: str):
     current = set(_get_user_group_names(user))
     for group_name in STAFF_ROLE_NAMES:
+        if group_name == "Directivos" and role != "Directivos":
+            if SchoolMembership.objects.filter(user=user).exists():
+                continue
         if group_name in current and group_name != role:
             try:
                 group = Group.objects.get(name=group_name)
@@ -603,9 +648,9 @@ def admin_staff_overview(request):
     if denied is not None:
         return denied
 
-    active_school = get_request_school(request)
-    if active_school is None:
-        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+    active_school, denied = _resolve_requested_admin_school(request)
+    if denied is not None:
+        return denied
 
     query = str(request.GET.get("q") or "").strip()
     courses = list(
@@ -641,13 +686,55 @@ def admin_school_user_directory(request):
     if denied is not None:
         return denied
 
-    active_school = get_request_school(request)
-    if active_school is None:
-        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
-    if not _user_is_school_admin_for(active_school, getattr(request, "user", None)):
-        return Response({"detail": "No autorizado para el colegio activo."}, status=403)
+    active_school, denied = _resolve_requested_admin_school(request)
+    if denied is not None:
+        return denied
 
     return Response(_build_user_directory_payload(school=active_school))
+
+
+@api_view(["PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_school_user_update(request, user_id: int):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school, denied = _resolve_requested_admin_school(request)
+    if denied is not None:
+        return denied
+
+    target = User.objects.filter(pk=user_id).exclude(is_superuser=True).first()
+    if target is None or not _user_belongs_to_school(user=target, school=active_school):
+        return Response({"detail": "Usuario no encontrado en el colegio activo."}, status=404)
+
+    first_name = str(request.data.get("first_name") or "").strip()
+    last_name = str(request.data.get("last_name") or "").strip()
+    email = str(request.data.get("email") or "").strip()
+
+    if not first_name:
+        return Response({"detail": "El nombre es obligatorio."}, status=400)
+    if not last_name:
+        return Response({"detail": "El apellido es obligatorio."}, status=400)
+    if _contains_digit(first_name):
+        return Response({"detail": "El nombre no puede contener números."}, status=400)
+    if _contains_digit(last_name):
+        return Response({"detail": "El apellido no puede contener números."}, status=400)
+    if email and User.objects.filter(email__iexact=email).exclude(pk=target.pk).exists():
+        return Response({"detail": "Ya existe un usuario con ese correo."}, status=400)
+
+    target.first_name = first_name
+    target.last_name = last_name
+    target.email = email
+    target.save(update_fields=["first_name", "last_name", "email"])
+
+    return Response(
+        {
+            "detail": "Usuario actualizado correctamente.",
+            "directory": _build_user_directory_payload(school=active_school),
+        }
+    )
 
 
 @api_view(["PATCH"])
@@ -778,6 +865,8 @@ def admin_user_create(request):
 
         if data["role"] == "Administradores":
             SchoolAdmin.objects.get_or_create(school=active_school, admin=created_user)
+        elif data["role"] == "Directivos":
+            SchoolMembership.objects.get_or_create(school=active_school, user=created_user)
         elif data["role"] == "Profesores":
             _replace_profesor_assignments(user=created_user, school=active_school, courses=selected_courses)
         elif data["role"] == "Preceptores":
@@ -831,6 +920,10 @@ def admin_staff_update(request, user_id: int):
             return Response({"detail": "Uno o más cursos no pertenecen al colegio activo."}, status=400)
 
     with transaction.atomic():
+        if role == "Directivos":
+            SchoolMembership.objects.get_or_create(school=active_school, user=target)
+        else:
+            SchoolMembership.objects.filter(school=active_school, user=target).delete()
         _set_staff_role_group(user=target, role=role)
         if role == "Profesores":
             _replace_profesor_assignments(user=target, school=active_school, courses=courses)
@@ -839,6 +932,7 @@ def admin_staff_update(request, user_id: int):
         else:
             ProfesorCurso.objects.filter(profesor=target, school=active_school).delete()
             PreceptorCurso.objects.filter(preceptor=target, school=active_school).delete()
+        clear_user_school_resolution_cache(target)
 
     preceptor_map = _build_assignment_map(school=active_school, role="Preceptores")
     profesor_map = _build_assignment_map(school=active_school, role="Profesores")
