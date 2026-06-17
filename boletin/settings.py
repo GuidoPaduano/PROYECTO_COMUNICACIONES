@@ -87,6 +87,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',       # ✅ PONER PRIMERO
+    'calificaciones.request_logging.RequestLifecycleLoggingMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # Sirve estáticos en prod
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -316,3 +317,21 @@ ALERTAS_INASISTENCIAS_CONSECUTIVAS = int(os.environ.get("ALERTAS_INASISTENCIAS_C
 ALERTAS_INASISTENCIAS_COOLDOWN_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_COOLDOWN_DIAS", "7"))
 ALERTAS_INASISTENCIAS_REAPERTURA_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_REAPERTURA_DIAS", "14"))
 ALERTAS_INASISTENCIAS_UMBRALES_FALTAS = os.environ.get("ALERTAS_INASISTENCIAS_UMBRALES_FALTAS", "10,20,25")
+REQUEST_LIFECYCLE_LOGGING = os.environ.get("REQUEST_LIFECYCLE_LOGGING", "False") == "True"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "calificaciones.request": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}
