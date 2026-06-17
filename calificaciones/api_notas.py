@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from django.utils import timezone
-
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -15,6 +13,7 @@ from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from .models import Alumno, Nota
 from .schools import get_request_school, scope_queryset_to_school
 from .serializers import NotaPublicSerializer
+from .signatures import claim_signature
 from .user_groups import get_user_group_names
 
 try:
@@ -250,10 +249,17 @@ def firmar_nota(request, pk: int):
             status=400,
         )
 
-    nota.firmada = True
-    nota.firmada_en = timezone.now()
-    nota.firmada_por = request.user
-    nota.save(update_fields=["firmada", "firmada_en", "firmada_por"])
+    if not claim_signature(nota, user=request.user):
+        return Response(
+            {
+                "detail": "La nota ya fue firmada.",
+                "id": nota.id,
+                "alumno_id": nota.alumno_id,
+                "firmada": True,
+                "firmada_en": nota.firmada_en.isoformat() if nota.firmada_en else None,
+            },
+            status=400,
+        )
 
     return Response(
         {

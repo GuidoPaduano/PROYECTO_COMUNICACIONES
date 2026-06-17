@@ -495,7 +495,7 @@ const [mensajeSan, setMensajeSan] = useState("")
       try {
         const list = await loadCourseCatalog({
           fetcher: pfetch,
-          urls: ["/api/notas/catalogos/"],
+          urls: ["/api/calificaciones/nueva-nota/datos/", "/api/notas/catalogos/"],
           cacheKey: courseCatalogCacheKey,
         })
         setCursos(normalizeCourseList(list))
@@ -2252,7 +2252,7 @@ function MensajesRecientesCard({ mensajes, loading, myId }) {
                     >
                       {asunto}
                     </p>
-                    <p className="text-xs text-slate-500 truncate">
+                    <p className="text-xs text-slate-700 truncate">
                       {emisor || "Remitente"}
                     </p>
                   </div>

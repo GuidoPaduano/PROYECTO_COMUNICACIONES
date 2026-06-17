@@ -229,7 +229,7 @@ export default function AlumnoSancionesPage({ params }) {
                 <Gavel className="h-6 w-6" />
               </div>
               <div className="flex-1">
-                <h3 className="tile-title">Mis sanciones</h3>
+                <h1 className="tile-title">Mis sanciones</h1>
                 <p className="tile-subtitle">Listado de sanciones registradas para el alumno</p>
               </div>
             </div>

@@ -1,11 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, Building2, CheckCircle2, MoreHorizontal, RefreshCw, Save, Search, Trash2 } from "lucide-react"
 
 import {
   DEFAULT_SCHOOL_ACCENT_COLOR,
+  DEFAULT_SCHOOL_LOGO_URL,
   DEFAULT_SCHOOL_PRIMARY_COLOR,
   authFetch,
   syncSessionContext,
@@ -81,6 +82,24 @@ function schoolStatusClasses(active) {
     : "bg-slate-100 text-slate-600 ring-slate-200"
 }
 
+function readableTextColor(backgroundColor) {
+  const hex = String(backgroundColor || "").replace("#", "")
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return "#0f172a"
+  const [r, g, b] = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255)
+  const linear = [r, g, b].map((value) =>
+    value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  )
+  const luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+  return luminance > 0.179 ? "#0f172a" : "#ffffff"
+}
+
+const DELETE_JOB_POLL_MS = 250
+const DELETE_JOB_MAX_POLLS = 80
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export default function ColegiosPage() {
   useAuthGuard()
   const sessionContext = useSessionContext()
@@ -95,6 +114,7 @@ export default function ColegiosPage() {
   const [deletingId, setDeletingId] = useState("")
   const [openMenuId, setOpenMenuId] = useState("")
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const deleteDialogTriggerRef = useRef(null)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
 
@@ -147,8 +167,6 @@ export default function ColegiosPage() {
 
   useEffect(() => {
     setForm(normalizeSchoolForForm(selectedSchool))
-    setError("")
-    setSuccess("")
   }, [selectedSchool])
 
   const setField = (field) => (event) => {
@@ -222,6 +240,39 @@ export default function ColegiosPage() {
         return
       }
 
+      const jobId = data?.job?.id
+      if (!jobId) {
+        setError("El servidor no devolvio el estado del trabajo de borrado.")
+        return
+      }
+
+      setDeleteTarget(null)
+      setSuccess(data?.detail || "Borrado iniciado.")
+
+      let finalJob = data.job
+      for (let attempt = 0; attempt < DELETE_JOB_MAX_POLLS; attempt += 1) {
+        if (finalJob?.status === "completed" || finalJob?.status === "failed") break
+        await wait(DELETE_JOB_POLL_MS)
+        const statusRes = await authFetch(`/admin/school-deletion-jobs/${jobId}`)
+        const statusData = await statusRes.json().catch(() => ({}))
+        if (!statusRes.ok) {
+          setError(statusData?.detail || "No se pudo consultar el estado del borrado.")
+          return
+        }
+        finalJob = statusData?.job
+      }
+
+      if (finalJob?.status !== "completed") {
+        const deletionError =
+          finalJob?.status === "failed"
+            ? finalJob?.error || "El borrado del colegio fallo."
+            : "El borrado sigue en proceso. Actualiza la pagina para consultar su estado."
+        await loadSchools({ keepSelection: true })
+        setSuccess("")
+        setError(deletionError)
+        return
+      }
+
       setSchools((current) => current.filter((item) => String(item.id) !== String(school.id)))
       if (String(selectedId) === String(school.id)) {
         setSelectedId("")
@@ -232,8 +283,7 @@ export default function ColegiosPage() {
         available_schools: data?.available_schools || [],
         is_superuser: true,
       })
-      setDeleteTarget(null)
-      setSuccess(data?.detail || "Borrado iniciado.")
+      setSuccess("Colegio borrado correctamente.")
       await loadSchools({ keepSelection: true })
     } catch {
       setError("No se pudo conectar con el servidor.")
@@ -242,11 +292,24 @@ export default function ColegiosPage() {
     }
   }
 
-  if (loadingSession || !allowed) {
+  if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando herramienta de colegios...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-900">
+            Esta herramienta es exclusiva para administradores de plataforma.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -261,7 +324,7 @@ export default function ColegiosPage() {
             <ArrowLeft className="h-4 w-4" />
             Volver a admin plataforma
           </Link>
-          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Colegios</h1>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-900">Colegios</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             Gestiona branding, slug y estado activo de cada colegio.
           </p>
@@ -309,7 +372,11 @@ export default function ColegiosPage() {
                     return (
                       <TableRow
                         key={school.id}
-                        onClick={() => setSelectedId(String(school.id))}
+                        onClick={() => {
+                          setSelectedId(String(school.id))
+                          setError("")
+                          setSuccess("")
+                        }}
                         className={`cursor-pointer ${selected ? "bg-slate-50" : ""}`}
                       >
                         <TableCell>
@@ -350,6 +417,7 @@ export default function ColegiosPage() {
                                 className="h-8 w-8 cursor-pointer focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
                                 onClick={(event) => {
                                   event.stopPropagation()
+                                  deleteDialogTriggerRef.current = event.currentTarget
                                   if (!selected) setSelectedId(String(school.id))
                                 }}
                                 disabled={deletingId === String(school.id)}
@@ -422,6 +490,7 @@ export default function ColegiosPage() {
                     <Input
                       id="school-primary-color-picker"
                       type="color"
+                      aria-label="Selector de color principal"
                       value={form.primary_color || DEFAULT_SCHOOL_PRIMARY_COLOR}
                       onChange={setField("primary_color")}
                       className="h-10 p-1"
@@ -440,6 +509,7 @@ export default function ColegiosPage() {
                     <Input
                       id="school-accent-color-picker"
                       type="color"
+                      aria-label="Selector de color de acento"
                       value={form.accent_color || DEFAULT_SCHOOL_ACCENT_COLOR}
                       onChange={setField("accent_color")}
                       className="h-10 p-1"
@@ -464,14 +534,65 @@ export default function ColegiosPage() {
                 <span className="text-sm font-medium text-slate-800">Colegio activo</span>
               </label>
 
+              <div
+                className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                aria-label="Vista previa del branding"
+              >
+                <div
+                  className="h-2"
+                  style={{ backgroundColor: form.primary_color || DEFAULT_SCHOOL_PRIMARY_COLOR }}
+                />
+                <div className="flex items-center gap-4 p-4">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <img
+                      src={form.logo_url || DEFAULT_SCHOOL_LOGO_URL}
+                      alt={`Vista previa del logo de ${form.name || "colegio"}`}
+                      className="h-full w-full object-contain p-1"
+                      onError={(event) => {
+                        if (event.currentTarget.src.endsWith(DEFAULT_SCHOOL_LOGO_URL)) return
+                        event.currentTarget.src = DEFAULT_SCHOOL_LOGO_URL
+                      }}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Vista previa
+                    </div>
+                    <div className="truncate text-lg font-semibold text-slate-900">
+                      {form.short_name || form.name || "Nombre del colegio"}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                      <span
+                        className="rounded-full px-2.5 py-1 font-semibold"
+                        style={{
+                          backgroundColor: form.primary_color || DEFAULT_SCHOOL_PRIMARY_COLOR,
+                          color: readableTextColor(form.primary_color || DEFAULT_SCHOOL_PRIMARY_COLOR),
+                        }}
+                      >
+                        Principal
+                      </span>
+                      <span
+                        className="rounded-full px-2.5 py-1 font-semibold"
+                        style={{
+                          backgroundColor: form.accent_color || DEFAULT_SCHOOL_ACCENT_COLOR,
+                          color: readableTextColor(form.accent_color || DEFAULT_SCHOOL_ACCENT_COLOR),
+                        }}
+                      >
+                        Acento
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {error ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
                 </div>
               ) : null}
 
               {success ? (
-                <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                   <CheckCircle2 className="h-4 w-4" />
                   {success}
                 </div>
@@ -497,7 +618,19 @@ export default function ColegiosPage() {
       </div>
 
       <Dialog open={!!deleteTarget} onOpenChange={(open) => (!open ? setDeleteTarget(null) : null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-md"
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !deletingId) {
+              event.preventDefault()
+              setDeleteTarget(null)
+            }
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            deleteDialogTriggerRef.current?.focus()
+          }}
+        >
           <DialogHeader>
             <DialogTitle>¿Seguro que quiere borrar este colegio?</DialogTitle>
             <DialogDescription>Esta acción es irreversible.</DialogDescription>

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from calificaciones.api_schools import _run_school_deletion_job
 from calificaciones.models import Alumno, Mensaje, School, SchoolCourse, SchoolDeletionJob
-from calificaciones.models_preceptores import PreceptorCurso, SchoolAdmin
+from calificaciones.models_preceptores import PreceptorCurso, SchoolAdmin, SchoolMembership
 
 
 def _make_user(username: str, *, is_superuser: bool = False):
@@ -178,8 +178,8 @@ class SchoolContextApiTests(TestCase):
 
         self.assertEqual(res.status_code, 401)
         self.assertEqual(res.json()["detail"], "El usuario no pertenece al colegio seleccionado.")
-        self.assertNotIn("access_token", res.cookies)
-        self.assertNotIn("refresh_token", res.cookies)
+        self.assertEqual(res.cookies["access_token"].value, "")
+        self.assertEqual(res.cookies["refresh_token"].value, "")
 
     def test_login_permite_usuario_en_su_colegio(self):
         res = self.client.post(
@@ -196,6 +196,55 @@ class SchoolContextApiTests(TestCase):
         self.assertIn("access_token", res.cookies)
         self.assertIn("refresh_token", res.cookies)
 
+    def test_directivo_puede_iniciar_sesion_y_cambiar_entre_sus_colegios(self):
+        directivo = _make_user("directivo_multi_school")
+        directivos_group, _ = Group.objects.get_or_create(name="Directivos")
+        directivo.groups.add(directivos_group)
+        SchoolMembership.objects.create(school=self.school_a, user=directivo)
+        SchoolMembership.objects.create(school=self.school_b, user=directivo)
+
+        login_a = self.client.post(
+            "/api/token/",
+            {
+                "username": directivo.username,
+                "password": "test1234",
+                "school": self.school_a.slug,
+            },
+            format="json",
+        )
+        self.assertEqual(login_a.status_code, 200)
+
+        self.client.force_authenticate(user=directivo)
+        whoami_b = self.client.get("/api/auth/whoami/", HTTP_X_SCHOOL=self.school_b.slug)
+
+        self.assertEqual(whoami_b.status_code, 200)
+        body = whoami_b.json()
+        self.assertEqual(body["school"]["id"], self.school_b.id)
+        self.assertEqual(
+            {item["id"] for item in body["available_schools"]},
+            {self.school_a.id, self.school_b.id},
+        )
+
+    def test_directivo_no_puede_usar_un_colegio_sin_membresia(self):
+        directivo = _make_user("directivo_school_restringido")
+        directivos_group, _ = Group.objects.get_or_create(name="Directivos")
+        directivo.groups.add(directivos_group)
+        SchoolMembership.objects.create(school=self.school_a, user=directivo)
+        school_c = School.objects.create(name="Colegio Contexto Oeste", slug="colegio-contexto-oeste")
+
+        login = self.client.post(
+            "/api/token/",
+            {
+                "username": directivo.username,
+                "password": "test1234",
+                "school": school_c.slug,
+            },
+            format="json",
+        )
+
+        self.assertEqual(login.status_code, 401)
+        self.assertEqual(login.json()["detail"], "El usuario no pertenece al colegio seleccionado.")
+
     def test_login_regular_sin_colegio_explicito_falla_en_entorno_multicolegios(self):
         res = self.client.post(
             "/api/token/",
@@ -208,8 +257,8 @@ class SchoolContextApiTests(TestCase):
 
         self.assertEqual(res.status_code, 401)
         self.assertEqual(res.json()["detail"], "Seleccioná un colegio antes de iniciar sesión.")
-        self.assertNotIn("access_token", res.cookies)
-        self.assertNotIn("refresh_token", res.cookies)
+        self.assertEqual(res.cookies["access_token"].value, "")
+        self.assertEqual(res.cookies["refresh_token"].value, "")
 
     def test_login_superuser_sin_colegio_explicito_sigue_permitido(self):
         res = self.client.post(
@@ -232,6 +281,110 @@ class SchoolContextApiTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["detail"], "El usuario no pertenece al colegio seleccionado.")
+
+    def test_cookie_session_no_expone_alumno_de_otro_colegio_con_header_manipulado(self):
+        login = self.client.post(
+            "/api/token/",
+            {
+                "username": self.alumno_user.username,
+                "password": "test1234",
+                "school": self.school_b.slug,
+            },
+            format="json",
+        )
+        self.assertEqual(login.status_code, 200)
+
+        foreign_detail = self.client.get(
+            "/api/alumnos/CTXPAD001",
+            HTTP_X_SCHOOL=self.school_a.slug,
+        )
+        own_detail = self.client.get(
+            "/api/alumnos/CTX001",
+            HTTP_X_SCHOOL=self.school_a.slug,
+        )
+
+        self.assertIn(foreign_detail.status_code, {403, 404})
+        self.assertNotContains(foreign_detail, "Mia", status_code=foreign_detail.status_code)
+        self.assertEqual(own_detail.status_code, 200)
+        self.assertEqual(own_detail.json()["id_alumno"], "CTX001")
+        self.assertNotEqual(own_detail.json().get("school_id"), self.school_a.id)
+
+    def test_usuario_sin_colegio_no_vincula_legajo_de_otro_colegio_con_contexto_manipulado(self):
+        unlinked_user = _make_user("alumno_unlinked_school_context")
+        alumnos_group = Group.objects.get(name="Alumnos")
+        unlinked_user.groups.add(alumnos_group)
+        foreign_student = Alumno.objects.get(school=self.school_a, id_alumno="CTXPAD001")
+
+        self.client.force_authenticate(user=unlinked_user)
+        response = self.client.post(
+            "/api/alumnos/vincular/",
+            {"id_alumno": foreign_student.id_alumno},
+            format="json",
+            HTTP_X_SCHOOL=self.school_a.slug,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        foreign_student.refresh_from_db()
+        self.assertIsNone(foreign_student.usuario_id)
+
+    def test_padre_no_puede_vincularse_como_alumno_en_su_colegio(self):
+        unlinked_student = Alumno.objects.create(
+            school=self.school_a,
+            school_course=self.course_a,
+            nombre="Noa",
+            apellido="Sin vincular",
+            id_alumno="CTXPAD002",
+            curso="1A",
+        )
+        self.client.force_authenticate(user=self.padre_user)
+
+        response = self.client.post(
+            "/api/alumnos/vincular/",
+            {"id_alumno": unlinked_student.id_alumno},
+            format="json",
+            HTTP_X_SCHOOL=self.school_a.slug,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        unlinked_student.refresh_from_db()
+        self.assertIsNone(unlinked_student.usuario_id)
+
+    def test_admin_colegio_no_transfiere_alumno_o_curso_de_otro_colegio_por_id(self):
+        admin_user = _make_user("admin_boundary_school_context")
+        admin_group, _ = Group.objects.get_or_create(name="Administradores")
+        admin_user.groups.add(admin_group)
+        SchoolAdmin.objects.create(school=self.school_a, admin=admin_user)
+        local_student = Alumno.objects.get(school=self.school_a, id_alumno="CTXPAD001")
+        foreign_student = Alumno.objects.get(school=self.school_b, id_alumno="CTX001")
+        original_local_course = local_student.school_course_id
+        original_foreign_course = foreign_student.school_course_id
+        self.client.force_authenticate(user=admin_user)
+
+        foreign_student_response = self.client.post(
+            "/api/alumnos/transferir/",
+            {
+                "alumno_id": foreign_student.id,
+                "school_course_id": self.course_a.id,
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school_a.slug,
+        )
+        foreign_course_response = self.client.post(
+            "/api/alumnos/transferir/",
+            {
+                "alumno_id": local_student.id,
+                "school_course_id": self.course_b.id,
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school_a.slug,
+        )
+
+        self.assertEqual(foreign_student_response.status_code, 404)
+        self.assertEqual(foreign_course_response.status_code, 400)
+        local_student.refresh_from_db()
+        foreign_student.refresh_from_db()
+        self.assertEqual(local_student.school_course_id, original_local_course)
+        self.assertEqual(foreign_student.school_course_id, original_foreign_course)
 
     def test_mi_perfil_no_expone_alias_legacy_de_alumno(self):
         self.client.force_login(self.alumno_user)
@@ -384,7 +537,8 @@ class SchoolContextApiTests(TestCase):
         )
 
         with patch("calificaciones.api_schools._schedule_school_deletion_job") as mocked_schedule:
-            res = self.client.delete(f"/api/admin/schools/{school.id}/")
+            with self.captureOnCommitCallbacks(execute=True):
+                res = self.client.delete(f"/api/admin/schools/{school.id}/")
 
         self.assertEqual(res.status_code, 202)
         mocked_schedule.assert_called_once()
@@ -393,6 +547,25 @@ class SchoolContextApiTests(TestCase):
         _run_school_deletion_job(job.id)
         self.assertFalse(School.objects.filter(pk=school.id).exists())
         self.assertEqual(res.json()["deleted_id"], school.id)
+
+        status_res = self.client.get(f"/api/admin/school-deletion-jobs/{job.id}/")
+        self.assertEqual(status_res.status_code, 200)
+        self.assertEqual(status_res.json()["job"]["status"], SchoolDeletionJob.STATUS_COMPLETED)
+        self.assertIsNotNone(status_res.json()["job"]["finished_at"])
+
+    def test_usuario_regular_no_puede_consultar_job_de_borrado(self):
+        job = SchoolDeletionJob.objects.create(
+            school=self.school_a,
+            requested_by=self.superuser,
+            school_name=self.school_a.name,
+            school_slug=self.school_a.slug,
+        )
+        self.client.force_authenticate(user=self.alumno_user)
+
+        res = self.client.get(f"/api/admin/school-deletion-jobs/{job.id}/")
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No autorizado.")
 
     def test_superuser_no_puede_borrar_colegio_con_dependencias(self):
         self.client.force_authenticate(user=self.superuser)
@@ -415,7 +588,8 @@ class SchoolContextApiTests(TestCase):
         )
 
         with patch("calificaciones.api_schools._schedule_school_deletion_job") as mocked_schedule:
-            res = self.client.delete(f"/api/admin/schools/{self.school_a.id}/")
+            with self.captureOnCommitCallbacks(execute=True):
+                res = self.client.delete(f"/api/admin/schools/{self.school_a.id}/")
 
         self.assertEqual(res.status_code, 202)
         mocked_schedule.assert_called_once()

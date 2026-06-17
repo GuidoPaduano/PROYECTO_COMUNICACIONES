@@ -9,7 +9,9 @@ import {
   selectSessionSchool,
   setPreviewRole,
   syncSessionContext,
+  useSessionContext,
 } from "@/app/_lib/auth"
+import { renderHook, waitFor } from "@testing-library/react"
 
 describe("auth session context", () => {
   beforeEach(() => {
@@ -139,5 +141,17 @@ describe("auth session context", () => {
 
   it("arma href de login con query cuando no hay dominio padre configurado", () => {
     expect(buildSchoolLoginHref({ slug: "escuela-tecnova" })).toBe("/login?school=escuela-tecnova")
+  })
+
+  it("hidrata el contexto de sesion despues del primer render", async () => {
+    syncSessionContext({
+      username: "admin",
+      groups: ["Administradores"],
+      school: { id: 1, name: "Colegio QA", slug: "qa-local", is_active: true },
+    })
+
+    const { result } = renderHook(() => useSessionContext())
+
+    await waitFor(() => expect(result.current?.username).toBe("admin"))
   })
 })

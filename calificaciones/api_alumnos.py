@@ -4,6 +4,7 @@ import io
 import re
 import unicodedata
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.db import IntegrityError, transaction
 from django.views.decorators.csrf import csrf_exempt
@@ -484,6 +485,10 @@ IGNORED_IMPORT_SHEET_TITLES = {
     "instrucciones",
     "instruccion",
     "instructions",
+    "hoja",
+    "hoja1",
+    "sheet",
+    "sheet1",
 }
 
 
@@ -718,6 +723,15 @@ def admin_importar_alumnos(request):
     if uploaded is None:
         return Response({"detail": "Subí un archivo .xlsx o .csv."}, status=400)
 
+    max_bytes = int(getattr(settings, "STUDENT_IMPORT_MAX_BYTES", 5 * 1024 * 1024))
+    uploaded_size = int(getattr(uploaded, "size", 0) or 0)
+    if uploaded_size > max_bytes:
+        max_mb = max_bytes / (1024 * 1024)
+        return Response(
+            {"detail": f"El archivo supera el limite permitido de {max_mb:g} MB."},
+            status=413,
+        )
+
     commit = _truthy(request.data.get("commit"))
     try:
         rows = _parse_import_file(uploaded)
@@ -860,9 +874,17 @@ def vincular_mi_legajo(request):
     data = request.data or {}
     id_alumno = (data.get("id_alumno") or data.get("legajo") or "").strip()
     active_school = get_request_school(request)
+    groups = set(get_user_group_names(request.user))
 
     if not id_alumno:
         return Response({"detail": "Falta id_alumno (legajo)."}, status=400)
+    if not getattr(request.user, "is_superuser", False) and not {
+        "Alumnos",
+        "Alumno",
+    }.intersection(groups):
+        return Response({"detail": "Solo un usuario Alumno puede vincular un legajo."}, status=403)
+    if active_school is None:
+        return Response({"detail": "No se pudo determinar el colegio activo."}, status=403)
 
     qs = _alumno_base_qs(active_school).filter(id_alumno__iexact=id_alumno)
     a = qs.first()
@@ -1006,6 +1028,15 @@ def transferir_alumno(request):
     alumno.curso = course_code
     alumno.school_course = school_course
     alumno.save(update_fields=["curso", "school_course"])
+    try:
+        from .api_padres import invalidate_mis_hijos_cache
+
+        invalidate_mis_hijos_cache(
+            user_id=getattr(alumno, "padre_id", None),
+            school_id=getattr(alumno, "school_id", None),
+        )
+    except Exception:
+        pass
 
     return Response(
         {

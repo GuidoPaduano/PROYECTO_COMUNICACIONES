@@ -111,3 +111,34 @@ class SchoolAdmin(models.Model):
 
     def __str__(self):
         return f"{self.school} -> {self.admin}"
+
+
+class SchoolMembership(models.Model):
+    school = models.ForeignKey(
+        School,
+        on_delete=models.PROTECT,
+        related_name="user_memberships",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="school_memberships",
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school", "user"],
+                name="unique_school_user_membership",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["school", "user"]),
+            models.Index(fields=["user"]),
+        ]
+        verbose_name = "Membresía institucional"
+        verbose_name_plural = "Membresías institucionales"
+
+    def __str__(self):
+        return f"{self.school} -> {self.user}"

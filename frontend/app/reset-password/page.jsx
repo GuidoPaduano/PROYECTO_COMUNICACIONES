@@ -91,6 +91,8 @@ export default function ResetPasswordPage() {
               id="password"
               type="password"
               required
+              aria-invalid={error ? "true" : undefined}
+              aria-describedby={error ? "reset-password-error" : undefined}
               className="mt-1 w-full rounded-md border px-4 py-2"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -106,6 +108,8 @@ export default function ResetPasswordPage() {
               id="confirm"
               type="password"
               required
+              aria-invalid={error ? "true" : undefined}
+              aria-describedby={error ? "reset-password-error" : undefined}
               className="mt-1 w-full rounded-md border px-4 py-2"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
@@ -113,8 +117,16 @@ export default function ResetPasswordPage() {
             />
           </div>
 
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
-          {message ? <p className="text-sm text-green-700">{message}</p> : null}
+          {error ? (
+            <p id="reset-password-error" role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          ) : null}
+          {message ? (
+            <p role="status" aria-live="polite" className="text-sm text-green-700">
+              {message}
+            </p>
+          ) : null}
 
           <button
             type="submit"

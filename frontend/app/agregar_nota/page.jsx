@@ -406,7 +406,7 @@ export default function CargarNotasRapidas() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold">Carga de notas</h1>
+        <h2 className="text-2xl font-semibold">Carga de notas</h2>
         <Link href="/dashboard">
           <Button variant="outline" className="inline-flex w-full items-center justify-center sm:w-auto">
             <ArrowLeft className="mr-2 h-4 w-4" /> Volver
@@ -416,7 +416,7 @@ export default function CargarNotasRapidas() {
 
       {okMsg ? <SuccessMessage>{okMsg}</SuccessMessage> : null}
       {error ? (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-red-200 bg-red-50" role="alert">
           <CardContent className="p-4 text-sm text-red-700">{error}</CardContent>
         </Card>
       ) : null}

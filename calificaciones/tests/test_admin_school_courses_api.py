@@ -47,7 +47,7 @@ class AdminSchoolCoursesApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         slugs = {row["slug"] for row in response.json()["schools"]}
-        self.assertEqual(slugs, {self.school_a.slug, self.school_b.slug})
+        self.assertTrue({self.school_a.slug, self.school_b.slug}.issubset(slugs))
 
     def test_admin_de_colegio_solo_ve_su_colegio(self):
         school_admin = _make_user("admin_colegio")

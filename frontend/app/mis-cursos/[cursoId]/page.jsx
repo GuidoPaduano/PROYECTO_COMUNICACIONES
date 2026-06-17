@@ -324,7 +324,7 @@ export default function CursoDetallePage({ params }) {
                         {getInitials(a?.nombre)}
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{a.nombre}</h3>
+                        <h2 className="font-semibold text-gray-900">{a.nombre}</h2>
                         {a.id_alumno ? (
                           <p className="text-sm text-gray-600">Legajo: {a.id_alumno}</p>
                         ) : null}
@@ -347,7 +347,7 @@ export default function CursoDetallePage({ params }) {
                       {getInitials(a?.nombre)}
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{a?.nombre || "Alumno"}</h3>
+                      <h2 className="font-semibold text-gray-900">{a?.nombre || "Alumno"}</h2>
                       {a?.id_alumno ? (
                         <p className="text-sm text-gray-600">Legajo: {a.id_alumno}</p>
                       ) : null}

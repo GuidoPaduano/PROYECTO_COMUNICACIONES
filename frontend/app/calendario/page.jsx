@@ -1266,9 +1266,9 @@ export default function CalendarioEscolarPage() {
                 <CalIcon className="h-6 w-6" style={{ color: "var(--school-accent)" }} />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900">
+                <h2 className="font-semibold text-gray-900">
                   Eventos de la institución
-                </h3>
+                </h2>
                 <p className="text-sm text-gray-600">
                   Consultá fechas importantes, exámenes, actos y reuniones.
                 </p>

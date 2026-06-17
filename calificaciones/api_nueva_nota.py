@@ -6,7 +6,7 @@ import unicodedata
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
@@ -724,7 +724,13 @@ class CrearNota(APIView):
                 nota.save(update_fields=["school"])
             notificado, notif_dest_id, notif_source, notif_error = _notify_padre_nota(request.user, nota)
             alerta_info = evaluar_alerta_nota(nota=nota, actor=request.user)
-            resp = {"id": nota.id, "notificado": notificado, "notif_destinatario_id": notif_dest_id, "notif_source": notif_source}
+            resp = {
+                "id": nota.id,
+                "version": nota.version,
+                "notificado": notificado,
+                "notif_destinatario_id": notif_dest_id,
+                "notif_source": notif_source,
+            }
             resp["alerta"] = alerta_info
             # Si sos staff/superuser y falló, devolvemos error para debug
             if (not notificado) and notif_error and (
@@ -751,18 +757,47 @@ class EditarNota(APIView):
         if not _profesor_puede_editar_nota(request.user, nota):
             return Response({"detail": "No tenés permiso para editar esta nota."}, status=status.HTTP_403_FORBIDDEN)
 
+        try:
+            expected_version = int(request.data.get("version"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "La versión de la nota es obligatoria para editarla."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if expected_version < 1:
+            return Response(
+                {"detail": "La versión de la nota no es válida."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         payload = _normalizar_nota_payload(request.data, school=active_school)
+        payload.pop("version", None)
         payload["alumno"] = nota.alumno_id
 
         serializer = NotaCreateSerializer(instance=nota, data=payload, partial=True)
         if not serializer.is_valid():
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        nota = serializer.save()
-        school_ref = getattr(getattr(nota, "alumno", None), "school", None) or active_school
-        if school_ref is not None and getattr(nota, "school_id", None) is None:
-            nota.school = school_ref
-            nota.save(update_fields=["school"])
+        updates = dict(serializer.validated_data)
+        updates.pop("alumno", None)
+        updated = scope_queryset_to_school(Nota.objects.all(), active_school).filter(
+            pk=nota.pk,
+            version=expected_version,
+        ).update(**updates, version=F("version") + 1)
+        if updated != 1:
+            current = scope_queryset_to_school(Nota.objects.all(), active_school).get(pk=nota.pk)
+            return Response(
+                {
+                    "detail": (
+                        "La nota fue modificada por otra sesión. "
+                        "Revisá la versión actual antes de volver a guardar."
+                    ),
+                    "nota": NotaCreateSerializer(current).data,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        nota.refresh_from_db()
         return Response({"nota": NotaCreateSerializer(nota).data}, status=status.HTTP_200_OK)
 
 

@@ -2,13 +2,14 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, GraduationCap, RefreshCw, Search, ShieldCheck, Users } from "lucide-react"
+import { ArrowLeft, GraduationCap, Pencil, RefreshCw, Search, ShieldCheck, Users } from "lucide-react"
 
 import { authFetch, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
@@ -86,7 +87,7 @@ function SummaryCard({ title, value, icon, active = false, onClick, interactive 
   )
 }
 
-function StaffSection({ title, rows, emptyLabel }) {
+function StaffSection({ title, rows, emptyLabel, onEdit }) {
   return (
     <Card>
       <CardHeader className="pb-4">
@@ -116,6 +117,10 @@ function StaffSection({ title, rows, emptyLabel }) {
                       : "-"}
                   </span>
                 </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Editar datos
+                </Button>
               </div>
             </div>
           ))}
@@ -134,6 +139,7 @@ function StaffSection({ title, rows, emptyLabel }) {
                 <TableHead>Nombre</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Cursos</TableHead>
+                <TableHead className="text-right">Acción</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -147,11 +153,16 @@ function StaffSection({ title, rows, emptyLabel }) {
                       ? row.assigned_school_courses.map((course) => course.code || course.name).join(", ")
                       : "-"}
                   </TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
+                      Editar datos
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
               {!rows.length ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-sm text-slate-500">
+                  <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
                     {emptyLabel}
                   </TableCell>
                 </TableRow>
@@ -251,7 +262,7 @@ function StudentsSection({ course }) {
   )
 }
 
-function ParentsSection({ rows, availableStudents, onLinked }) {
+function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
   const emptyLabel = "No hay padres registrados en el colegio activo."
   const [selectedParent, setSelectedParent] = useState(null)
   const [selectedCourseKey, setSelectedCourseKey] = useState("")
@@ -378,6 +389,9 @@ function ParentsSection({ rows, availableStudents, onLinked }) {
                 >
                   Vincular alumno
                 </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
+                  Editar datos
+                </Button>
               </div>
             </div>
           ))}
@@ -413,15 +427,25 @@ function ParentsSection({ rows, availableStudents, onLinked }) {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openLinkDialog(row)}
-                      disabled={!studentOptions.length}
-                    >
-                      Vincular alumno
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onEdit?.(row)}
+                      >
+                        Editar datos
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openLinkDialog(row)}
+                        disabled={!studentOptions.length}
+                      >
+                        Vincular alumno
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -444,12 +468,15 @@ function ParentsSection({ rows, availableStudents, onLinked }) {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Vincular alumno a {selectedParent?.full_name || selectedParent?.username}</DialogTitle>
+              <DialogDescription>
+                Selecciona un alumno sin tutor para asociarlo a esta familia.
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div>
                 <label className="text-sm font-medium text-slate-700">Curso</label>
                 <Select value={selectedCourseKey} onValueChange={setSelectedCourseKey}>
-                  <SelectTrigger className="mt-1 h-11">
+                  <SelectTrigger className="mt-1 h-11" aria-label="Curso">
                     <SelectValue placeholder="Seleccionar curso" />
                   </SelectTrigger>
                   <SelectContent>
@@ -464,7 +491,7 @@ function ParentsSection({ rows, availableStudents, onLinked }) {
               <div>
                 <label className="text-sm font-medium text-slate-700">Alumno sin tutor vinculado</label>
                 <Select value={selectedStudentId} onValueChange={setSelectedStudentId} disabled={!selectedCourseKey}>
-                  <SelectTrigger className="mt-1 h-11">
+                  <SelectTrigger className="mt-1 h-11" aria-label="Alumno sin tutor vinculado">
                     <SelectValue placeholder="Seleccionar alumno" />
                   </SelectTrigger>
                   <SelectContent>
@@ -479,7 +506,7 @@ function ParentsSection({ rows, availableStudents, onLinked }) {
                   <p className="mt-2 text-sm text-slate-500">No hay alumnos sin tutor en este curso.</p>
                 ) : null}
               </div>
-              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeLinkDialog} disabled={saving}>
@@ -507,6 +534,11 @@ export default function SchoolUserDirectoryPage() {
   const [query, setQuery] = useState("")
   const [activeSection, setActiveSection] = useState(DIRECTORY_SECTIONS.alumnos)
   const [selectedCourseKey, setSelectedCourseKey] = useState("")
+  const [editingUser, setEditingUser] = useState(null)
+  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", email: "" })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState("")
+  const [editSuccess, setEditSuccess] = useState("")
 
   const loadData = async () => {
     setLoading(true)
@@ -615,11 +647,66 @@ export default function SchoolUserDirectoryPage() {
     )
   }, [alumnosPorCurso, selectedCourseKey])
 
-  if (loadingSession || !allowed) {
+  const openEditDialog = (user) => {
+    setEditingUser(user)
+    setEditForm({
+      first_name: String(user?.first_name || "").trim(),
+      last_name: String(user?.last_name || "").trim(),
+      email: String(user?.email || "").trim(),
+    })
+    setEditError("")
+  }
+
+  const closeEditDialog = () => {
+    if (editSaving) return
+    setEditingUser(null)
+    setEditError("")
+  }
+
+  const handleSaveUser = async () => {
+    if (!editingUser?.id || editSaving) return
+    setEditSaving(true)
+    setEditError("")
+    setEditSuccess("")
+    try {
+      const res = await authFetch(`/admin/school-users/${editingUser.id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(editForm),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setEditError(data?.detail || "No se pudo actualizar el usuario.")
+        return
+      }
+      if (data?.directory) setPayload(data.directory)
+      setEditSuccess(data?.detail || "Usuario actualizado correctamente.")
+      setEditingUser(null)
+    } catch {
+      setEditError("No se pudo conectar con el servidor.")
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando directorio del colegio...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-800">
+            Solo los administradores del colegio pueden consultar este directorio.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -634,7 +721,7 @@ export default function SchoolUserDirectoryPage() {
             <ArrowLeft className="h-4 w-4" />
             Volver a admin colegio
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold text-slate-900 sm:text-3xl">Usuarios del colegio</h1>
+          <h2 className="mt-3 text-2xl font-semibold text-slate-900 sm:text-3xl">Usuarios del colegio</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             Directorio del colegio activo con directivos, profesores, preceptores, padres y alumnos agrupados por curso.
           </p>
@@ -646,8 +733,13 @@ export default function SchoolUserDirectoryPage() {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      ) : null}
+      {editSuccess ? (
+        <div role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {editSuccess}
         </div>
       ) : null}
 
@@ -709,6 +801,7 @@ export default function SchoolUserDirectoryPage() {
           title="Profesores"
           rows={profesores}
           emptyLabel="No hay profesores asignados en el colegio activo."
+          onEdit={openEditDialog}
         />
       ) : null}
 
@@ -717,6 +810,7 @@ export default function SchoolUserDirectoryPage() {
           title="Preceptores"
           rows={preceptores}
           emptyLabel="No hay preceptores asignados en el colegio activo."
+          onEdit={openEditDialog}
         />
       ) : null}
 
@@ -725,6 +819,7 @@ export default function SchoolUserDirectoryPage() {
           title="Directivos"
           rows={directivos}
           emptyLabel="No hay directivos registrados en el colegio activo."
+          onEdit={openEditDialog}
         />
       ) : null}
 
@@ -733,6 +828,7 @@ export default function SchoolUserDirectoryPage() {
           rows={padres}
           availableStudents={payload?.students_without_parent || []}
           onLinked={setPayload}
+          onEdit={openEditDialog}
         />
       ) : null}
 
@@ -749,7 +845,7 @@ export default function SchoolUserDirectoryPage() {
               {alumnosPorCurso.length ? (
                 <div className="w-full max-w-md">
                   <Select value={selectedCourseKey} onValueChange={setSelectedCourseKey}>
-                    <SelectTrigger className="h-11 text-sm sm:h-12 sm:text-base">
+                    <SelectTrigger className="h-11 text-sm sm:h-12 sm:text-base" aria-label="Curso">
                       <SelectValue placeholder="Seleccionar curso" />
                     </SelectTrigger>
                     <SelectContent>
@@ -781,6 +877,53 @@ export default function SchoolUserDirectoryPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <Dialog open={!!editingUser} onOpenChange={(open) => (!open ? closeEditDialog() : null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar datos de {editingUser?.username}</DialogTitle>
+            <DialogDescription>
+              Actualiza nombre, apellido y correo del usuario en el colegio activo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="directory-edit-first-name">Nombre</Label>
+              <Input
+                id="directory-edit-first-name"
+                value={editForm.first_name}
+                onChange={(event) => setEditForm((current) => ({ ...current, first_name: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="directory-edit-last-name">Apellido</Label>
+              <Input
+                id="directory-edit-last-name"
+                value={editForm.last_name}
+                onChange={(event) => setEditForm((current) => ({ ...current, last_name: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="directory-edit-email">Email</Label>
+              <Input
+                id="directory-edit-email"
+                type="email"
+                value={editForm.email}
+                onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))}
+              />
+            </div>
+            {editError ? <p role="alert" className="text-sm text-red-600">{editError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeEditDialog} disabled={editSaving}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={handleSaveUser} disabled={editSaving}>
+              {editSaving ? "Guardando..." : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

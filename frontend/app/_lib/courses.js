@@ -139,6 +139,7 @@ export async function loadCourseCatalog(options = {}) {
   const urls = Array.isArray(options?.urls) ? options.urls : [options?.urls]
   const cacheKey = toCleanString(options?.cacheKey || "default")
   const force = options?.force === true
+  const throwOnError = options?.throwOnError === true
   const maxAgeMs =
     Number.isFinite(Number(options?.maxAgeMs)) && Number(options?.maxAgeMs) > 0
       ? Number(options.maxAgeMs)
@@ -160,18 +161,33 @@ export async function loadCourseCatalog(options = {}) {
 
   const promise = (async () => {
     let resolved = []
+    let successfulResponse = false
+    let lastError = null
 
     for (const url of urlList) {
       try {
         const res = await fetcher(url)
-        if (!res?.ok) continue
         const data = await res.json().catch(() => ({}))
+        if (!res?.ok) {
+          lastError = new Error(
+            data?.detail ||
+              data?.error ||
+              `No se pudieron cargar los cursos (HTTP ${res?.status || "ERR"}).`
+          )
+          continue
+        }
+        successfulResponse = true
         const list = parseCourseListPayload(data)
         resolved = list
         if (list.length > 0) break
-      } catch {
-        // ignore and try next endpoint
+      } catch (error) {
+        lastError =
+          error instanceof Error ? error : new Error("No se pudieron cargar los cursos.")
       }
+    }
+
+    if (throwOnError && !successfulResponse) {
+      throw lastError || new Error("No se pudieron cargar los cursos.")
     }
 
     const normalized = normalizeCourseList(resolved)

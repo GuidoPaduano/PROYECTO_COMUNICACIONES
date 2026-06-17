@@ -189,8 +189,8 @@ export function AppShell({
     return new Set(roles.map((role) => String(role || "").toLowerCase()).filter(Boolean))
   }, [roles])
   const schoolAdminOnlyMode = useMemo(
-    () => rolesReady && (roleSet.has("administradores") || roleSet.has("administrador")),
-    [roleSet, rolesReady]
+    () => rolesReady && !isSuper && (roleSet.has("administradores") || roleSet.has("administrador")),
+    [isSuper, roleSet, rolesReady]
   )
   const adminOnlyMode = useMemo(
     () => isSuper && !schoolAdminOnlyMode && !getPreviewRole(),
@@ -232,12 +232,11 @@ export function AppShell({
   }, [school])
   const showSchoolSwitcher = useMemo(
     () =>
-      !!isSuper &&
       !pathname?.startsWith("/admin/colegio") &&
       !pathname?.startsWith("/admin/plataforma") &&
       Array.isArray(availableSchools) &&
       availableSchools.length > 1,
-    [availableSchools, isSuper, pathname]
+    [availableSchools, pathname]
   )
   const selectedSchoolValue = useMemo(() => {
     if (!school) return ""
@@ -247,8 +246,6 @@ export function AppShell({
   }, [school])
   const sidebarEyebrow = adminOnlyMode ? "Colegio" : "Escuela"
   const sidebarTitle = schoolShortName || schoolName || "Comunicaciones"
-  const hideHeaderForPadrePerfil =
-    rolesReady && pathname?.startsWith("/perfil") && roleSet.has("padres")
   const hideHeaderForAlumnoDetail =
     pathname?.startsWith("/alumnos/") && pathname !== "/alumnos"
   const canAccessAdminColegio = useMemo(
@@ -308,7 +305,7 @@ export function AppShell({
     typeof unreadMessages === "number" ? unreadMessages : Number(fallbackUnread || 0)
 
   const resolvedHideHeader =
-    hideHeader || hideHeaderFromParams || hideHeaderForPadrePerfil || hideHeaderForAlumnoDetail
+    hideHeader || hideHeaderFromParams || hideHeaderForAlumnoDetail
 
   return (
     <div
@@ -319,6 +316,9 @@ export function AppShell({
       )}
       style={brandStyle}
     >
+      <a href="#contenido-principal" className="skip-link">
+        Saltar al contenido principal
+      </a>
       {!hideSidebar && (
         <aside className={cn("app-sidebar", sidebarOpen && "app-sidebar--open")}>
           <div className="sidebar-top">
@@ -345,7 +345,7 @@ export function AppShell({
             </div>
           </div>
 
-          <nav className="sidebar-nav">
+          <nav className="sidebar-nav" aria-label="Navegacion principal">
             {navItems.map((item) => {
               const Icon = item.icon
               const active = activeHref === item.href
@@ -395,12 +395,13 @@ export function AppShell({
         />
       ) : null}
 
-      <main className="app-main">
+      <main id="contenido-principal" className="app-main" tabIndex={-1}>
         <div className={cn("app-main-inner", maxWidthClass)}>
           {!hideSidebar && (
             <div className="lg:hidden mb-4 flex items-center justify-between">
               <button
                 type="button"
+                aria-label="Abrir menu lateral"
                 className="app-icon-button"
                 onClick={() => setSidebarOpen((value) => !value)}
               >

@@ -25,6 +25,7 @@ from .course_access import build_course_membership_q, course_ref_matches, get_as
 from .models import Alumno, Sancion, Notificacion, resolve_school_course_for_value
 from .schools import get_request_school, scope_queryset_to_school
 from .serializers import SancionPublicSerializer
+from .signatures import claim_signature
 from .user_groups import get_user_group_names, get_user_group_names_lower
 from .utils_cursos import resolve_course_reference
 # ✅ FIX CLAVE: antes no existía User y las notificaciones fallaban silenciosamente
@@ -578,10 +579,17 @@ def firmar_sancion(request, pk: int):
             status=400,
         )
 
-    sanc.firmada = True
-    sanc.firmada_en = timezone.now()
-    sanc.firmada_por = request.user
-    sanc.save(update_fields=["firmada", "firmada_en", "firmada_por"])
+    if not claim_signature(sanc, user=request.user):
+        return Response(
+            {
+                "detail": "La sanción ya fue firmada.",
+                "id": sanc.id,
+                "alumno_id": sanc.alumno_id,
+                "firmada": True,
+                "firmada_en": sanc.firmada_en.isoformat() if sanc.firmada_en else None,
+            },
+            status=400,
+        )
 
     return Response(
         {

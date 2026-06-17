@@ -2,6 +2,8 @@ import {
   findCourseOption,
   getCourseDisplayName,
   getCourseSchoolCourseId,
+  invalidateCourseCatalogCache,
+  loadCourseCatalog,
   normalizeCourseList,
   resolveCanonicalCourseValue,
 } from "@/app/_lib/courses"
@@ -88,5 +90,46 @@ describe("course selection helpers", () => {
         curso: "2A",
       })
     ).toBe("2A")
+  })
+
+  it("throws in strict mode only when every catalog endpoint fails", async () => {
+    invalidateCourseCatalogCache()
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: async () => ({ detail: "Catálogo temporalmente no disponible." }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ cursos: [] }),
+      })
+
+    await expect(
+      loadCourseCatalog({
+        cacheKey: "strict-fallback",
+        fetcher,
+        urls: ["/primario", "/alternativo"],
+        throwOnError: true,
+      })
+    ).resolves.toEqual([])
+
+    invalidateCourseCatalogCache("strict-all-fail")
+    const failingFetcher = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: "Catálogo temporalmente no disponible." }),
+    })
+
+    await expect(
+      loadCourseCatalog({
+        cacheKey: "strict-all-fail",
+        fetcher: failingFetcher,
+        urls: ["/primario", "/alternativo"],
+        throwOnError: true,
+      })
+    ).rejects.toThrow("Catálogo temporalmente no disponible.")
   })
 })

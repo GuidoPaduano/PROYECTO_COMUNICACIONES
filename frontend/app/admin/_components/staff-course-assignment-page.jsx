@@ -75,8 +75,7 @@ export default function StaffCourseAssignmentPage({
 
     ;(async () => {
       try {
-        const suffix = deferredQuery ? `?q=${encodeURIComponent(deferredQuery)}` : ""
-        const res = await authFetch(`/admin/staff/${suffix}`, {
+        const res = await authFetch("/admin/staff/", {
           headers: activeSchoolRef ? { "X-School": String(activeSchoolRef) } : undefined,
         })
         const data = await res.json().catch(() => ({}))
@@ -114,7 +113,7 @@ export default function StaffCourseAssignmentPage({
     return () => {
       cancelled = true
     }
-  }, [activeSchoolRef, allowed, deferredQuery, refreshTick])
+  }, [activeSchoolRef, allowed, refreshTick])
 
   const users = Array.isArray(payload.users) ? payload.users : []
   const courses = Array.isArray(payload.courses) ? payload.courses : []
@@ -264,11 +263,24 @@ export default function StaffCourseAssignmentPage({
     }
   }
 
-  if (loadingSession || !allowed) {
+  if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando herramienta de asignaciones...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-800">
+            Solo los administradores del colegio pueden modificar asignaciones.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -283,7 +295,7 @@ export default function StaffCourseAssignmentPage({
             <ArrowLeft className="h-4 w-4" />
             {backLabel}
           </Link>
-          <h1 className="mt-3 text-3xl font-semibold text-slate-900">{title}</h1>
+          <h2 className="mt-3 text-3xl font-semibold text-slate-900">{title}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
@@ -332,7 +344,7 @@ export default function StaffCourseAssignmentPage({
       </Card>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
@@ -363,12 +375,12 @@ export default function StaffCourseAssignmentPage({
               ) : (
                 <>
                   {currentCourseDraft?.error ? (
-                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                       {currentCourseDraft.error}
                     </div>
                   ) : null}
                   {currentCourseDraft?.success ? (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                    <div role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                       {currentCourseDraft.success}
                     </div>
                   ) : null}

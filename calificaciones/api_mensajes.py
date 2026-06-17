@@ -14,7 +14,7 @@ from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from django.core.exceptions import FieldDoesNotExist
 from django.utils import timezone
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.contrib.auth import get_user_model
 
 from .course_access import build_course_membership_q, course_ref_matches, get_assignment_course_refs
@@ -611,6 +611,9 @@ def _notif_url_for_msg(msg):
     try:
         if _threads_enabled() and getattr(msg, "thread_id", None):
             return f"/mensajes/hilo/{getattr(msg, 'thread_id')}"
+        message_id = getattr(msg, "id", None)
+        if message_id is not None:
+            return f"/mensajes/hilo/{message_id}"
     except Exception:
         pass
     return "/mensajes"
@@ -1430,6 +1433,13 @@ def responder_mensaje(request):
     mensaje_id = data.get("mensaje_id") or data.get("id") or data.get("mensajeId")
     asunto = (data.get("asunto") or "").strip()
     contenido = (data.get("contenido") or "").strip()
+    raw_client_request_id = data.get("client_request_id") or data.get("clientRequestId")
+    client_request_id = None
+    if raw_client_request_id:
+        try:
+            client_request_id = UUID(str(raw_client_request_id))
+        except (TypeError, ValueError, AttributeError):
+            return Response({"detail": "client_request_id inválido."}, status=400)
 
     if not mensaje_id or not contenido:
         return Response({"detail": "mensaje_id y contenido son requeridos."}, status=400)
@@ -1500,11 +1510,47 @@ def responder_mensaje(request):
         if school_course_ref is not None:
             nuevo_kwargs["school_course"] = school_course_ref
 
-    nuevo = Mensaje.objects.create(**nuevo_kwargs)
-    try:
-        _notify_msg(msg=nuevo, receptor=original_sender, alumno=alumno_ref, actor=request.user)
-    except Exception:
-        pass
+    deduplicated = False
+    if client_request_id is not None and _has_field(Mensaje, "client_request_id"):
+        nuevo_kwargs["client_request_id"] = client_request_id
+        nuevo = Mensaje.objects.filter(
+            remitente=request.user,
+            client_request_id=client_request_id,
+        ).first()
+        if nuevo is not None:
+            deduplicated = True
+        else:
+            try:
+                with transaction.atomic():
+                    nuevo = Mensaje.objects.create(**nuevo_kwargs)
+            except IntegrityError:
+                nuevo = Mensaje.objects.get(
+                    remitente=request.user,
+                    client_request_id=client_request_id,
+                )
+                deduplicated = True
+    else:
+        nuevo = Mensaje.objects.create(**nuevo_kwargs)
+
+    if deduplicated:
+        same_request = (
+            getattr(nuevo, f"{rf}_id", None) == getattr(original_sender, "id", None)
+            and getattr(nuevo, "asunto", "") == asunto
+            and getattr(nuevo, "contenido", "") == contenido
+        )
+        if flags["has_reply_to"]:
+            same_request = same_request and getattr(nuevo, "reply_to_id", None) == original.id
+        if not same_request:
+            return Response(
+                {"detail": "client_request_id ya fue utilizado para otra respuesta."},
+                status=409,
+            )
+
+    if not deduplicated:
+        try:
+            _notify_msg(msg=nuevo, receptor=original_sender, alumno=alumno_ref, actor=request.user)
+        except Exception:
+            pass
 
     has_leido = flags["has_leido"]
     has_leido_en = flags["has_leido_en"]
@@ -1525,8 +1571,9 @@ def responder_mensaje(request):
         {
             "id": nuevo.id,
             "thread_id": str(getattr(nuevo, "thread_id")) if _threads_enabled() else str(original.id),
+            "deduplicated": deduplicated,
         },
-        status=201,
+        status=200 if deduplicated else 201,
     )
 
 

@@ -23,6 +23,17 @@ def _school_resolution_cache_key(user) -> str:
     return f"school_resolution:user:{user_id or 'x'}:{username}"
 
 
+def clear_user_school_resolution_cache(user) -> None:
+    try:
+        cache.delete(_school_resolution_cache_key(user))
+        if hasattr(user, "_cached_resolved_school"):
+            delattr(user, "_cached_resolved_school")
+        if hasattr(user, "_cached_resolved_school_set"):
+            delattr(user, "_cached_resolved_school_set")
+    except Exception:
+        pass
+
+
 @lru_cache(maxsize=64)
 def _get_school_by_id_cached(school_id: int) -> Optional[School]:
     try:
@@ -233,13 +244,16 @@ def user_can_access_school(user, school: Optional[School]) -> bool:
         pass
 
     try:
-        from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
+        from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
     except Exception:
         PreceptorCurso = None
         ProfesorCurso = None
         SchoolAdmin = None
+        SchoolMembership = None
 
     try:
+        if SchoolMembership is not None and SchoolMembership.objects.filter(user=user, school_id=school_id).exists():
+            return True
         if SchoolAdmin is not None and SchoolAdmin.objects.filter(admin=user, school_id=school_id).exists():
             return True
         if PreceptorCurso is not None and PreceptorCurso.objects.filter(preceptor=user, school_id=school_id).exists():
@@ -338,6 +352,7 @@ def resolve_school_for_user(user) -> Optional[School]:
     try_preceptor_assignment = (not has_explicit_groups) or ("Preceptores" in group_names)
     try_profesor_assignment = (not has_explicit_groups) or ("Profesores" in group_names)
     try_school_admin_assignment = (not has_explicit_groups) or ("Administradores" in group_names)
+    try_school_membership = (not has_explicit_groups) or ("Directivos" in group_names)
 
     if try_alumno_link:
         try:
@@ -377,13 +392,27 @@ def resolve_school_for_user(user) -> Optional[School]:
 
     if resolved_school is None:
         try:
-            from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
+            from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
         except Exception:
             PreceptorCurso = None
             ProfesorCurso = None
             SchoolAdmin = None
+            SchoolMembership = None
 
-        if try_school_admin_assignment and SchoolAdmin is not None:
+        if try_school_membership and SchoolMembership is not None:
+            try:
+                membership = (
+                    SchoolMembership.objects.select_related("school")
+                    .filter(user=user, school__isnull=False)
+                    .order_by("school_id", "id")
+                    .first()
+                )
+                if membership is not None and membership.school_id:
+                    resolved_school = membership.school
+            except Exception:
+                pass
+
+        if resolved_school is None and try_school_admin_assignment and SchoolAdmin is not None:
             try:
                 assignment = (
                     SchoolAdmin.objects.select_related("school")
@@ -447,6 +476,24 @@ def get_available_schools_for_user(user, *, active_school: Optional[School] = No
             if active_school is not None and all(getattr(s, "id", None) != active_school.id for s in schools):
                 schools.insert(0, active_school)
             return schools
+    except Exception:
+        pass
+
+    try:
+        from .models_preceptores import SchoolMembership
+
+        memberships = list(
+            School.objects.filter(
+                is_active=True,
+                user_memberships__user=user,
+            )
+            .distinct()
+            .order_by("name", "id")
+        )
+        if memberships:
+            if active_school is not None and all(s.id != active_school.id for s in memberships):
+                memberships.insert(0, active_school)
+            return memberships
     except Exception:
         pass
 

@@ -230,18 +230,14 @@ export function normalizeSchool(rawSchool) {
   const slug = String(rawSchool.slug || rawSchool.school_slug || "").trim()
   const logoUrl = String(rawSchool.logo_url || rawSchool.school_logo_url || "").trim() || DEFAULT_SCHOOL_LOGO_URL
   const isActive = rawSchool.is_active !== false
-  const primaryColor = isActive
-    ? DEFAULT_SCHOOL_PRIMARY_COLOR
-    : normalizeHexColor(
-        rawSchool.primary_color || rawSchool.school_primary_color,
-        DEFAULT_SCHOOL_PRIMARY_COLOR
-      )
-  const accentColor = isActive
-    ? DEFAULT_SCHOOL_ACCENT_COLOR
-    : normalizeHexColor(
-        rawSchool.accent_color || rawSchool.school_accent_color,
-        DEFAULT_SCHOOL_ACCENT_COLOR
-      )
+  const primaryColor = normalizeHexColor(
+    rawSchool.primary_color || rawSchool.school_primary_color,
+    DEFAULT_SCHOOL_PRIMARY_COLOR
+  )
+  const accentColor = normalizeHexColor(
+    rawSchool.accent_color || rawSchool.school_accent_color,
+    DEFAULT_SCHOOL_ACCENT_COLOR
+  )
 
   if (id == null && !name && !slug) return null
 
@@ -711,13 +707,14 @@ export async function resolveSessionAlumnoRouteId(options = {}) {
 }
 
 export function useSessionContext() {
-  const [context, setContext] = useState(() => getSessionContext())
+  const [context, setContext] = useState(null)
 
   useEffect(() => {
     const handler = (event) => {
       setContext(event?.detail ?? getSessionContext())
     }
     if (typeof window !== "undefined") {
+      setContext(getSessionContext())
       window.addEventListener(SESSION_CONTEXT_EVENT, handler)
       return () => window.removeEventListener(SESSION_CONTEXT_EVENT, handler)
     }

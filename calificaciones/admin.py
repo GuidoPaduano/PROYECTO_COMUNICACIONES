@@ -17,7 +17,12 @@ from .models import (
     AlertaAcademica,
     AlertaInasistencia,
 )
-from .models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin as SchoolAdminAssignment
+from .models_preceptores import (
+    PreceptorCurso,
+    ProfesorCurso,
+    SchoolAdmin as SchoolAdminAssignment,
+    SchoolMembership,
+)
 from .schools import (
     DEFAULT_SCHOOL_ACCENT_COLOR,
     DEFAULT_SCHOOL_PRIMARY_COLOR,
@@ -340,6 +345,16 @@ class SchoolAdminAssignmentAdmin(admin.ModelAdmin):
                 groups__name__in=["Administradores", "Administrador"]
             ).distinct()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+@admin.register(SchoolMembership)
+class SchoolMembershipAdmin(admin.ModelAdmin):
+    list_display = ("school", "user", "assigned_at")
+    list_filter = ("school",)
+    search_fields = ("school__name", "school__slug", "user__username", "user__first_name", "user__last_name")
+    ordering = ("school__name", "user__username", "id")
+    list_select_related = ("school", "user")
+    autocomplete_fields = ("school", "user")
 
 
 # ─────────────────────────────────────────────────────────────

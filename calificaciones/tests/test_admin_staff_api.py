@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from calificaciones.models import Alumno, School, SchoolCourse
-from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin
+from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
 
 
 def _make_user(username: str, *, is_superuser: bool = False):
@@ -201,6 +201,28 @@ class AdminStaffApiTests(TestCase):
         self.assertTrue(usuario.groups.filter(name="Administradores").exists())
         self.assertTrue(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
 
+    def test_post_crea_directivo_con_membresia_sin_hacerlo_admin(self):
+        response = self.client.post(
+            "/api/admin/users/create/",
+            {
+                "first_name": "Diana",
+                "last_name": "Directiva",
+                "username": "diana_directiva",
+                "email": "diana@example.com",
+                "password": "ClaveSegura123!",
+                "password_confirm": "ClaveSegura123!",
+                "role": "Directivos",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 201)
+        usuario = get_user_model().objects.get(username="diana_directiva")
+        self.assertTrue(usuario.groups.filter(name="Directivos").exists())
+        self.assertTrue(SchoolMembership.objects.filter(school=self.school, user=usuario).exists())
+        self.assertFalse(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
+
     def test_post_permite_crear_usuario_con_contrasena_corta(self):
         response = self.client.post(
             "/api/admin/users/create/",
@@ -324,8 +346,27 @@ class AdminStaffApiTests(TestCase):
         usuario.refresh_from_db()
 
         self.assertTrue(usuario.groups.filter(name="Directivos").exists())
+        self.assertTrue(SchoolMembership.objects.filter(school=self.school, user=usuario).exists())
         self.assertFalse(ProfesorCurso.objects.filter(profesor=usuario, school=self.school).exists())
         self.assertTrue(ProfesorCurso.objects.filter(profesor=usuario, school=self.other_school).exists())
+
+    def test_directorio_solo_lista_directivos_miembros_del_colegio_activo(self):
+        directivo_local = _make_user("directivo_local")
+        directivo_externo = _make_user("directivo_externo")
+        directivo_local.groups.add(self.dir_group)
+        directivo_externo.groups.add(self.dir_group)
+        SchoolMembership.objects.create(school=self.school, user=directivo_local)
+        SchoolMembership.objects.create(school=self.other_school, user=directivo_externo)
+
+        response = self.client.get(
+            "/api/admin/school-users/",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        usernames = {item["username"] for item in response.json()["directivos"]}
+        self.assertIn(directivo_local.username, usernames)
+        self.assertNotIn(directivo_externo.username, usernames)
 
     def test_patch_curso_profesores_actualiza_asignacion_masiva(self):
         profesor_a = _make_user("profesor_a")
@@ -455,3 +496,88 @@ class AdminStaffApiTests(TestCase):
 
         response = self.client.get("/api/admin/school-users/", HTTP_X_SCHOOL=self.school.slug)
         self.assertEqual(response.status_code, 403)
+
+    def test_admin_edita_datos_de_usuario_del_colegio_activo(self):
+        profesor = _make_user("profesor_edicion_directorio")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            profesor=profesor,
+            curso=self.course_a.code,
+        )
+
+        response = self.client.patch(
+            f"/api/admin/school-users/{profesor.id}/",
+            {
+                "first_name": "Paula",
+                "last_name": "Editada",
+                "email": "paula.editada@example.com",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profesor.refresh_from_db()
+        self.assertEqual(profesor.first_name, "Paula")
+        self.assertEqual(profesor.last_name, "Editada")
+        self.assertEqual(profesor.email, "paula.editada@example.com")
+        row = next(
+            item
+            for item in response.json()["directory"]["profesores"]
+            if item["id"] == profesor.id
+        )
+        self.assertEqual(row["full_name"], "Paula Editada")
+
+    def test_admin_no_edita_usuario_de_otro_colegio(self):
+        profesor = _make_user("profesor_edicion_externo")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.other_school,
+            school_course=self.other_course,
+            profesor=profesor,
+            curso=self.other_course.code,
+        )
+
+        response = self.client.patch(
+            f"/api/admin/school-users/{profesor.id}/",
+            {
+                "first_name": "Cambio",
+                "last_name": "Indebido",
+                "email": "cambio@example.com",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 404)
+        profesor.refresh_from_db()
+        self.assertEqual(profesor.first_name, "")
+
+    def test_admin_edicion_rechaza_email_duplicado(self):
+        existing = _make_user("usuario_email_existente")
+        existing.email = "duplicado@example.com"
+        existing.save(update_fields=["email"])
+        profesor = _make_user("profesor_email_editable")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            profesor=profesor,
+            curso=self.course_a.code,
+        )
+
+        response = self.client.patch(
+            f"/api/admin/school-users/{profesor.id}/",
+            {
+                "first_name": "Profesor",
+                "last_name": "Editable",
+                "email": existing.email,
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school.slug,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Ya existe un usuario con ese correo.")

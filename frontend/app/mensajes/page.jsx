@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   useAuthGuard,
   authFetch,
@@ -15,6 +15,7 @@ import { getCourseDisplayName } from "../_lib/courses"
 import { notifyInboxChanged } from "../_lib/inbox" // ⬅️ EVENT bus para badges
 import { NotificationBell } from "@/components/notification-bell"
 import { useUnreadCount } from "../_lib/useUnreadCount"
+import { buildReplyRequestAttempts } from "../_lib/idempotency"
 
 import {
   Mail,
@@ -239,6 +240,7 @@ export default function MensajesPage() {
   const [open, setOpen] = useState(false)
   const [msgSel, setMsgSel] = useState(null)
   const [verHiloLoading, setVerHiloLoading] = useState(false)
+  const messageDialogTriggerRef = useRef(null)
 
   // === Eliminar mensaje ===
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -267,10 +269,13 @@ export default function MensajesPage() {
   const [contenidoAlu, setContenidoAlu] = useState("")
   const [destinatariosDoc, setDestinatariosDoc] = useState([])
   const [alumnoDestType, setAlumnoDestType] = useState("")
+  const [clientReady, setClientReady] = useState(false)
   const myId = me?.id ?? me?.user?.id
-  const blockDeleteForUnread = hasAlumnoOrPadreRole(me)
-  const groups = Array.isArray(me?.groups) ? me.groups : []
+  const roleProfile = clientReady ? me : null
+  const blockDeleteForUnread = hasAlumnoOrPadreRole(roleProfile)
+  const groups = Array.isArray(roleProfile?.groups) ? roleProfile.groups : []
   const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
+  const isProfesor = groups.includes("Profesores") || groups.includes("Profesor")
   const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
   const isPadre = groups.includes("Padres") || groups.includes("Padre")
   const isAlumnoOrPadre = isAlumno || isPadre
@@ -284,6 +289,10 @@ export default function MensajesPage() {
   )
 
   const unreadCount = useUnreadCount()
+
+  useEffect(() => {
+    setClientReady(true)
+  }, [])
 
   useEffect(() => {
     const sessionMe = sessionBootstrapProfile
@@ -378,8 +387,19 @@ export default function MensajesPage() {
                   ? `/api/mensajes/recibidos/?alumno_id=${encodeURIComponent(String(hijoSel))}`
                   : "/api/mensajes/recibidos/"
               const r = await fetchJSON(url)
+              if (!r.ok) {
+                const detail =
+                  r?.data?.detail ||
+                  r?.data?.error ||
+                  r?.text ||
+                  `No se pudieron cargar los mensajes (HTTP ${r.status}).`
+                throw new Error(detail)
+              }
+              if (!Array.isArray(r.data)) {
+                throw new Error("La respuesta de mensajes no tiene un formato válido.")
+              }
               return {
-                list: r.ok && Array.isArray(r.data) ? r.data : [],
+                list: r.data,
                 traces: [{ url, status: r.status, ok: r.ok }],
               }
             },
@@ -387,8 +407,10 @@ export default function MensajesPage() {
           )
           list = Array.isArray(inbox?.list) ? inbox.list : null
           tries = Array.isArray(inbox?.traces) ? inbox.traces : []
-        } catch {
+        } catch (e) {
           tries = [{ url: "/api/mensajes/recibidos/", status: "ERR", ok: false }]
+          if (alive) setTraces(tries)
+          throw e
         }
 
         if (alive) {
@@ -589,21 +611,7 @@ export default function MensajesPage() {
       contenido: replyTexto.trim(),
     }
 
-    const formPayload = new FormData()
-    formPayload.append("mensaje_id", String(payload.mensaje_id))
-    formPayload.append("asunto", payload.asunto)
-    formPayload.append("contenido", payload.contenido)
-
-    const tries = [
-      {
-        body: JSON.stringify(payload),
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-      },
-      {
-        body: formPayload,
-        headers: { Accept: "application/json" },
-      },
-    ]
+    const tries = buildReplyRequestAttempts(payload)
 
     let ok = false,
       lastErr = "",
@@ -653,7 +661,11 @@ export default function MensajesPage() {
     [me?.user?.first_name, me?.user?.last_name].filter(Boolean).join(" ") ||
     ""
 
-  const cursosEndpoint = "/alumnos/cursos/"
+  const cursosEndpoint = isProfesor
+    ? "/notas/catalogos/"
+    : isPreceptor
+      ? "/preceptor/cursos/"
+      : "/alumnos/cursos/"
 
   const debugFlag =
     typeof window !== "undefined" &&
@@ -830,10 +842,24 @@ export default function MensajesPage() {
 
             {/* Lista */}
             {loading ? (
-              <p className="text-sm text-gray-500">Cargando mensajes…</p>
+              <p role="status" aria-live="polite" className="text-sm text-gray-500">
+                Cargando mensajes…
+              </p>
             ) : error ? (
-              <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
-                {error}
+              <div role="alert" className="space-y-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <div>{error}</div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => {
+                    invalidateMensajesResource(inboxCacheKey)
+                    setReloadTick((tick) => tick + 1)
+                  }}
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Reintentar
+                </Button>
               </div>
             ) : list.length === 0 ? (
               <div className="text-sm text-gray-600">No hay mensajes recibidos.</div>
@@ -845,17 +871,8 @@ export default function MensajesPage() {
                     return (
                   <div
                     key={m.id || i}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => abrirMensaje(m)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault()
-                        abrirMensaje(m)
-                      }
-                    }}
                     className={[
-                      "w-full text-left py-3 -mx-2 px-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)]",
+                      "relative w-full py-3 -mx-2 px-2 rounded-lg transition-colors",
                       esNoLeido(m, myId) ? "" : "hover:bg-[#f6f9ff]",
                     ].join(" ")}
                     style={
@@ -866,12 +883,20 @@ export default function MensajesPage() {
                       }
                     }
                   >
-                    <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        messageDialogTriggerRef.current = event.currentTarget
+                        abrirMensaje(m)
+                      }}
+                      className="flex w-full items-start gap-3 pr-9 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)]"
+                      aria-label={`Abrir mensaje: ${collapseRePrefix(m.asunto) || "Sin asunto"}`}
+                    >
                       <div className="w-10 h-10 rounded-full school-primary-soft-icon flex items-center justify-center font-semibold flex-shrink-0">
                         {initials(m.emisor)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline justify-between gap-2">
+                          <div className="flex items-baseline justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             {esNoLeido(m, myId) && (
                               <span
@@ -890,21 +915,10 @@ export default function MensajesPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-gray-700">
                               {fmtFecha(m.fecha || m.fecha_envio)}
                             </div>
-                              {!(blockDeleteForUnread && esNoLeido(m, myId)) ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => pedirEliminar(m, e)}
-                                  className="p-1 rounded-md border border-transparent bg-red-50/70 text-red-600 shadow-sm hover:bg-red-100 hover:text-red-700 hover:border-red-200"
-                                  title="Eliminar mensaje"
-                                  aria-label="Eliminar mensaje"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              ) : null}
-                            </div>
+                          </div>
                         </div>
                         <div
                           className={`text-sm truncate ${
@@ -917,10 +931,21 @@ export default function MensajesPage() {
                           {preview(m.contenido || m.body || "")}
                         </div>
                         {readReceipt ? (
-                          <div className="mt-1 text-xs text-gray-500">{readReceipt}</div>
+                          <div className="mt-1 text-xs text-gray-700">{readReceipt}</div>
                         ) : null}
                       </div>
-                    </div>
+                    </button>
+                    {!(blockDeleteForUnread && esNoLeido(m, myId)) ? (
+                      <button
+                        type="button"
+                        onClick={(e) => pedirEliminar(m, e)}
+                        className="absolute right-2 top-3 p-1 rounded-md border border-transparent bg-red-50/70 text-red-600 shadow-sm hover:bg-red-100 hover:text-red-700 hover:border-red-200"
+                        title="Eliminar mensaje"
+                        aria-label="Eliminar mensaje"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    ) : null}
                   </div>
                     )
                   })()
@@ -1041,7 +1066,7 @@ export default function MensajesPage() {
           </DialogHeader>
 
           {alumnoMsgErr && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+            <div role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
               {alumnoMsgErr}
             </div>
           )}
@@ -1162,7 +1187,15 @@ export default function MensajesPage() {
 
       {/* ===================== MODAL LECTURA (REDISEÑADO) ===================== */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-3xl p-0 overflow-hidden">
+        <DialogContent
+          className="sm:max-w-3xl p-0 overflow-hidden"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            if (messageDialogTriggerRef.current?.isConnected) {
+              messageDialogTriggerRef.current.focus()
+            }
+          }}
+        >
           <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle className="text-lg sm:text-xl font-semibold pr-10 break-words">
               {collapseRePrefix(msgSel?.asunto) || "Mensaje"}
@@ -1230,7 +1263,7 @@ export default function MensajesPage() {
                   <div className="text-sm font-medium text-gray-900">Respuesta</div>
                 </div>
 
-                {replyErr && <div className="mb-3 text-sm text-red-600">{replyErr}</div>}
+                {replyErr && <div role="alert" className="mb-3 text-sm text-red-600">{replyErr}</div>}
                 {replyOk && <SuccessMessage className="mb-3">{replyOk}</SuccessMessage>}
 
                 <div className="space-y-4">
@@ -1311,7 +1344,7 @@ export default function MensajesPage() {
     </DialogHeader>
 
     {deleteError && (
-      <div className="mt-2 text-sm text-red-600 text-center">{deleteError}</div>
+      <div role="alert" className="mt-2 text-sm text-red-600 text-center">{deleteError}</div>
     )}
 
     <div className="mt-6 flex items-center justify-center gap-3">

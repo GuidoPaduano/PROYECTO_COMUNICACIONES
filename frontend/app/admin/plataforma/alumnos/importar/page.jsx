@@ -61,7 +61,7 @@ function mergeSchools(...groups) {
 export default function ImportarAlumnosPage() {
   useAuthGuard()
   const sessionContext = useSessionContext()
-  const loading = !sessionContext
+  const loadingSession = !sessionContext
   const allowed = !!sessionContext?.isSuperuser
   const [schools, setSchools] = useState([])
   const [school, setSchool] = useState("")
@@ -186,11 +186,24 @@ export default function ImportarAlumnosPage() {
     }
   }
 
-  if (loading || !allowed) {
+  if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
         <div className="text-sm font-medium text-slate-600">Cargando herramienta de importación...</div>
       </div>
+    )
+  }
+
+  if (!allowed) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader>
+          <CardTitle className="text-amber-950">Acceso restringido</CardTitle>
+          <CardDescription className="text-amber-900">
+            Esta herramienta es exclusiva para administradores de plataforma.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
@@ -204,7 +217,7 @@ export default function ImportarAlumnosPage() {
           <ArrowLeft className="h-4 w-4" />
           Volver a admin plataforma
         </Link>
-        <h1 className="mt-3 text-3xl font-semibold text-slate-900">Importar alumnos</h1>
+        <h2 className="mt-3 text-3xl font-semibold text-slate-900">Importar alumnos</h2>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -220,7 +233,7 @@ export default function ImportarAlumnosPage() {
               <div className="space-y-2">
                 <Label>Colegio</Label>
                 <Select value={school} onValueChange={setSchool}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Colegio">
                     <SelectValue placeholder="Seleccioná colegio" />
                   </SelectTrigger>
                   <SelectContent>
@@ -249,7 +262,7 @@ export default function ImportarAlumnosPage() {
             </div>
 
             {error ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
               </div>
             ) : null}
@@ -274,7 +287,7 @@ export default function ImportarAlumnosPage() {
             </div>
 
             {result?.summary ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <div role="status" aria-live="polite" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                 {selectedSchool ? `${selectedSchool.name}: ` : ""}
                 {formatSummary(result.summary)}
                 {result.summary.created ? `, ${result.summary.created} creados` : ""}

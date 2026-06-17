@@ -22,7 +22,11 @@ class FirmaSancionApiTests(TestCase):
         self.client = APIClient()
         self.padre = _make_user("padre_firma_sancion", ["Padres"])
         self.padre_otro = _make_user("padre_otro_sancion", ["Padres"])
+        self.school = School.objects.create(name="Colegio Firma Sancion", slug="colegio-firma-sancion")
+        self.school_course = SchoolCourse.objects.create(school=self.school, code="1A", name="1A", sort_order=1)
         self.alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.school_course,
             nombre="Eva",
             apellido="Suarez",
             id_alumno="LEG551",
@@ -30,6 +34,7 @@ class FirmaSancionApiTests(TestCase):
             padre=self.padre,
         )
         self.sancion = Sancion.objects.create(
+            school=self.school,
             alumno=self.alumno,
             tipo="Amonestación",
             motivo="Incumplimiento del reglamento",

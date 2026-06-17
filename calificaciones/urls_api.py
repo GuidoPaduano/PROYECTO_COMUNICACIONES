@@ -102,6 +102,7 @@ from .api_schools import (
     admin_create_school,
     admin_school_courses,
     admin_school_admins,
+    admin_school_deletion_job,
     admin_update_school_course,
     admin_update_school,
     admin_update_school_admins,
@@ -112,6 +113,7 @@ from .api_backups import admin_manual_platform_backup
 from .api_admin_staff import (
     admin_parent_children_update,
     admin_school_user_directory,
+    admin_school_user_update,
     admin_staff_overview,
     admin_staff_update,
     admin_staff_course_update,
@@ -199,11 +201,18 @@ urlpatterns = [
 
     # ===== Logout de sesión (cookies) =====
     path("auth/logout/", auth_logout, name="auth_logout"),
+    path("auth/logout", auth_logout, name="auth_logout_noslash"),
     path("auth/password-change/", auth_change_password, name="auth_change_password"),
 
     # ===== Password reset (frontend custom) =====
     path("auth/password-reset/", password_reset_request, name="auth_password_reset"),
+    path("auth/password-reset", password_reset_request, name="auth_password_reset_noslash"),
     path("auth/password-reset/confirm/", password_reset_confirm, name="auth_password_reset_confirm"),
+    path(
+        "auth/password-reset/confirm",
+        password_reset_confirm,
+        name="auth_password_reset_confirm_noslash",
+    ),
 
     # ===== Perfil / WhoAmI =====
     path("public/school-branding/", public_school_branding, name="public_school_branding"),
@@ -216,6 +225,8 @@ urlpatterns = [
     path("admin/schools", admin_create_school, name="admin_create_school_noslash"),
     path("admin/schools/<int:school_id>/", admin_update_school, name="admin_update_school"),
     path("admin/schools/<int:school_id>", admin_update_school, name="admin_update_school_noslash"),
+    path("admin/school-deletion-jobs/<int:job_id>/", admin_school_deletion_job, name="admin_school_deletion_job"),
+    path("admin/school-deletion-jobs/<int:job_id>", admin_school_deletion_job, name="admin_school_deletion_job_noslash"),
     path("admin/school-admins/", admin_school_admins, name="admin_school_admins"),
     path("admin/school-admins", admin_school_admins, name="admin_school_admins_noslash"),
     path("admin/school-admins/<int:school_id>/", admin_update_school_admins, name="admin_update_school_admins"),
@@ -230,6 +241,8 @@ urlpatterns = [
     path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
     path("admin/school-users/", admin_school_user_directory, name="admin_school_user_directory"),
     path("admin/school-users", admin_school_user_directory, name="admin_school_user_directory_noslash"),
+    path("admin/school-users/<int:user_id>/", admin_school_user_update, name="admin_school_user_update"),
+    path("admin/school-users/<int:user_id>", admin_school_user_update, name="admin_school_user_update_noslash"),
     path("admin/school-users/parents/<int:user_id>/children/", admin_parent_children_update, name="admin_parent_children_update"),
     path("admin/school-users/parents/<int:user_id>/children", admin_parent_children_update, name="admin_parent_children_update_noslash"),
     path("admin/users/create/", admin_user_create, name="admin_user_create"),
@@ -263,6 +276,7 @@ urlpatterns = [
 
     # ===== Catálogos y alumnos =====
     path("notas/catalogos/", notas_catalogos, name="notas_catalogos"),
+    path("notas/catalogos", notas_catalogos, name="notas_catalogos_noslash"),
     path("alumnos/", alumnos_por_curso, name="alumnos_por_curso"),
     path("alumnos", alumnos_por_curso, name="alumnos_por_curso_noslash"),
 
@@ -313,6 +327,7 @@ urlpatterns = [
 
     # Dinámicas alumno
     path("alumnos/<str:alumno_id>/", alumno_detalle, name="alumno_detalle"),
+    path("alumnos/<str:alumno_id>", alumno_detalle, name="alumno_detalle_noslash"),
     path("alumnos/<str:alumno_id>/notas/", alumno_notas, name="alumno_notas"),
     path("alumnos/<str:alumno_id>/notas", alumno_notas, name="alumno_notas_noslash"),
 
@@ -485,6 +500,7 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
 
     # ===== Sanciones =====
     path("sanciones/", sanciones_lista_crear, name="sanciones_lista_crear"),
+    path("sanciones", sanciones_lista_crear, name="sanciones_lista_crear_noslash"),
     path("sanciones/<int:pk>/", sancion_detalle, name="sancion_detalle"),
     path("sanciones/<int:pk>/firmar/", firmar_sancion, name="sanciones_firmar"),
     path("sanciones/<int:pk>/firmar", firmar_sancion, name="sanciones_firmar_noslash"),

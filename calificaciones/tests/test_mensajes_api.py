@@ -3,7 +3,9 @@ from django.contrib.auth.models import Group
 from django.core.exceptions import FieldDoesNotExist
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
+from uuid import uuid4
 
+from calificaciones.api_mensajes import _notif_url_for_msg
 from calificaciones.models import Alumno, Mensaje, Notificacion, School, SchoolCourse
 from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso
 
@@ -285,6 +287,9 @@ class MensajesConversacionTests(TestCase):
         self.assertFalse(body["has_more"])
         self.assertIn(body["mensajes"][0]["school_course_name"], {self.school_course.name, self.school_course.code})
 
+    def test_notificacion_de_mensaje_sin_thread_abre_el_hilo_numerico(self):
+        self.assertEqual(_notif_url_for_msg(self.msg_1), f"/mensajes/hilo/{self.msg_1.id}")
+
     def test_conversacion_por_mensaje_rechaza_usuario_ajeno(self):
         self.client.force_authenticate(user=self.tercero)
 
@@ -292,6 +297,129 @@ class MensajesConversacionTests(TestCase):
 
         self.assertEqual(res.status_code, 403)
         self.assertEqual(res.json()["detail"], "No autorizado.")
+
+    def test_responder_rechaza_usuario_que_no_recibio_el_mensaje(self):
+        self.client.force_authenticate(user=self.remitente)
+
+        res = self.client.post(
+            "/api/mensajes/responder/",
+            {
+                "mensaje_id": self.msg_1.id,
+                "contenido": "Intento responder como remitente original",
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No pod\u00e9s responder un mensaje que no recibiste.")
+        self.assertEqual(Mensaje.objects.count(), 3)
+
+    def test_responder_deduplica_el_mismo_client_request_id(self):
+        self.client.force_authenticate(user=self.destinatario)
+        request_id = str(uuid4())
+        payload = {
+            "mensaje_id": self.msg_1.id,
+            "contenido": "Respuesta idempotente",
+            "client_request_id": request_id,
+        }
+
+        first = self.client.post("/api/mensajes/responder/", payload, format="json")
+        second = self.client.post("/api/mensajes/responder/", payload, format="json")
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()["id"], second.json()["id"])
+        self.assertFalse(first.json()["deduplicated"])
+        self.assertTrue(second.json()["deduplicated"])
+        self.assertEqual(
+            Mensaje.objects.filter(
+                remitente=self.destinatario,
+                client_request_id=request_id,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            Notificacion.objects.filter(
+                destinatario=self.remitente,
+                tipo="mensaje",
+            ).count(),
+            1,
+        )
+
+    def test_responder_con_claves_distintas_crea_dos_respuestas(self):
+        self.client.force_authenticate(user=self.destinatario)
+        payload = {
+            "mensaje_id": self.msg_1.id,
+            "contenido": "Respuesta repetida intencional",
+        }
+
+        first = self.client.post(
+            "/api/mensajes/responder/",
+            {**payload, "client_request_id": str(uuid4())},
+            format="json",
+        )
+        second = self.client.post(
+            "/api/mensajes/responder/",
+            {**payload, "client_request_id": str(uuid4())},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertNotEqual(first.json()["id"], second.json()["id"])
+
+    def test_responder_rechaza_reutilizar_clave_para_otro_contenido(self):
+        self.client.force_authenticate(user=self.destinatario)
+        request_id = str(uuid4())
+        first = self.client.post(
+            "/api/mensajes/responder/",
+            {
+                "mensaje_id": self.msg_1.id,
+                "contenido": "Contenido original",
+                "client_request_id": request_id,
+            },
+            format="json",
+        )
+
+        second = self.client.post(
+            "/api/mensajes/responder/",
+            {
+                "mensaje_id": self.msg_1.id,
+                "contenido": "Contenido diferente",
+                "client_request_id": request_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(
+            second.json()["detail"],
+            "client_request_id ya fue utilizado para otra respuesta.",
+        )
+        self.assertEqual(
+            Mensaje.objects.filter(
+                remitente=self.destinatario,
+                client_request_id=request_id,
+            ).count(),
+            1,
+        )
+
+    def test_responder_rechaza_client_request_id_invalido(self):
+        self.client.force_authenticate(user=self.destinatario)
+
+        res = self.client.post(
+            "/api/mensajes/responder/",
+            {
+                "mensaje_id": self.msg_1.id,
+                "contenido": "Respuesta inválida",
+                "client_request_id": "no-es-un-uuid",
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["detail"], "client_request_id inválido.")
 
     def test_marcar_leido_guarda_fecha_de_lectura(self):
         self.client.force_authenticate(user=self.destinatario)
@@ -305,6 +433,39 @@ class MensajesConversacionTests(TestCase):
         if _mensaje_has_field("leido_en"):
             self.assertIsNotNone(self.msg_1.leido_en)
 
+    def test_marcar_leido_rechaza_usuario_que_no_es_destinatario(self):
+        self.client.force_authenticate(user=self.remitente)
+
+        res = self.client.post(f"/api/mensajes/{self.msg_1.id}/marcar_leido/")
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.json()["detail"], "No autorizado.")
+        self.msg_1.refresh_from_db()
+        if _mensaje_has_field("leido"):
+            self.assertFalse(self.msg_1.leido)
+        if _mensaje_has_field("leido_en"):
+            self.assertIsNone(self.msg_1.leido_en)
+
+    def test_unread_count_baja_despues_de_marcar_todos_leidos(self):
+        self.client.force_authenticate(user=self.destinatario)
+
+        unread_before = self.client.get("/api/mensajes/unread_count/")
+        self.assertEqual(unread_before.status_code, 200)
+        self.assertEqual(unread_before.json()["count"], 2)
+
+        res = self.client.post("/api/mensajes/marcar_todos_leidos/")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["actualizados"], 2)
+        unread_after = self.client.get("/api/mensajes/unread_count/")
+        self.assertEqual(unread_after.status_code, 200)
+        self.assertEqual(unread_after.json()["count"], 0)
+
+        self.msg_1.refresh_from_db()
+        if _mensaje_has_field("leido"):
+            self.assertTrue(self.msg_1.leido)
+        if _mensaje_has_field("leido_en"):
+            self.assertIsNotNone(self.msg_1.leido_en)
 
 @override_settings(SECURE_SSL_REDIRECT=False)
 class MensajesPermissionTests(TestCase):

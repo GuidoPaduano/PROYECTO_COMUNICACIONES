@@ -16,6 +16,7 @@ const backendOrigin = normalizedApiBase.replace(/\/api$/i, "");
 const nextConfig = {
   outputFileTracingRoot: __dirname,
   reactStrictMode: true,
+  skipTrailingSlashRedirect: true,
   async rewrites() {
     return [
       {

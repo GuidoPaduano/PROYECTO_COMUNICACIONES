@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
-import { loadCourseCatalog } from "../_lib/courses"
-import { BookOpen } from "lucide-react"
+import { parseCourseListPayload } from "../_lib/courses"
+import { BookOpen, RefreshCcw } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 function getCursoId(c) {
   return c?.value ?? c?.id ?? c
@@ -19,6 +20,9 @@ export default function AlumnosPage() {
   const session = useSessionContext()
 
   const [cursos, setCursos] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [reloadTick, setReloadTick] = useState(0)
   const alumnosScopeKey = useMemo(
     () => `${session?.username || "anon"}:${session?.school?.id || "default"}`,
     [session?.school?.id, session?.username]
@@ -27,22 +31,50 @@ export default function AlumnosPage() {
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const cs = await loadCourseCatalog({
-        cacheKey: `alumnos-cursos:${alumnosScopeKey}`,
-        urls: ["/alumnos/cursos/"],
-        fetcher: (url) => authFetch(url),
-      })
-      if (alive) setCursos(cs)
+      if (alive) {
+        setLoading(true)
+        setError("")
+      }
+      try {
+        const res = await authFetch("/alumnos/cursos/")
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(data?.detail || "No se pudieron cargar los cursos.")
+        }
+        if (alive) setCursos(parseCourseListPayload(data))
+      } catch (e) {
+        if (alive) {
+          setCursos([])
+          setError(e?.message || "No se pudieron cargar los cursos.")
+        }
+      } finally {
+        if (alive) setLoading(false)
+      }
     })()
     return () => {
       alive = false
     }
-  }, [alumnosScopeKey])
+  }, [alumnosScopeKey, reloadTick])
 
   return (
     <div className="space-y-6">
       <div className="surface-card surface-card-pad">
-        {cursos.length === 0 ? (
+        {loading ? (
+          <div className="text-sm text-gray-500" role="status" aria-live="polite">Cargando cursos...</div>
+        ) : error ? (
+          <div className="space-y-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
+            <div>{error}</div>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => setReloadTick((tick) => tick + 1)}
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Reintentar
+            </Button>
+          </div>
+        ) : cursos.length === 0 ? (
           <div className="text-sm text-gray-600">No hay cursos para mostrar.</div>
         ) : (
           <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -29,16 +29,35 @@ class AlertasAcademicasApiTests(TestCase):
         self.profesor = _make_user("profe_alertas", ["Profesores"], is_staff=True)
         self.padre = _make_user("padre_alertas", ["Padres"])
         self.preceptor = _make_user("preceptor_alertas", ["Preceptores"])
+        self.school = School.objects.create(name="Colegio Alertas", slug="colegio-alertas")
+        self.school_course = SchoolCourse.objects.create(
+            school=self.school,
+            code="1A",
+            name="1A",
+            sort_order=1,
+        )
 
         self.alumno = Alumno.objects.create(
+            school=self.school,
+            school_course=self.school_course,
             nombre="Luz",
             apellido="Perez",
             id_alumno="LEG900",
             curso="1A",
             padre=self.padre,
         )
-        ProfesorCurso.objects.create(profesor=self.profesor, curso="1A")
-        PreceptorCurso.objects.create(preceptor=self.preceptor, curso="1A")
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.school_course,
+            profesor=self.profesor,
+            curso="1A",
+        )
+        PreceptorCurso.objects.create(
+            school=self.school,
+            school_course=self.school_course,
+            preceptor=self.preceptor,
+            curso="1A",
+        )
         self.client.force_authenticate(user=self.profesor)
 
     def _post_nota(self, *, resultado: str, calificacion: str, fecha_iso: str, materia: str = "Lengua"):
