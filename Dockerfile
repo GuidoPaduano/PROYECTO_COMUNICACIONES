@@ -26,8 +26,8 @@ RUN RAILWAY_STATIC_BUILD=1 python manage.py collectstatic --noinput
 # Expone el puerto (por defecto en Railway es 8000)
 EXPOSE 8000
 
-# Comando de inicio: solo arranca Gunicorn
-CMD ["gunicorn", "boletin.wsgi:application", "--bind", "0.0.0.0:8000"]
+# Comando de inicio: aplica migraciones y arranca Gunicorn en el puerto de Railway
+CMD ["sh", "-c", "python manage.py migrate && gunicorn boletin.wsgi:application --bind 0.0.0.0:${PORT:-8000}"]
 
 
 
