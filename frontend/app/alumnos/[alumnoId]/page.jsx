@@ -838,6 +838,12 @@ function isJustificadaFromAny(a) {
   return v === true || v === 1 || v === "1" || v === "true"
 }
 
+function formatAsistenciaDetalle(value) {
+  const text = String(value || "").trim()
+  if (text.toLocaleUpperCase("es-AR") === "JUSTIFICACION") return "JUSTIFICACIÓN"
+  return value || ""
+}
+
 function formatFaltas(val) {
   const n = Number(val)
   if (!Number.isFinite(n)) return "0"
@@ -2490,7 +2496,7 @@ function AlumnoPerfilPageInner() {
             asistencia: asistenciaTipoLabel(tipoNorm),
             estado: est,
             justificada: just,
-            detalle,
+            detalle: formatAsistenciaDetalle(detalle),
           }
 
           const cellLines = columns.map((col) =>
@@ -3809,7 +3815,9 @@ function AlumnoPerfilPageInner() {
                         const est = estadoTexto(asistenciaEstadoFromAny(a))
                         const puedeFirmarAsistencia = est === "Ausente" || est === "Tarde"
                         const puedeDetalle = canEditAsistenciaDetalle
-                        const detalleTexto = a.detalle || a.observaciones || a.observacion || ""
+                        const detalleTexto = formatAsistenciaDetalle(
+                          a.detalle || a.observaciones || a.observacion || ""
+                        )
                         const firmada = isFirmadaFromAny(a)
                         const firmadaEn = a?.firmada_en || a?.firmado_en || null
                         const just = isJustificadaFromAny(a)
@@ -4026,8 +4034,9 @@ function AlumnoPerfilPageInner() {
                             const puedeFirmarAsistencia =
                               est === "Ausente" || est === "Tarde"
                             const puedeDetalle = canEditAsistenciaDetalle
-                            const detalleTexto =
+                            const detalleTexto = formatAsistenciaDetalle(
                               a.detalle || a.observaciones || a.observacion || ""
+                            )
                             const firmada = isFirmadaFromAny(a)
                             const firmadaEn = a?.firmada_en || a?.firmado_en || null
 
