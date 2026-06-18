@@ -44,6 +44,22 @@ function normalizeCursos(data) {
   return normalizeCourseList(list)
 }
 
+function courseKey(course) {
+  const schoolCourseId = getCourseSchoolCourseId(course)
+  if (schoolCourseId != null) return `school-course:${schoolCourseId}`
+  const code = getCourseCode(course) || course?.value || ""
+  return `code:${String(code).trim().toUpperCase()}`
+}
+
+function hasTransferTarget(list, currentCurso) {
+  return list.some((course) => {
+    const schoolCourseId = getCourseSchoolCourseId(course)
+    if (schoolCourseId == null) return false
+    const code = getCourseCode(course) || course?.value || ""
+    return String(code).trim().toUpperCase() !== String(currentCurso || "").trim().toUpperCase()
+  })
+}
+
 export default function TransferAlumno({
   alumnoPk = null,
   alumnoCode = "",
@@ -72,26 +88,30 @@ export default function TransferAlumno({
 
     ;(async () => {
       const tries = ["/alumnos/cursos/", "/notas/catalogos/", "/preceptor/cursos/"]
-      let found = []
+      const byKey = new Map()
       for (const url of tries) {
         try {
           const r = await fetchJSON(url)
           if (!r.ok) continue
           const list = normalizeCursos(r.data)
-          if (list.length) {
-            found = list
+          for (const course of list) {
+            const key = courseKey(course)
+            if (key && !byKey.has(key)) byKey.set(key, course)
+          }
+          const found = Array.from(byKey.values())
+          if (hasTransferTarget(found, currentCurso)) {
             break
           }
         } catch {}
       }
       if (!alive) return
-      setCursos(found)
+      setCursos(Array.from(byKey.values()))
     })().finally(() => alive && setLoadingCursos(false))
 
     return () => {
       alive = false
     }
-  }, [open])
+  }, [open, currentCurso])
 
   useEffect(() => {
     if (!open || !cursos.length) return
