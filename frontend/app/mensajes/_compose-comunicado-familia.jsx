@@ -37,6 +37,24 @@ function alumnoIdOf(a) {
   return id == null ? "" : String(id)
 }
 
+function parentIdOf(a) {
+  const padre = a?.padre
+  if (padre && typeof padre === "object") {
+    const id = pick(padre, "id", "user_id", "pk")
+    return id == null ? "" : String(id)
+  }
+  const id = padre ?? pick(a, "padre_id", "parent_id", "tutor_id")
+  return id == null ? "" : String(id)
+}
+
+function parentLabelOf(a) {
+  const padre = a?.padre
+  if (padre && typeof padre === "object") {
+    return fullName(padre) || padre?.nombre_completo || "Padre/Madre"
+  }
+  return "Padre/Madre"
+}
+
 function fullName(u) {
   if (!u) return ""
   const name = [u?.last_name, u?.first_name].filter(Boolean).join(", ")
@@ -222,14 +240,14 @@ export default function ComposeComunicadoFamilia({
             try {
               const alumnoId = Number(a?.id ?? a?.alumno_id ?? a?.pk ?? 0)
               if (!alumnoId) return null
-              const padre = a?.padre || null
-              const padreId = padre?.id ?? null
+              const padreId = parentIdOf(a)
+              if (!padreId) return null
               const alumnoNombre =
                 [a?.apellido, a?.nombre].filter(Boolean).join(", ")
                 || a?.nombre
                 || a?.nombre_completo
                 || `Alumno ${alumnoId}`
-              const padreLabel = padre ? fullName(padre) : "Padre/Madre"
+              const padreLabel = parentLabelOf(a)
               return {
                 alumnoId,
                 alumnoNombre,
@@ -285,6 +303,22 @@ export default function ComposeComunicadoFamilia({
       label: `${d.padreLabel} (Hijo/a: ${d.alumnoNombre})`,
     }))
   }, [destinatarios])
+
+  useEffect(() => {
+    if (modo !== "familia") return
+    if (!opcionesFamilia.length) {
+      if (padreSel || alumnoSel) {
+        setPadreSel("")
+        setAlumnoSel("")
+      }
+      return
+    }
+
+    const current = padreSel && alumnoSel ? `${padreSel}::${alumnoSel}` : ""
+    if (current && opcionesFamilia.some((opt) => opt.value === current)) return
+
+    onChangeDestFamilia(opcionesFamilia[0].value)
+  }, [modo, opcionesFamilia, padreSel, alumnoSel])
 
   const opcionesAlumnos = useMemo(() => {
     return alumnos
@@ -443,9 +477,9 @@ export default function ComposeComunicadoFamilia({
               className="border rounded-md px-3 py-2"
               value={padreSel && alumnoSel ? `${padreSel}::${alumnoSel}` : ""}
               onChange={(e) => onChangeDestFamilia(e.target.value)}
-              disabled={loadingAlumnos || !alumnos.length || sending}
+              disabled={loadingAlumnos || !opcionesFamilia.length || sending}
             >
-              {!alumnos.length && <option value="">{cursoSel ? "Sin alumnos" : "Elegí un curso…"}</option>}
+              {!opcionesFamilia.length && <option value="">{cursoSel ? "Sin familias vinculadas" : "Elegí un curso…"}</option>}
               {opcionesFamilia.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
