@@ -1354,12 +1354,12 @@ export default function CalendarioEscolarPage() {
                 <option value="">—</option>
                 {canSelectCurso ? (
                   <>
-                    <option value="ALL">Todos los cursos</option>
                     {preceptorCursos.map((c) => (
                       <option key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
                         {getCourseLabel(c)}
                       </option>
                     ))}
+                    <option value="ALL">Todos los cursos</option>
                   </>
                 ) : (
                   cursos.map((c) => (
