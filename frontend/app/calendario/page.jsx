@@ -1350,11 +1350,11 @@ export default function CalendarioEscolarPage() {
                 className="border rounded-md px-3 py-2 bg-white"
                 value={crear.schoolCourseId}
                 onChange={(e) => setCrear((v) => ({ ...v, schoolCourseId: e.target.value }))}
-                disabled={canSelectCurso && crear.schoolCourseId === "ALL"}
               >
                 <option value="">—</option>
                 {canSelectCurso ? (
                   <>
+                    <option value="ALL">Todos los cursos</option>
                     {preceptorCursos.map((c) => (
                       <option key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
                         {getCourseLabel(c)}
@@ -1369,26 +1369,6 @@ export default function CalendarioEscolarPage() {
                   ))
                 )}
               </select>
-              {canSelectCurso && (
-                <label className="inline-flex items-center gap-3 text-sm text-gray-600">
-                  <button
-                    type="button"
-                    className="switch"
-                    data-checked={crear.schoolCourseId === "ALL" ? "true" : "false"}
-                    onClick={() =>
-                      setCrear((v) => ({
-                        ...v,
-                        schoolCourseId: v.schoolCourseId === "ALL" ? "" : "ALL",
-                      }))
-                    }
-                    aria-pressed={crear.schoolCourseId === "ALL"}
-                    aria-label="Todos los cursos"
-                  >
-                    <span className="switch-thumb" />
-                  </button>
-                  Todos los cursos
-                </label>
-              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="tipo">Tipo de evento</Label>
