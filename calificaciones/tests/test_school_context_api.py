@@ -1,5 +1,7 @@
+import tempfile
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from unittest.mock import patch
@@ -512,6 +514,28 @@ class SchoolContextApiTests(TestCase):
 
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.json()["errors"]["name"], ["Ya existe un colegio con ese nombre."])
+
+    def test_superuser_puede_subir_logo_de_colegio(self):
+        self.client.force_authenticate(user=self.superuser)
+        logo = SimpleUploadedFile(
+            "nuevo-logo.png",
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR",
+            content_type="image/png",
+        )
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            res = self.client.post(
+                f"/api/admin/schools/{self.school_a.id}/logo/",
+                {"logo": logo},
+                format="multipart",
+            )
+
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertTrue(body["logo_url"].startswith("/media/school-logos/"))
+        self.school_a.refresh_from_db()
+        self.assertEqual(self.school_a.logo_url, body["logo_url"])
+        self.assertEqual(body["school"]["logo_url"], body["logo_url"])
 
     def test_usuario_regular_no_puede_crear_colegio(self):
         self.client.force_authenticate(user=self.alumno_user)

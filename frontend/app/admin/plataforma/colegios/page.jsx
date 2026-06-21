@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ArrowLeft, Building2, CheckCircle2, MoreHorizontal, RefreshCw, Save, Search, Trash2 } from "lucide-react"
+import { ArrowLeft, Building2, CheckCircle2, MoreHorizontal, RefreshCw, Save, Search, Trash2, Upload } from "lucide-react"
 
 import {
   DEFAULT_SCHOOL_ACCENT_COLOR,
@@ -111,10 +111,12 @@ export default function ColegiosPage() {
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
   const [deletingId, setDeletingId] = useState("")
   const [openMenuId, setOpenMenuId] = useState("")
   const [deleteTarget, setDeleteTarget] = useState(null)
   const deleteDialogTriggerRef = useRef(null)
+  const logoInputRef = useRef(null)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
 
@@ -219,6 +221,48 @@ export default function ColegiosPage() {
       setError("No se pudo conectar con el servidor.")
     } finally {
       setSaving(false)
+    }
+  }
+
+  const uploadLogo = async (event) => {
+    const file = event?.target?.files?.[0]
+    if (!file || !form.id) return
+
+    setLogoUploading(true)
+    setError("")
+    setSuccess("")
+    try {
+      const body = new FormData()
+      body.append("logo", file)
+
+      const res = await authFetch(`/admin/schools/${form.id}/logo/`, {
+        method: "POST",
+        body,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data?.detail || "No se pudo subir el logo.")
+        return
+      }
+
+      const updated = data?.school
+      setSchools((current) =>
+        current
+          .map((school) => (String(school.id) === String(updated?.id) ? updated : school))
+          .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+      )
+      setForm(normalizeSchoolForForm(updated))
+      syncSessionContext({
+        school: data?.school || sessionContext?.school || null,
+        available_schools: data?.available_schools || sessionContext?.availableSchools || [],
+        is_superuser: true,
+      })
+      setSuccess("Logo actualizado.")
+    } catch {
+      setError("No se pudo conectar con el servidor.")
+    } finally {
+      setLogoUploading(false)
+      if (event?.target) event.target.value = ""
     }
   }
 
@@ -482,7 +526,25 @@ export default function ColegiosPage() {
                 </div>
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="school-logo-url">Logo URL</Label>
-                  <Input id="school-logo-url" value={form.logo_url} onChange={setField("logo_url")} />
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <Input id="school-logo-url" value={form.logo_url} onChange={setField("logo_url")} />
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="hidden"
+                      onChange={uploadLogo}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={!form.id || saving || logoUploading}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      {logoUploading ? "Subiendo..." : "Subir logo"}
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="school-primary-color">Color principal</Label>

@@ -1,10 +1,12 @@
 from concurrent.futures import ThreadPoolExecutor
 
+from django.conf import settings
+from django.core.files.storage import default_storage
 from django.db import close_old_connections, transaction
 from django.db.utils import OperationalError, ProgrammingError
 from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
-from django.utils.text import slugify
+from django.utils.text import get_valid_filename, slugify
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from rest_framework.decorators import api_view, permission_classes
@@ -43,6 +45,8 @@ from .user_groups import get_user_group_names
 
 User = get_user_model()
 _SCHOOL_DELETION_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="school-delete")
+_SCHOOL_LOGO_ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
+_SCHOOL_LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _school_deletion_jobs_ready() -> bool:
@@ -629,6 +633,48 @@ def admin_update_school(request, school_id: int):
         {
             "school": _admin_school_to_dict(updated),
             "available_schools": get_available_school_dicts_for_user(request.user, active_school=updated),
+        },
+        status=200,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def admin_upload_school_logo(request, school_id: int):
+    if not _require_platform_admin(request.user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    school = School.objects.filter(pk=school_id).first()
+    if school is None:
+        return Response({"detail": "Colegio no encontrado."}, status=404)
+
+    logo = request.FILES.get("logo")
+    if logo is None:
+        return Response({"detail": "Selecciona un archivo de logo."}, status=400)
+
+    if getattr(logo, "size", 0) > _SCHOOL_LOGO_MAX_BYTES:
+        return Response({"detail": "El logo no puede superar 2 MB."}, status=400)
+
+    original_name = get_valid_filename(getattr(logo, "name", "") or "logo")
+    extension = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    content_type = str(getattr(logo, "content_type", "") or "").lower()
+    if extension not in _SCHOOL_LOGO_ALLOWED_EXTENSIONS or not content_type.startswith("image/"):
+        return Response({"detail": "El logo debe ser una imagen PNG, JPG, WEBP o GIF."}, status=400)
+
+    filename = f"{slugify(school.slug or school.name) or school.id}-logo.{extension}"
+    path = default_storage.save(f"school-logos/{filename}", logo)
+    logo_url = f"{settings.MEDIA_URL.rstrip('/')}/{path}".replace("\\", "/")
+
+    school.logo_url = logo_url
+    school.save(update_fields=["logo_url", "updated_at"])
+    school.courses_count = school.courses.count()
+    school.students_count = school.alumnos.count()
+
+    return Response(
+        {
+            "school": _admin_school_to_dict(school),
+            "available_schools": get_available_school_dicts_for_user(request.user, active_school=school),
+            "logo_url": logo_url,
         },
         status=200,
     )
