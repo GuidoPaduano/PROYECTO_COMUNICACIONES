@@ -320,6 +320,10 @@ export default function CalendarioEscolarPage() {
   const isProfesor = useMemo(() => grupos.includes("Profesores"), [grupos])
   const isDirectivo = useMemo(() => grupos.includes("Directivos"), [grupos])
   const canSelectCurso = useMemo(() => isPreceptor || isDirectivo, [isPreceptor, isDirectivo])
+  const canCreateAllCursos = useMemo(
+    () => canSelectCurso || isProfesor,
+    [canSelectCurso, isProfesor]
+  )
 
   // UI
   const [error, setError] = useState("")
@@ -965,8 +969,10 @@ export default function CalendarioEscolarPage() {
     setCreating(true)
     try {
       const schoolCourseToSend =
-        String(crear.schoolCourseId || "").trim() || (canSelectCurso ? String(selectedCurso || "") : "")
-      if (canSelectCurso && !schoolCourseToSend) {
+        String(crear.schoolCourseId || "").trim() ||
+        (canSelectCurso ? String(selectedCurso || "") : "") ||
+        (isProfesor ? String(selectedProfesorCurso || "") : "")
+      if (canCreateAllCursos && !schoolCourseToSend) {
         throw new Error(
           "Seleccioná un curso o 'Todos los cursos' para crear el evento."
         )
@@ -975,7 +981,7 @@ export default function CalendarioEscolarPage() {
       const coursePayload = buildEventCoursePayload(
         schoolCourseToSend,
         canSelectCurso ? preceptorCursos : cursos,
-        { allowAll: canSelectCurso }
+        { allowAll: canCreateAllCursos }
       )
       if (!coursePayload) {
         throw new Error("No se pudo resolver el curso seleccionado.")
@@ -1362,11 +1368,14 @@ export default function CalendarioEscolarPage() {
                     <option value="ALL">Todos los cursos</option>
                   </>
                 ) : (
-                  cursos.map((c) => (
-                    <option key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
-                      {getCourseLabel(c)}
-                    </option>
-                  ))
+                  <>
+                    {cursos.map((c) => (
+                      <option key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
+                        {getCourseLabel(c)}
+                      </option>
+                    ))}
+                    {isProfesor && <option value="ALL">Todos los cursos</option>}
+                  </>
                 )}
               </select>
             </div>
