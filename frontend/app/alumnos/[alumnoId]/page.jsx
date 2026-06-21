@@ -3987,15 +3987,16 @@ function AlumnoPerfilPageInner() {
                                   >
                                     {detalleTexto || "Sin detalle"}
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => openDetalleModal(a)}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-600 school-icon-button disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title="Agregar/editar detalle"
-                                    disabled={!puedeDetalle}
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </button>
+                                  {puedeDetalle ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openDetalleModal(a)}
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-600 school-icon-button"
+                                      title="Agregar/editar detalle"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                  ) : null}
                                 </div>
                               </div>
                             </div>
@@ -4204,15 +4205,16 @@ function AlumnoPerfilPageInner() {
                                     >
                                       {detalleTexto || "—"}
                                     </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => openDetalleModal(a)}
-                                      className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 text-gray-600 school-icon-button disabled:opacity-50 disabled:cursor-not-allowed"
-                                      title="Agregar/editar detalle"
-                                      disabled={!puedeDetalle}
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </button>
+                                    {puedeDetalle ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => openDetalleModal(a)}
+                                        className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 text-gray-600 school-icon-button"
+                                        title="Agregar/editar detalle"
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </td>
                               </tr>
