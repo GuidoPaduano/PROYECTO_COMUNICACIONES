@@ -870,7 +870,21 @@ def eventos_crear(request):
                 status=status.HTTP_403_FORBIDDEN,
             )
     if _has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False):
-        if not _profesor_puede_ver_curso(
+        if _is_all_cursos(curso):
+            profesor_course_ids = _school_course_ids_habilitados_profesor(request.user, school=active_school)
+            cursos_all = list(
+                SchoolCourse.objects.filter(
+                    school=active_school,
+                    is_active=True,
+                    id__in=profesor_course_ids,
+                ).order_by("sort_order", "id")
+            )
+            if not cursos_all:
+                return Response(
+                    {"detail": "No tenÃ©s cursos asignados para crear eventos."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif not _profesor_puede_ver_curso(
             request.user,
             curso,
             school=active_school,
@@ -883,7 +897,10 @@ def eventos_crear(request):
 
     # ✅ "ALL" => crear un evento por cada curso disponible
     if _is_all_cursos(curso):
-        if not (_has_role(request, "Preceptores") and not getattr(request.user, "is_superuser", False)):
+        if not (
+            (_has_role(request, "Preceptores") and not getattr(request.user, "is_superuser", False))
+            or (_has_role(request, "Profesores") and not getattr(request.user, "is_superuser", False))
+        ):
             cursos_all = list(
                 SchoolCourse.objects.filter(school=active_school, is_active=True).order_by("sort_order", "id")
             )

@@ -210,6 +210,36 @@ class EventosSchoolScopingTests(TestCase):
         self.assertEqual(res.json()["detail"], "No tenés permiso para crear eventos en este curso.")
         self.assertFalse(Evento.objects.filter(titulo="Reunión Norte bloqueada").exists())
 
+    def test_profesor_crea_evento_all_solo_en_sus_cursos_asignados(self):
+        ProfesorCurso.objects.create(
+            school=self.school_a,
+            profesor=self.profesor,
+            curso="2A",
+        )
+        self.client.force_authenticate(user=self.profesor)
+
+        res = self.client.post(
+            "/api/eventos/",
+            {
+                "titulo": "Jornada docente",
+                "fecha": "2026-04-02",
+                "descripcion": "Para cursos asignados",
+                "curso": "ALL",
+                "tipo_evento": "Acto",
+            },
+            format="json",
+            HTTP_X_SCHOOL=self.school_a.slug,
+        )
+
+        self.assertEqual(res.status_code, 201)
+        eventos = list(Evento.objects.filter(titulo="Jornada docente").order_by("curso"))
+        self.assertEqual([evento.curso for evento in eventos], ["1A", "2A"])
+        self.assertEqual(
+            [evento.school_course_id for evento in eventos],
+            [self.school_course_a.id, self.school_course_a_2.id],
+        )
+        self.assertFalse(Evento.objects.filter(titulo="Jornada docente", school=self.school_b).exists())
+
     def test_staff_sin_rol_no_puede_crear_evento(self):
         self.client.force_authenticate(user=self.staff_sin_rol)
 
