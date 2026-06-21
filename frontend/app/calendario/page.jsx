@@ -989,22 +989,6 @@ export default function CalendarioEscolarPage() {
         tipo_evento: crear.tipo_evento,
       }
 
-      // Optimista: cerrar modal y avisar éxito inmediato
-      setOpenCrear(false)
-      setCrear({
-        titulo: "",
-        fecha: hoyISO(),
-        descripcion: "",
-        schoolCourseId: "",
-        tipo_evento: "",
-      })
-      setOkMsg("✅ Evento agregado exitosamente.")
-      try {
-        if (typeof window !== "undefined") {
-          window.scrollTo({ top: 0, behavior: "smooth" })
-        }
-      } catch {}
-
       const res = await authFetch("/eventos/crear/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1014,10 +998,23 @@ export default function CalendarioEscolarPage() {
         const j = await res.json().catch(() => ({}))
         throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
       }
+      setOpenCrear(false)
+      setCrear({
+        titulo: "",
+        fecha: hoyISO(),
+        descripcion: "",
+        schoolCourseId: "",
+        tipo_evento: "",
+      })
+      setOkMsg("Evento agregado exitosamente.")
+      try {
+        if (typeof window !== "undefined") {
+          window.scrollTo({ top: 0, behavior: "smooth" })
+        }
+      } catch {}
       refetchEvents({ invalidate: true })
     } catch (e) {
       const msg = e?.message || "No se pudo crear el evento."
-      setError(msg)
       setCrearError(msg)
     } finally {
       setCreating(false)
@@ -1409,11 +1406,6 @@ export default function CalendarioEscolarPage() {
                 ))}
               </select>
             </div>
-            {error && (
-              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
-                {error}
-              </div>
-            )}
             {crearError && (
               <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
                 {crearError}
