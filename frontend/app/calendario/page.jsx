@@ -989,22 +989,6 @@ export default function CalendarioEscolarPage() {
         tipo_evento: crear.tipo_evento,
       }
 
-      // Optimista: cerrar modal y avisar éxito inmediato
-      setOpenCrear(false)
-      setCrear({
-        titulo: "",
-        fecha: hoyISO(),
-        descripcion: "",
-        schoolCourseId: "",
-        tipo_evento: "",
-      })
-      setOkMsg("✅ Evento agregado exitosamente.")
-      try {
-        if (typeof window !== "undefined") {
-          window.scrollTo({ top: 0, behavior: "smooth" })
-        }
-      } catch {}
-
       const res = await authFetch("/eventos/crear/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1014,10 +998,23 @@ export default function CalendarioEscolarPage() {
         const j = await res.json().catch(() => ({}))
         throw new Error(j?.detail || j?.error || `Error (HTTP ${res.status})`)
       }
+      setOpenCrear(false)
+      setCrear({
+        titulo: "",
+        fecha: hoyISO(),
+        descripcion: "",
+        schoolCourseId: "",
+        tipo_evento: "",
+      })
+      setOkMsg("Evento agregado exitosamente.")
+      try {
+        if (typeof window !== "undefined") {
+          window.scrollTo({ top: 0, behavior: "smooth" })
+        }
+      } catch {}
       refetchEvents({ invalidate: true })
     } catch (e) {
       const msg = e?.message || "No se pudo crear el evento."
-      setError(msg)
       setCrearError(msg)
     } finally {
       setCreating(false)
@@ -1353,7 +1350,6 @@ export default function CalendarioEscolarPage() {
                 className="border rounded-md px-3 py-2 bg-white"
                 value={crear.schoolCourseId}
                 onChange={(e) => setCrear((v) => ({ ...v, schoolCourseId: e.target.value }))}
-                disabled={canSelectCurso && crear.schoolCourseId === "ALL"}
               >
                 <option value="">—</option>
                 {canSelectCurso ? (
@@ -1363,6 +1359,7 @@ export default function CalendarioEscolarPage() {
                         {getCourseLabel(c)}
                       </option>
                     ))}
+                    <option value="ALL">Todos los cursos</option>
                   </>
                 ) : (
                   cursos.map((c) => (
@@ -1372,26 +1369,6 @@ export default function CalendarioEscolarPage() {
                   ))
                 )}
               </select>
-              {canSelectCurso && (
-                <label className="inline-flex items-center gap-3 text-sm text-gray-600">
-                  <button
-                    type="button"
-                    className="switch"
-                    data-checked={crear.schoolCourseId === "ALL" ? "true" : "false"}
-                    onClick={() =>
-                      setCrear((v) => ({
-                        ...v,
-                        schoolCourseId: v.schoolCourseId === "ALL" ? "" : "ALL",
-                      }))
-                    }
-                    aria-pressed={crear.schoolCourseId === "ALL"}
-                    aria-label="Todos los cursos"
-                  >
-                    <span className="switch-thumb" />
-                  </button>
-                  Todos los cursos
-                </label>
-              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="tipo">Tipo de evento</Label>
@@ -1409,11 +1386,6 @@ export default function CalendarioEscolarPage() {
                 ))}
               </select>
             </div>
-            {error && (
-              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
-                {error}
-              </div>
-            )}
             {crearError && (
               <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
                 {crearError}
