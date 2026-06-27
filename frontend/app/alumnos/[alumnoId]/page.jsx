@@ -513,10 +513,11 @@ async function getNotasByPkOrCode(pk, code) {
 }
 
 /** Sanciones por PK o id_alumno */
-async function getSancionesByPkOrCode(pk, code) {
+async function getSancionesByPkOrCode(pk, code, page = 1) {
+  const pageParam = `&page=${page}`
   const tries = [
-    code && `/api/sanciones/?alumno=${encodeURIComponent(code)}`,
-    pk && `/api/sanciones/?alumno=${pk}`,
+    code && `/api/sanciones/?alumno=${encodeURIComponent(code)}${pageParam}`,
+    pk && `/api/sanciones/?alumno=${pk}${pageParam}`,
   ].filter(Boolean)
 
   let fallback = null
@@ -537,25 +538,27 @@ async function getSancionesByPkOrCode(pk, code) {
         lastError = new Error("La respuesta de sanciones no tiene un formato válido.")
         continue
       }
-      if (arr.length > 0) return arr
-      if (fallback === null) fallback = arr
+      const hasMore = r.data?.has_next === true
+      if (arr.length > 0) return { items: arr, hasMore }
+      if (fallback === null) fallback = { items: arr, hasMore }
     } catch (error) {
       lastError =
         error instanceof Error ? error : new Error("No se pudieron cargar las sanciones.")
     }
   }
-  if (Array.isArray(fallback)) return fallback
+  if (fallback !== null) return fallback
   throw lastError || new Error("No se pudieron cargar las sanciones.")
 }
 
 /** Asistencias por PK o id_alumno */
-async function getAsistenciasByPkOrCode(pk, code) {
+async function getAsistenciasByPkOrCode(pk, code, page = 1) {
   const pkStr = String(pk ?? "").trim()
   const codeSafe = String(code ?? "").trim()
+  const pageParam = `&page=${page}`
 
   const tries = [
-    codeSafe && `/api/asistencias/?id_alumno=${encodeURIComponent(codeSafe)}`,
-    pkStr && `/api/asistencias/?alumno=${pkStr}`,
+    codeSafe && `/api/asistencias/?id_alumno=${encodeURIComponent(codeSafe)}${pageParam}`,
+    pkStr && `/api/asistencias/?alumno=${pkStr}${pageParam}`,
   ].filter(Boolean)
 
   let fallback = null
@@ -576,14 +579,15 @@ async function getAsistenciasByPkOrCode(pk, code) {
         lastError = new Error("La respuesta de asistencias no tiene un formato válido.")
         continue
       }
-      if (arr.length > 0) return arr
-      if (fallback === null) fallback = arr
+      const hasMore = r.data?.has_next === true
+      if (arr.length > 0) return { items: arr, hasMore }
+      if (fallback === null) fallback = { items: arr, hasMore }
     } catch (error) {
       lastError =
         error instanceof Error ? error : new Error("No se pudieron cargar las asistencias.")
     }
   }
-  if (Array.isArray(fallback)) return fallback
+  if (fallback !== null) return fallback
   throw lastError || new Error("No se pudieron cargar las asistencias.")
 }
 
@@ -1008,9 +1012,15 @@ function AlumnoPerfilPageInner() {
   const [loadingNotas, setLoadingNotas] = useState(false)
   const [loadingSanciones, setLoadingSanciones] = useState(false)
   const [loadingAsistencias, setLoadingAsistencias] = useState(false)
+  const [loadingMoreSanciones, setLoadingMoreSanciones] = useState(false)
+  const [loadingMoreAsistencias, setLoadingMoreAsistencias] = useState(false)
   const [errorNotas, setErrorNotas] = useState("")
   const [errorSanciones, setErrorSanciones] = useState("")
   const [errorAsistencias, setErrorAsistencias] = useState("")
+  const [sancionesHasMore, setSancionesHasMore] = useState(false)
+  const [sancionesPage, setSancionesPage] = useState(1)
+  const [asistenciasHasMore, setAsistenciasHasMore] = useState(false)
+  const [asistenciasPage, setAsistenciasPage] = useState(1)
   const identifiersReady = Boolean(alumnoDetail && (pk || String(code || "").trim()))
 
   // sección activa (tarjeta clickeada)
@@ -1909,9 +1919,12 @@ function AlumnoPerfilPageInner() {
     setLoadingSanciones(true)
     setErrorSanciones("")
     try {
-      const s = await getSancionesByPkOrCode(pk, code)
-      setSanciones(Array.isArray(s) ? s : [])
-      setCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId, Array.isArray(s) ? s : [])
+      const s = await getSancionesByPkOrCode(pk, code, 1)
+      const items = s?.items ?? []
+      setSanciones(items)
+      setSancionesHasMore(s?.hasMore ?? false)
+      setSancionesPage(1)
+      setCachedList(SANCIONES_CACHE_PREFIX, alumnoCacheId, items)
       lastLoadedRef.current.sanciones = key
     } catch (error) {
       setErrorSanciones(error?.message || "No se pudieron cargar las sanciones.")
@@ -1922,6 +1935,23 @@ function AlumnoPerfilPageInner() {
       setLoadingSanciones(false)
     }
   }, [pk, code, alumnoCacheId, identifiersReady])
+
+  const fetchMoreSanciones = useCallback(async () => {
+    if (!sancionesHasMore || loadingMoreSanciones) return
+    const nextPage = sancionesPage + 1
+    setLoadingMoreSanciones(true)
+    try {
+      const s = await getSancionesByPkOrCode(pk, code, nextPage)
+      const items = s?.items ?? []
+      setSanciones((prev) => [...prev, ...items])
+      setSancionesHasMore(s?.hasMore ?? false)
+      setSancionesPage(nextPage)
+    } catch (error) {
+      setErrorSanciones(error?.message || "No se pudieron cargar más sanciones.")
+    } finally {
+      setLoadingMoreSanciones(false)
+    }
+  }, [pk, code, sancionesHasMore, sancionesPage, loadingMoreSanciones])
 
   const fetchAsistencias = useCallback(async () => {
     if (!identifiersReady) return
@@ -1960,9 +1990,12 @@ function AlumnoPerfilPageInner() {
     setLoadingAsistencias(true)
     setErrorAsistencias("")
     try {
-      const a = await getAsistenciasByPkOrCode(pk, code)
-      setAsistencias(Array.isArray(a) ? a : [])
-      setCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId, Array.isArray(a) ? a : [])
+      const a = await getAsistenciasByPkOrCode(pk, code, 1)
+      const items = a?.items ?? []
+      setAsistencias(items)
+      setAsistenciasHasMore(a?.hasMore ?? false)
+      setAsistenciasPage(1)
+      setCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId, items)
       lastLoadedRef.current.asistencias = key
     } catch (error) {
       setErrorAsistencias(error?.message || "No se pudieron cargar las asistencias.")
@@ -1973,6 +2006,23 @@ function AlumnoPerfilPageInner() {
       setLoadingAsistencias(false)
     }
   }, [pk, code, alumnoCacheId, identifiersReady])
+
+  const fetchMoreAsistencias = useCallback(async () => {
+    if (!asistenciasHasMore || loadingMoreAsistencias) return
+    const nextPage = asistenciasPage + 1
+    setLoadingMoreAsistencias(true)
+    try {
+      const a = await getAsistenciasByPkOrCode(pk, code, nextPage)
+      const items = a?.items ?? []
+      setAsistencias((prev) => [...prev, ...items])
+      setAsistenciasHasMore(a?.hasMore ?? false)
+      setAsistenciasPage(nextPage)
+    } catch (error) {
+      setErrorAsistencias(error?.message || "No se pudieron cargar más asistencias.")
+    } finally {
+      setLoadingMoreAsistencias(false)
+    }
+  }, [pk, code, asistenciasHasMore, asistenciasPage, loadingMoreAsistencias])
 
   useEffect(() => {
     notasRef.current = Array.isArray(notas) ? notas : []
@@ -3682,6 +3732,18 @@ function AlumnoPerfilPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    {sancionesHasMore && (
+                      <div className="mt-4 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={fetchMoreSanciones}
+                          disabled={loadingMoreSanciones}
+                          className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {loadingMoreSanciones ? "Cargando..." : "Cargar más sanciones"}
+                        </button>
+                      </div>
+                    )}
                     </>
                   )}
                 </CardContent>
@@ -4223,6 +4285,18 @@ function AlumnoPerfilPageInner() {
                         </tbody>
                       </table>
                     </div>
+                    {asistenciasHasMore && (
+                      <div className="mt-4 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={fetchMoreAsistencias}
+                          disabled={loadingMoreAsistencias}
+                          className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {loadingMoreAsistencias ? "Cargando..." : "Cargar más asistencias"}
+                        </button>
+                      </div>
+                    )}
                     </>
                   )}
 
