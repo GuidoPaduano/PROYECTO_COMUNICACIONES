@@ -28,6 +28,7 @@ from .serializers import SancionPublicSerializer
 from .signatures import claim_signature
 from .user_groups import get_user_group_names, get_user_group_names_lower
 from .utils_cursos import resolve_course_reference
+from .utils_pagination import paginate_queryset
 # ✅ FIX CLAVE: antes no existía User y las notificaciones fallaban silenciosamente
 User = get_user_model()
 
@@ -346,8 +347,9 @@ def sanciones_lista_crear(request):
                 school_course=school_course_ref,
             )
 
-        data = SancionPublicSerializer(qs, many=True).data
-        return Response({"results": data}, status=200)
+        items, pagination = paginate_queryset(qs, request)
+        data = SancionPublicSerializer(items, many=True).data
+        return Response({"results": data, **pagination}, status=200)
 
     # POST
     if not _is_docente_o_preceptor(request.user):

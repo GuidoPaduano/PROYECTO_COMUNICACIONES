@@ -34,6 +34,7 @@ from .contexto import resolve_alumno_for_user
 from .models import Alumno, Asistencia, Notificacion
 from .models import resolve_school_course_for_value
 from .utils_cursos import get_course_label, get_school_course_choices, resolve_course_reference
+from .utils_pagination import paginate_queryset
 from .alerts_inasistencias import evaluar_alertas_inasistencia_por_alumnos, evaluar_alerta_inasistencia
 from .schools import get_request_school, scope_queryset_to_school
 from .signatures import claim_signature
@@ -1627,20 +1628,25 @@ def asistencias_por_alumno(request, alumno_id=None):
     if not _can_view_alumno_asistencia(request.user, alumno):
         return Response({"detail": "No autorizado."}, status=403)
 
-    return _asistencias_alumno_response(alumno, school=active_school)
+    return _asistencias_alumno_response(alumno, school=active_school, request=request)
 
 
-def _asistencias_alumno_response(alumno, *, school=None):
+def _asistencias_alumno_response(alumno, *, school=None, request=None):
     qs = _asistencia_base_qs(school).filter(alumno=alumno).order_by("-fecha", "-id")
+    if request is not None:
+        items, pagination = paginate_queryset(qs, request)
+    else:
+        items = qs
+        pagination = {"page": 1, "page_size": len(qs), "total": len(qs), "total_pages": 1, "has_next": False, "has_previous": False}
     results = [
         _serialize_asistencia_item(asistencia, alumno=alumno, school=school)
-        for asistencia in qs
+        for asistencia in items
     ]
     return Response(
         {
             "alumno": _serialize_alumno_brief(alumno, school=school),
             "results": results,
-            "count": len(results),
+            **pagination,
         }
     )
 
@@ -1656,7 +1662,7 @@ def asistencias_por_codigo(request, id_alumno):
         return Response({"detail": "Alumno no encontrado"}, status=404)
     if not _can_view_alumno_asistencia(request.user, alumno):
         return Response({"detail": "No autorizado."}, status=403)
-    return _asistencias_alumno_response(alumno, school=active_school)
+    return _asistencias_alumno_response(alumno, school=active_school, request=request)
 
 
 @api_view(["GET"])
