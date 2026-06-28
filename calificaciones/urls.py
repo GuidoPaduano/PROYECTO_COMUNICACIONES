@@ -24,37 +24,45 @@ from .api_notificaciones import (
     notificaciones_marcar_todas_leidas,
 )
 
+from django.http import HttpResponseGone
+
+def _legacy_gone(request, *args, **kwargs):
+    return HttpResponseGone(
+        "Esta vista HTML fue reemplazada por el frontend Next.js. "
+        "Usá la app en lugar de acceder directamente a esta URL."
+    )
+
 urlpatterns = [
     path("", views.index, name="index"),
 
-    # Notas (HTML)
-    path("agregar_nota/", views.agregar_nota, name="agregar_nota"),
-    path("ver_notas/", views.ver_notas, name="ver_notas"),
-    # Form masivo HTML; la API JSON está en /api/agregar-nota-masiva/
-    path("agregar_nota_masiva/", views.agregar_nota_masiva, name="agregar_nota_masiva_html"),
+    # Notas (DEPRECATED — usar frontend Next.js)
+    path("agregar_nota/", _legacy_gone, name="agregar_nota"),
+    path("ver_notas/", _legacy_gone, name="ver_notas"),
+    path("agregar_nota_masiva/", _legacy_gone, name="agregar_nota_masiva_html"),
 
-    # Mensajería (HTML)
-    path("enviar_mensaje/", views.enviar_mensaje, name="enviar_mensaje"),
-    path("enviar_comunicado/", views.enviar_comunicado, name="enviar_comunicado"),
-    path("ver_mensajes/", views.ver_mensajes, name="ver_mensajes"),
+    # Mensajería (DEPRECATED — usar frontend Next.js)
+    path("enviar_mensaje/", _legacy_gone, name="enviar_mensaje"),
+    path("enviar_comunicado/", _legacy_gone, name="enviar_comunicado"),
+    path("ver_mensajes/", _legacy_gone, name="ver_mensajes"),
 
-    # Boletín / Historial (HTML)
+    # Boletín PDF — se mantiene (genera PDF con ReportLab)
     path("boletin/<str:alumno_id>/", views.generar_boletin_pdf, name="generar_boletin_pdf"),
-    path("historial/profesor/<str:alumno_id>/", views.historial_notas_profesor, name="historial_notas_profesor"),
-    path("historial/padre/", views.historial_notas_padre, name="historial_notas_padre"),
+    # Historial (DEPRECATED — usar frontend Next.js)
+    path("historial/profesor/<str:alumno_id>/", _legacy_gone, name="historial_notas_profesor"),
+    path("historial/padre/", _legacy_gone, name="historial_notas_padre"),
 
-    # Asistencia y perfiles (HTML)
-    path("pasar_asistencia/", views.pasar_asistencia, name="pasar_asistencia"),
-    path("perfil_alumno/<str:alumno_id>/", views.perfil_alumno, name="perfil_alumno"),
+    # Asistencia y perfiles (DEPRECATED — usar frontend Next.js)
+    path("pasar_asistencia/", _legacy_gone, name="pasar_asistencia"),
+    path("perfil_alumno/<str:alumno_id>/", _legacy_gone, name="perfil_alumno"),
 
-    # Calendario (HTML reales, sin stubs)
-    path("eventos/", views.calendario_view, name="calendario"),
-    path("eventos/crear/", views.crear_evento, name="crear_evento"),
-    path("eventos/editar/<int:evento_id>/", views.editar_evento, name="editar_evento"),
-    path("eventos/eliminar/<int:evento_id>/", views.eliminar_evento, name="eliminar_evento"),
+    # Calendario (DEPRECATED — usar frontend Next.js)
+    path("eventos/", _legacy_gone, name="calendario"),
+    path("eventos/crear/", _legacy_gone, name="crear_evento"),
+    path("eventos/editar/<int:evento_id>/", _legacy_gone, name="editar_evento"),
+    path("eventos/eliminar/<int:evento_id>/", _legacy_gone, name="eliminar_evento"),
 
-    # Perfil minimo; preferir /api/perfil_api/
-    path("mi_perfil/", views.mi_perfil, name="mi_perfil"),
+    # Perfil (DEPRECATED — usar /api/perfil_api/)
+    path("mi_perfil/", _legacy_gone, name="mi_perfil"),
 
     # ─────────────────────────────────────────────────────────────
     # Alias JSON sin prefijo para mensajeria

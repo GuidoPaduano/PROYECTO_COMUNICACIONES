@@ -635,6 +635,11 @@ def _notify_msg(*, msg, receptor, alumno=None, actor=None):
             meta=meta,
         )
         try:
+            from ..ws_notify import push_unread_update_for_message
+            push_unread_update_for_message(msg, receptor)
+        except Exception:
+            pass
+        try:
             to_email = (getattr(receptor, "email", "") or "").strip()
             if to_email:
                 send_message_email(

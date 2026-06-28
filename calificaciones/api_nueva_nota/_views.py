@@ -32,7 +32,7 @@ from ..schools import (
     scope_queryset_to_school,
     user_can_access_school,
 )
-from ..alerts import evaluar_alerta_nota, evaluar_alertas_notas_bulk
+from ..tasks import evaluar_alerta_nota_task, evaluar_alertas_notas_bulk_task
 from ..user_groups import get_user_group_names
 from ._helpers import (
     _alumno_nombre,
@@ -258,15 +258,21 @@ class CrearNota(APIView):
                 nota.school = school_ref
                 nota.save(update_fields=["school"])
             notificado, notif_dest_id, notif_source, notif_error = _notify_padre_nota(request.user, nota)
-            alerta_info = evaluar_alerta_nota(nota=nota, actor=request.user)
+            try:
+                evaluar_alerta_nota_task.delay(
+                    nota_id=nota.pk,
+                    actor_id=getattr(request.user, "pk", None),
+                )
+            except Exception:
+                pass
             resp = {
                 "id": nota.id,
                 "version": nota.version,
                 "notificado": notificado,
                 "notif_destinatario_id": notif_dest_id,
                 "notif_source": notif_source,
+                "alerta_queued": True,
             }
-            resp["alerta"] = alerta_info
             # Si sos staff/superuser y falló, devolvemos error para debug
             if (not notificado) and notif_error and (
                 getattr(request.user, "is_superuser", False) or _is_directivo_user(request.user)
@@ -737,16 +743,13 @@ class CrearNotasMasivo(APIView):
                 if (curr_fecha, curr_id) >= (prev_fecha, prev_id):
                     alert_candidates[key] = n
 
-        if getattr(settings, "ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", True):
-            try:
-                info = evaluar_alertas_notas_bulk(
-                    notas=alert_candidates.values(),
-                    actor=request.user,
-                    send_email=False,
-                )
-                alertas_creadas = int(info.get("created") or 0)
-            except Exception:
-                logger.exception("Error evaluando alertas academicas en carga masiva")
+        try:
+            evaluar_alertas_notas_bulk_task.delay(
+                nota_ids=[n.pk for n in alert_candidates.values()],
+                actor_id=getattr(request.user, "pk", None),
+            )
+        except Exception:
+            logger.exception("Error encolando alertas academicas en carga masiva")
 
         # 207 si hubo errores parciales, 201 si todo ok
         if errors:
