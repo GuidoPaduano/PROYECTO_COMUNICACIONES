@@ -4,7 +4,7 @@ const path = require("path")
 describe("student attendance detail action", () => {
   it("no muestra el lapiz de detalle como boton deshabilitado", () => {
     const source = fs.readFileSync(
-      path.join(__dirname, "../app/alumnos/[alumnoId]/page.jsx"),
+      path.join(__dirname, "../app/alumnos/[alumnoId]/page.tsx"),
       "utf8"
     )
 
