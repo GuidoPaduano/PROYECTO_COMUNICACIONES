@@ -639,7 +639,7 @@ class AsistenciasSchoolScopingTests(TestCase):
         self.assertEqual(res.status_code, 200)
         body = res.json()
         self.assertEqual(body["alumno"]["id"], self.alumno_a.id)
-        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["total"], 1)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)

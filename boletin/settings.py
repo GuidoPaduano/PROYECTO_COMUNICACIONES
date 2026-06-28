@@ -67,6 +67,7 @@ if DEBUG:
     ALLOWED_HOSTS = list({*ALLOWED_HOSTS, "localhost", "127.0.0.1", "0.0.0.0"})
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -79,11 +80,19 @@ INSTALLED_APPS = [
     # APIs
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',  # ✅ para /api/token/blacklist/
+    'rest_framework_simplejwt.token_blacklist',
 
     # CORS
     'corsheaders',
+
+    # API docs
+    'drf_spectacular',
+
+    # WebSocket
+    'channels',
 ]
+
+ASGI_APPLICATION = 'boletin.asgi.application'
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',       # ✅ PONER PRIMERO
@@ -178,8 +187,8 @@ if 'ENGINE' not in DATABASES['default'] and not STATIC_BUILD:
 
 AUTH_PASSWORD_VALIDATORS = []
 
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+LANGUAGE_CODE = 'es-ar'
+TIME_ZONE = 'America/Argentina/Buenos_Aires'
 USE_I18N = True
 USE_TZ = True
 
@@ -207,9 +216,10 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
     'http://127.0.0.1:3002',
-    'http://192.168.1.38:3000',  # ← agregado: acceso por IP LAN
-    # 'http://192.168.1.38:3001',  # ← opcional si a veces Next usa 3001
 ]
+_lan_origin = os.environ.get("LAN_ORIGIN", "").strip()
+if _lan_origin:
+    CSRF_TRUSTED_ORIGINS.append(_lan_origin)
 
 # ✅ Configuración DRF + JWT: DRF entiende sesión y/o JWT
 CSRF_TRUSTED_ORIGINS = _split_env_list("CSRF_TRUSTED_ORIGINS", CSRF_TRUSTED_ORIGINS)
@@ -225,6 +235,7 @@ REST_FRAMEWORK = {
         'user': '10/min',
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '10/min'),
     },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     # Si querés exigir auth por defecto, descomentá:
     # 'DEFAULT_PERMISSION_CLASSES': (
     #     'rest_framework.permissions.IsAuthenticated',
@@ -240,6 +251,14 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Proyecto Comunicaciones API',
+    'DESCRIPTION': 'API de gestión académica e institucional para escuelas.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+}
+
 JWT_ACCESS_COOKIE_NAME = os.environ.get("JWT_ACCESS_COOKIE_NAME", "access_token")
 JWT_REFRESH_COOKIE_NAME = os.environ.get("JWT_REFRESH_COOKIE_NAME", "refresh_token")
 JWT_COOKIE_PATH = os.environ.get("JWT_COOKIE_PATH", "/")
@@ -258,9 +277,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://127.0.0.1:3002",
     "http://172.16.0.2:3000",
-    "http://192.168.1.38:3000",  # ← agregado: front por IP LAN
-    # "http://192.168.1.38:3001",  # ← opcional si a veces Next usa 3001
 ]
+if _lan_origin:
+    CORS_ALLOWED_ORIGINS.append(_lan_origin)
 CORS_ALLOWED_ORIGINS = _split_env_list("CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
 CORS_ALLOW_CREDENTIALS = True
 
@@ -321,6 +340,31 @@ ALERTAS_INASISTENCIAS_COOLDOWN_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_
 ALERTAS_INASISTENCIAS_REAPERTURA_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_REAPERTURA_DIAS", "14"))
 ALERTAS_INASISTENCIAS_UMBRALES_FALTAS = os.environ.get("ALERTAS_INASISTENCIAS_UMBRALES_FALTAS", "10,20,25")
 REQUEST_LIFECYCLE_LOGGING = os.environ.get("REQUEST_LIFECYCLE_LOGGING", "False") == "True"
+
+# ✅ Celery
+_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", _REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", _REDIS_URL)
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "False") == "True"
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+# ✅ Django Channels — WebSocket
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [_REDIS_URL],
+        },
+    }
+} if CACHE_URL else {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
 
 LOGGING = {
     "version": 1,
