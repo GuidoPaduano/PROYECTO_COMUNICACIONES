@@ -37,3 +37,4 @@ backups/
 handoff-diseno/
 handoff-diseno.rar
 frontend/dev-frontend*.log
+schema.yml
