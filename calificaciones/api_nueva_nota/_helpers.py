@@ -28,6 +28,11 @@ try:
 except Exception:
     ProfesorCurso = None
 
+try:
+    from ..models_preceptores import PreceptorCurso  # type: ignore
+except Exception:
+    PreceptorCurso = None
+
 
 def _materias_por_defecto():
     return getattr(
@@ -234,14 +239,34 @@ def _usuario_puede_operar_nota_en_alumno(user, alumno: Alumno) -> bool:
     return assignment_matches_course(qs, obj=alumno)
 
 
-def _filtrar_cursos_para_profesor(user, cursos, school=None):
-    if not _is_profesor_user(user):
-        return cursos
-
-    refs = _cursos_profesor_asignados_refs(user, school=school)
-    if not refs:
+def _cursos_preceptor_asignados_refs(user, school=None):
+    if PreceptorCurso is None:
         return []
-    return filter_course_options_by_refs(cursos, refs)
+    try:
+        qs = PreceptorCurso.objects.filter(preceptor=user)
+        if school is not None:
+            qs = scope_queryset_to_school(qs, school)
+        return get_assignment_course_refs(qs)
+    except Exception:
+        return []
+
+
+def _filtrar_cursos_para_profesor(user, cursos, school=None):
+    if getattr(user, "is_superuser", False):
+        return cursos
+    if _is_directivo_user(user):
+        return cursos
+    if _has_group(user, "Preceptores", "Preceptor"):
+        refs = _cursos_preceptor_asignados_refs(user, school=school)
+        if not refs:
+            return []
+        return filter_course_options_by_refs(cursos, refs)
+    if _is_profesor_user(user):
+        refs = _cursos_profesor_asignados_refs(user, school=school)
+        if not refs:
+            return []
+        return filter_course_options_by_refs(cursos, refs)
+    return cursos
 
 
 def _profesor_puede_editar_nota(user, nota) -> bool:
