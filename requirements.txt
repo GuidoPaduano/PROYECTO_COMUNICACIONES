@@ -1,4 +1,5 @@
 asgiref==3.8.1
+# cache-bust: 2026-06-28
 chardet==5.2.0
 dj-database-url==2.3.0
 django-cors-headers==4.3.1
