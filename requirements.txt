@@ -18,3 +18,6 @@ typing_extensions==4.13.2
 tzdata==2025.1
 whitenoise==6.9.0
 drf-spectacular==0.29.0
+pytest==8.3.5
+pytest-django==4.10.0
+pytest-cov==6.1.0
