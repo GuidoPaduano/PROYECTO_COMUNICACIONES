@@ -210,9 +210,10 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
     'http://127.0.0.1:3002',
-    'http://192.168.1.38:3000',  # ← agregado: acceso por IP LAN
-    # 'http://192.168.1.38:3001',  # ← opcional si a veces Next usa 3001
 ]
+_lan_origin = os.environ.get("LAN_ORIGIN", "").strip()
+if _lan_origin:
+    CSRF_TRUSTED_ORIGINS.append(_lan_origin)
 
 # ✅ Configuración DRF + JWT: DRF entiende sesión y/o JWT
 CSRF_TRUSTED_ORIGINS = _split_env_list("CSRF_TRUSTED_ORIGINS", CSRF_TRUSTED_ORIGINS)
@@ -270,9 +271,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3001",
     "http://127.0.0.1:3002",
     "http://172.16.0.2:3000",
-    "http://192.168.1.38:3000",  # ← agregado: front por IP LAN
-    # "http://192.168.1.38:3001",  # ← opcional si a veces Next usa 3001
 ]
+if _lan_origin:
+    CORS_ALLOWED_ORIGINS.append(_lan_origin)
 CORS_ALLOWED_ORIGINS = _split_env_list("CORS_ALLOWED_ORIGINS", CORS_ALLOWED_ORIGINS)
 CORS_ALLOW_CREDENTIALS = True
 

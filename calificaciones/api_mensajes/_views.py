@@ -135,6 +135,8 @@ def enviar_mensaje(request):
 
     ids = []
     first = None
+    _msg_has_school = _has_field(Mensaje, "school")
+    _msg_has_school_course = _has_field(Mensaje, "school_course")
 
     if alumno is not None:
         school_course_ref = getattr(alumno, "school_course", None) or school_course_ref
@@ -169,9 +171,9 @@ def enviar_mensaje(request):
 
         if flags["has_fecha_envio"]:
             kwargs["fecha_envio"] = timezone.now()
-        if _has_field(Mensaje, "school"):
+        if _msg_has_school:
             kwargs["school"] = getattr(alumno, "school", None) or active_school
-        if _has_field(Mensaje, "school_course") and school_course_ref is not None:
+        if _msg_has_school_course and school_course_ref is not None:
             kwargs["school_course"] = school_course_ref
 
         msg = Mensaje.objects.create(**kwargs)
@@ -266,6 +268,9 @@ def enviar_mensaje_grupal(request):
     sin_receptor = 0
     notifs = []
 
+    _msg_has_school = _has_field(Mensaje, "school")
+    _msg_has_school_course = _has_field(Mensaje, "school_course")
+
     for a in alumnos:
         if tipo == "comunicado":
             candidatos = [getattr(a, "padre", None), getattr(a, "usuario", None)]
@@ -317,9 +322,9 @@ def enviar_mensaje_grupal(request):
 
             if flags["has_fecha_envio"]:
                 kwargs["fecha_envio"] = timezone.now()
-            if _has_field(Mensaje, "school"):
+            if _msg_has_school:
                 kwargs["school"] = getattr(a, "school", None) or active_school
-            if _has_field(Mensaje, "school_course"):
+            if _msg_has_school_course:
                 kwargs["school_course"] = getattr(a, "school_course", None) or school_course_ref
 
             msg = Mensaje.objects.create(**kwargs)

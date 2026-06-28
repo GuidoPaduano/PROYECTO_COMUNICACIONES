@@ -4,6 +4,7 @@ from django.utils import timezone
 from django.db import models
 from django.contrib.auth import get_user_model
 
+from ..api_utils import _coerce_json  # noqa: F401 — re-exported for views
 from ..course_access import build_course_membership_q, course_ref_matches, get_assignment_course_refs
 from ..models import Alumno, Mensaje, Notificacion, resolve_school_course_for_value
 from ..resend_email import send_message_email
@@ -478,16 +479,6 @@ def _filter_messages_for_alumno(qs, alumno, *, user=None):
             q |= models.Q(alumno__isnull=True, curso__iexact=curso)
 
     return qs.filter(q)
-
-
-def _coerce_json(request):
-    if hasattr(request, "data") and request.data:
-        return request.data
-    try:
-        raw = (request.body or b"").decode("utf-8")
-        return json.loads(raw) if raw else {}
-    except Exception:
-        return {}
 
 
 def _get_user_by_id(uid):

@@ -413,6 +413,32 @@ def registrar_asistencias(request):
     items_out: List[Dict[str, Any]] = []
     afectados_ids_por_tipo: Dict[str, set] = {}
 
+    # Pre-fetch all alumnos needed in this batch to avoid N+1 queries
+    _batch_pks: set = set()
+    _batch_legajos: set = set()
+    for _it in items:
+        _it_parsed = _try_parse_json(_it)
+        if isinstance(_it_parsed, dict):
+            _aid = _it_parsed.get("alumno_id") or _it_parsed.get("alumno")
+            _leg = _it_parsed.get("id_alumno") or _it_parsed.get("legajo")
+            if _aid:
+                try:
+                    _batch_pks.add(int(_aid))
+                except (ValueError, TypeError):
+                    pass
+            if _leg:
+                _batch_legajos.add(str(_leg))
+
+    _alumno_by_pk: Dict[int, Any] = {}
+    _alumno_by_legajo: Dict[str, Any] = {}
+    _base_alumno_qs = scope_queryset_to_school(Alumno.objects.all(), active_school).select_related("school_course", "school")
+    if _batch_pks:
+        for _a in _base_alumno_qs.filter(pk__in=_batch_pks):
+            _alumno_by_pk[_a.pk] = _a
+    if _batch_legajos:
+        for _a in _base_alumno_qs.filter(id_alumno__in=_batch_legajos):
+            _alumno_by_legajo[_a.id_alumno] = _a
+
     for it in items:
         it = _try_parse_json(it)
         if not isinstance(it, dict):
@@ -425,10 +451,10 @@ def registrar_asistencias(request):
 
         try:
             if alumno_id:
-                alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(pk=int(alumno_id))
+                alumno = _alumno_by_pk.get(int(alumno_id))
             elif legajo:
-                alumno = scope_queryset_to_school(Alumno.objects.all(), active_school).get(id_alumno=str(legajo))
-            else:
+                alumno = _alumno_by_legajo.get(str(legajo))
+            if alumno is None:
                 errores += 1
                 continue
         except Exception:
