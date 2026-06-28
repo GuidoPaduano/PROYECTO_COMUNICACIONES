@@ -22,7 +22,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
-from ..alerts_inasistencias import evaluar_alertas_inasistencia_por_alumnos, evaluar_alerta_inasistencia
+from ..tasks import evaluar_alertas_inasistencia_task, evaluar_alerta_inasistencia_task
 from ..models import Alumno, Asistencia
 from ..models import resolve_school_course_for_value
 from ..schools import get_request_school, scope_queryset_to_school
@@ -216,15 +216,14 @@ def registrar_asistencias(request):
                 )
             except Exception:
                 pass
-            if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
-                try:
-                    evaluar_alertas_inasistencia_por_alumnos(
-                        alumno_ids=sorted(set(res.get("afectados") or [])),
-                        tipo_asistencia=tipo_asistencia,
-                        actor=getattr(request, "user", None),
-                    )
-                except Exception:
-                    pass
+            try:
+                evaluar_alertas_inasistencia_task.delay(
+                    alumno_ids=sorted(set(res.get("afectados") or [])),
+                    tipo_asistencia=tipo_asistencia,
+                    actor_id=getattr(getattr(request, "user", None), "pk", None),
+                )
+            except Exception:
+                pass
 
             items_out: List[Dict[str, Any]] = []
             if return_items and alumno_ids:
@@ -348,15 +347,14 @@ def registrar_asistencias(request):
             )
         except Exception:
             pass
-        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
-            try:
-                evaluar_alertas_inasistencia_por_alumnos(
-                    alumno_ids=sorted(set(res.get("afectados") or [])),
-                    tipo_asistencia=tipo_asistencia,
-                    actor=getattr(request, "user", None),
-                )
-            except Exception:
-                pass
+        try:
+            evaluar_alertas_inasistencia_task.delay(
+                alumno_ids=sorted(set(res.get("afectados") or [])),
+                tipo_asistencia=tipo_asistencia,
+                actor_id=getattr(getattr(request, "user", None), "pk", None),
+            )
+        except Exception:
+            pass
 
         items_out: List[Dict[str, Any]] = []
         if return_items:
@@ -542,16 +540,16 @@ def registrar_asistencias(request):
         except Exception:
             errores += 1
 
-    if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
-        try:
-            for tipo_eval, ids_eval in afectados_ids_por_tipo.items():
-                evaluar_alertas_inasistencia_por_alumnos(
-                    alumno_ids=sorted(ids_eval),
-                    tipo_asistencia=tipo_eval,
-                    actor=getattr(request, "user", None),
-                )
-        except Exception:
-            pass
+    try:
+        actor_id = getattr(getattr(request, "user", None), "pk", None)
+        for tipo_eval, ids_eval in afectados_ids_por_tipo.items():
+            evaluar_alertas_inasistencia_task.delay(
+                alumno_ids=sorted(ids_eval),
+                tipo_asistencia=tipo_eval,
+                actor_id=actor_id,
+            )
+    except Exception:
+        pass
 
     return _ok_response({
         "guardadas": guardadas,
@@ -649,16 +647,15 @@ def justificar_asistencia(request, pk: int):
 
     setattr(obj, "justificada", nueva)
     obj.save(update_fields=["justificada"])
-    if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", False):
-        try:
-            evaluar_alerta_inasistencia(
-                alumno=obj.alumno,
-                tipo_asistencia=getattr(obj, "tipo_asistencia", "clases"),
-                actor=getattr(request, "user", None),
-                asistencia=obj,
-            )
-        except Exception:
-            pass
+    try:
+        evaluar_alerta_inasistencia_task.delay(
+            alumno_id=obj.alumno_id,
+            asistencia_id=obj.pk,
+            tipo_asistencia=getattr(obj, "tipo_asistencia", "clases"),
+            actor_id=getattr(getattr(request, "user", None), "pk", None),
+        )
+    except Exception:
+        pass
 
     falta_valor = 0.0 if nueva else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0))
 

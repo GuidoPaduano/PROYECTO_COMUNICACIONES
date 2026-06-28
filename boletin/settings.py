@@ -67,6 +67,7 @@ if DEBUG:
     ALLOWED_HOSTS = list({*ALLOWED_HOSTS, "localhost", "127.0.0.1", "0.0.0.0"})
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -79,14 +80,19 @@ INSTALLED_APPS = [
     # APIs
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',  # ✅ para /api/token/blacklist/
+    'rest_framework_simplejwt.token_blacklist',
 
     # CORS
     'corsheaders',
 
     # API docs
     'drf_spectacular',
+
+    # WebSocket
+    'channels',
 ]
+
+ASGI_APPLICATION = 'boletin.asgi.application'
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',       # ✅ PONER PRIMERO
@@ -334,6 +340,31 @@ ALERTAS_INASISTENCIAS_COOLDOWN_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_
 ALERTAS_INASISTENCIAS_REAPERTURA_DIAS = int(os.environ.get("ALERTAS_INASISTENCIAS_REAPERTURA_DIAS", "14"))
 ALERTAS_INASISTENCIAS_UMBRALES_FALTAS = os.environ.get("ALERTAS_INASISTENCIAS_UMBRALES_FALTAS", "10,20,25")
 REQUEST_LIFECYCLE_LOGGING = os.environ.get("REQUEST_LIFECYCLE_LOGGING", "False") == "True"
+
+# ✅ Celery
+_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", _REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", _REDIS_URL)
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "False") == "True"
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+# ✅ Django Channels — WebSocket
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [_REDIS_URL],
+        },
+    }
+} if CACHE_URL else {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
 
 LOGGING = {
     "version": 1,

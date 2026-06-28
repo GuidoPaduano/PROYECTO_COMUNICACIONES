@@ -372,6 +372,12 @@ def enviar_mensaje_grupal(request):
     if notifs:
         try:
             Notificacion.objects.bulk_create(notifs, batch_size=500)
+            try:
+                from ..ws_notify import push_unread_update_for_notification
+                for notif in notifs:
+                    push_unread_update_for_notification(notif)
+            except Exception:
+                pass
         except Exception:
             pass
 

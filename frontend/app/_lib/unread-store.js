@@ -14,6 +14,9 @@ let started = false
 let timer = null
 let inflight = null
 let unsubscribeBrowser = null
+let ws = null
+let wsReconnectTimer = null
+let wsConnected = false
 
 function emit() {
   for (const listener of listeners) {
@@ -71,6 +74,82 @@ async function refreshUnread() {
   return inflight
 }
 
+// ── WebSocket ──────────────────────────────────────────────────────────────
+
+function buildWsUrl() {
+  if (typeof window === "undefined") return null
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+  return `${protocol}//${window.location.host}/ws/notificaciones/`
+}
+
+function connectWebSocket() {
+  if (typeof window === "undefined" || ws) return
+
+  const url = buildWsUrl()
+  if (!url) return
+
+  try {
+    ws = new WebSocket(url)
+
+    ws.addEventListener("open", () => {
+      wsConnected = true
+      if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer)
+        wsReconnectTimer = null
+      }
+    })
+
+    ws.addEventListener("message", (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (typeof data?.messages === "number" || typeof data?.notifications === "number") {
+          const next = {
+            messages: typeof data.messages === "number" ? data.messages : state.messages,
+            notifications: typeof data.notifications === "number" ? data.notifications : state.notifications,
+          }
+          next.total = next.messages + next.notifications
+          if (
+            next.messages !== state.messages ||
+            next.notifications !== state.notifications
+          ) {
+            state.messages = next.messages
+            state.notifications = next.notifications
+            state.total = next.total
+            emit()
+          }
+        }
+      } catch {}
+    })
+
+    ws.addEventListener("close", () => {
+      wsConnected = false
+      ws = null
+      // Reconnect after 5s if store is still active
+      if (started) {
+        wsReconnectTimer = setTimeout(connectWebSocket, 5000)
+      }
+    })
+
+    ws.addEventListener("error", () => {
+      ws?.close()
+    })
+  } catch {}
+}
+
+function disconnectWebSocket() {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer)
+    wsReconnectTimer = null
+  }
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+  wsConnected = false
+}
+
+// ── Browser event listeners ────────────────────────────────────────────────
+
 function setupBrowserListeners() {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return () => {}
@@ -103,7 +182,9 @@ function startStore() {
   started = true
   unsubscribeBrowser = setupBrowserListeners()
   refreshUnread()
-  timer = setInterval(refreshUnread, 60000)
+  connectWebSocket()
+  // Polling as fallback (longer interval since WebSocket handles real-time)
+  timer = setInterval(refreshUnread, 120000)
 }
 
 function stopStore() {
@@ -113,6 +194,7 @@ function stopStore() {
   timer = null
   if (unsubscribeBrowser) unsubscribeBrowser()
   unsubscribeBrowser = null
+  disconnectWebSocket()
 }
 
 export function subscribeUnread(listener) {
