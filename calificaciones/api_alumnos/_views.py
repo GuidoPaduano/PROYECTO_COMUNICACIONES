@@ -42,6 +42,13 @@ from ._helpers import (
     _resolve_alumno_for_transfer,
     _truthy,
 )
+from ..views._acceso import (
+    _has_role,
+    _preceptor_assignment_refs,
+    _profesor_assignment_refs,
+    _school_course_options_for_ui,
+)
+from ..course_access import filter_course_options_by_refs
 
 
 @csrf_exempt
@@ -432,25 +439,31 @@ def vincular_mi_legajo(request):
 def cursos_disponibles(request):
     """
     GET /alumnos/cursos/
-    Devuelve todos los cursos disponibles (catálogo Alumno.CURSOS).
+    Devuelve los cursos disponibles. Para preceptores y profesores filtra
+    por sus cursos asignados; superusers y directivos ven todos.
     """
     active_school = get_request_school(request)
-    # Preferimos los cursos reales en DB (para no listar cursos inexistentes).
-    # Si no hay alumnos, caemos al catálogo definido en el modelo.
-    cursos = get_school_course_dicts(
-        school=active_school,
-        fallback_to_defaults=False,
-        catalog_only=True,
-    )
+    user = request.user
+
+    options = _school_course_options_for_ui(school=active_school)
+
+    if not user.is_superuser and not _has_role(request, "Directivos"):
+        if _has_role(request, "Preceptores"):
+            refs = _preceptor_assignment_refs(user, school=active_school)
+            options = filter_course_options_by_refs(options, refs) if refs else []
+        elif _has_role(request, "Profesores"):
+            refs = _profesor_assignment_refs(user, school=active_school)
+            options = filter_course_options_by_refs(options, refs) if refs else []
+
     cursos = [
         {
-            "id": item.get("id"),
-            "nombre": item.get("nombre"),
-            "code": item.get("id"),
-            "school_course_id": item.get("school_course_id"),
+            "id": opt.get("code") or opt.get("id"),
+            "nombre": opt.get("label") or opt.get("nombre"),
+            "code": opt.get("code") or opt.get("id"),
+            "school_course_id": opt.get("school_course_id"),
         }
-        for item in cursos
-        if item.get("id")
+        for opt in options
+        if opt.get("code") or opt.get("id")
     ]
     return Response({"cursos": cursos}, status=200)
 

@@ -241,18 +241,31 @@ def notas_catalogos(request):
         _course_option_payload(option)
         for option in _school_course_options_for_ui(school=active_school)
     ]
-    if _has_role(request, "Profesores") and not request.user.is_superuser:
-        assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
-        if not assigned_refs:
-            cursos = []
-        else:
-            cursos = [
-                _course_option_payload(option)
-                for option in filter_course_options_by_refs(
-                    _school_course_options_for_ui(school=active_school),
-                    assigned_refs,
-                )
-            ]
+    if not request.user.is_superuser:
+        if _has_role(request, "Preceptores"):
+            assigned_refs = _preceptor_assignment_refs(request.user, school=active_school)
+            if not assigned_refs:
+                cursos = []
+            else:
+                cursos = [
+                    _course_option_payload(option)
+                    for option in filter_course_options_by_refs(
+                        _school_course_options_for_ui(school=active_school),
+                        assigned_refs,
+                    )
+                ]
+        elif _has_role(request, "Profesores"):
+            assigned_refs = _profesor_assignment_refs(request.user, school=active_school)
+            if not assigned_refs:
+                cursos = []
+            else:
+                cursos = [
+                    _course_option_payload(option)
+                    for option in filter_course_options_by_refs(
+                        _school_course_options_for_ui(school=active_school),
+                        assigned_refs,
+                    )
+                ]
     materias = list(MATERIAS)
     tipos = []  # futuro: mapear choices de Nota si existen
 
