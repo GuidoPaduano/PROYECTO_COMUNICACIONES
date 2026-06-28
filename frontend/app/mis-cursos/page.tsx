@@ -58,10 +58,11 @@ export default function MisCursosPage() {
       setError("")
       try {
         let list = []
-        const profile =
+        const profile = (
           Array.isArray(session?.groups) && (session.groups.length > 0 || session.isSuperuser)
             ? { groups: session.groups, is_superuser: session.isSuperuser }
             : await getSessionProfile().catch(() => ({}))
+        ) as { groups?: unknown[]; is_superuser?: boolean }
         const groups = Array.isArray(profile?.groups) ? profile.groups : []
         const isPreceptor = groups.some((g: any) => String(g || "").toLowerCase().includes("precep"))
         const isDirectivo = groups.some((g: any) => String(g || "").toLowerCase().includes("directiv"))
