@@ -1,0 +1,1462 @@
+// @ts-nocheck
+"use client"
+
+import dynamic from "next/dynamic"
+import Link from "next/link"
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useAuthGuard,
+  authFetch,
+  getCachedSessionProfileData,
+  getSessionProfile,
+  useSessionContext,
+} from "../_lib/auth"
+import { useRouter } from "next/navigation"
+import { getCourseDisplayName } from "../_lib/courses"
+import { notifyInboxChanged } from "../_lib/inbox" // ⬅️ EVENT bus para badges
+import { NotificationBell } from "@/components/notification-bell"
+import { useUnreadCount } from "../_lib/useUnreadCount"
+import { buildReplyRequestAttempts } from "../_lib/idempotency"
+
+import {
+  Mail,
+  User,
+  ChevronDown,
+  ChevronLeft,
+  CheckCheck,
+  Search,
+  RefreshCcw, // ⬅️ Botón Actualizar
+  Plus,
+  CalendarDays,
+  History,
+  Reply,
+  Trash2,
+} from "lucide-react"
+
+import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import SuccessMessage from "@/components/ui/success-message"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+
+const ComposeComunicadoFamilia = dynamic(() => import("./_compose-comunicado-familia"), {
+  loading: () => null,
+})
+
+const LOGO_SRC = "/imagenes/Logo%20Color.png"
+const MENSAJES_RESOURCE_MAX_AGE_MS = 10000
+const TODOS_LOS_HIJOS_VALUE = "__todos__"
+const mensajesResourceCache = new Map()
+const mensajesResourcePromises = new Map()
+
+/* ======================== Utils ======================== */
+function fmtFecha(input) {
+  if (!input) return "—"
+  const d1 = new Date(input)
+  if (!isNaN(d1.getTime())) {
+    return d1.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    })
+  }
+  const m = String(input).match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/)
+  if (m) {
+    const day = parseInt(m[1], 10)
+    const mon = parseInt(m[2], 10) - 1
+    const year = parseInt(m[3].length === 2 ? "20" + m[3] : m[3], 10)
+    const d2 = new Date(year, mon, day)
+    if (!isNaN(d2.getTime())) {
+      return d2.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    }
+  }
+  return String(input)
+}
+
+function initials(name) {
+  const s = String(name || "").trim()
+  if (!s) return "✉️"
+  const parts = s.split(/\s+/).slice(0, 2)
+  return parts.map((p) => p[0]?.toUpperCase() || "").join("")
+}
+
+function preview(text, max = 160) {
+  const t = String(text || "").replace(/\s+/g, " ").trim()
+  if (t.length <= max) return t
+  return t.slice(0, max - 1) + "..."
+}
+
+function stripRePrefix(s) {
+  return String(s || "").replace(/^(\s*re\s*:\s*)+/i, "").trim()
+}
+
+function collapseRePrefix(s) {
+  const base = stripRePrefix(s)
+  if (!base) return ""
+  const hasRe = /^\s*re\s*:/i.test(String(s || ""))
+  return hasRe ? `Re: ${base}` : base
+}
+
+async function fetchJSON(url, opts) {
+  const res = await authFetch(url, {
+    ...opts,
+    headers: { Accept: "application/json", ...(opts?.headers || {}) },
+  })
+  const ct = res.headers.get("content-type") || ""
+  if (ct.includes("application/json")) {
+    const data = await res.json().catch(() => ({}))
+    return { ok: res.ok, status: res.status, data }
+  }
+  const text = await res.text()
+  return { ok: res.ok, status: res.status, text }
+}
+
+function buildMeFromSession(session) {
+  if (!session || typeof session !== "object") return null
+  return {
+    full_name: String(session.userLabel || "").trim(),
+    username: String(session.username || "").trim(),
+    groups: Array.isArray(session.groups) ? session.groups : [],
+    is_superuser: !!session.isSuperuser,
+  }
+}
+
+function invalidateMensajesResource(cacheKey = "") {
+  const key = String(cacheKey || "").trim()
+  if (!key) {
+    mensajesResourceCache.clear()
+    mensajesResourcePromises.clear()
+    return
+  }
+  mensajesResourceCache.delete(key)
+  mensajesResourcePromises.delete(key)
+}
+
+async function loadMensajesResource(cacheKey, loader, { force = false, maxAgeMs = MENSAJES_RESOURCE_MAX_AGE_MS } = {}) {
+  const key = String(cacheKey || "").trim()
+  if (!key || typeof loader !== "function") {
+    return await loader()
+  }
+
+  if (!force) {
+    const cached = mensajesResourceCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data
+    }
+  } else {
+    invalidateMensajesResource(key)
+  }
+
+  if (!force && mensajesResourcePromises.has(key)) {
+    return await mensajesResourcePromises.get(key)
+  }
+
+  const promise = (async () => {
+    const data = await loader()
+    mensajesResourceCache.set(key, {
+      data,
+      expiresAt: Date.now() + maxAgeMs,
+    })
+    return data
+  })()
+
+  mensajesResourcePromises.set(key, promise)
+
+  try {
+    return await promise
+  } finally {
+    if (mensajesResourcePromises.get(key) === promise) {
+      mensajesResourcePromises.delete(key)
+    }
+  }
+}
+
+/* ====== Flag de NO LEÍDO para pintar fondo ====== */
+function esNoLeido(m, myId) {
+  const hasLeido = Object.prototype.hasOwnProperty.call(m, "leido")
+  const hasLeidoEn = Object.prototype.hasOwnProperty.call(m, "leido_en")
+  if (!hasLeido && !hasLeidoEn) return false
+
+  const isUnread =
+    (hasLeido && m.leido === false) ||
+    (hasLeidoEn && (m.leido_en === null || m.leido_en === undefined))
+
+  if (m?.receptor_id && myId) return isUnread && m.receptor_id === myId
+  if (m?.receptor && myId) return isUnread && m.receptor === myId
+
+  return isUnread
+}
+
+function hasAlumnoOrPadreRole(me) {
+  const groups = Array.isArray(me?.groups) ? me.groups : []
+  return groups.includes("Padres") || groups.includes("Alumnos") || groups.includes("Alumno")
+}
+
+function getReadReceiptLabel(message, myId) {
+  if (!message || !myId) return ""
+  const mine = message.emisor_id && message.emisor_id === myId
+  if (!mine || !message.leido_en) return ""
+  return `Visto el ${fmtFecha(message.leido_en)}`
+}
+
+/* ======================== Page ======================== */
+export default function MensajesPage() {
+  useAuthGuard()
+  const router = useRouter()
+  const session = useSessionContext()
+  const cachedProfile = useMemo(() => getCachedSessionProfileData(), [])
+  const sessionBootstrapProfile = useMemo(
+    () => cachedProfile || buildMeFromSession(session),
+    [cachedProfile, session]
+  )
+
+  const [me, setMe] = useState(() => sessionBootstrapProfile)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [buscar, setBuscar] = useState("")
+  const [mensajes, setMensajes] = useState([])
+  const [hijos, setHijos] = useState([])
+  const [hijoSel, setHijoSel] = useState("")
+  const [hijosLoading, setHijosLoading] = useState(false)
+
+  const [traces, setTraces] = useState([])
+  const [open, setOpen] = useState(false)
+  const [msgSel, setMsgSel] = useState(null)
+  const [verHiloLoading, setVerHiloLoading] = useState(false)
+  const messageDialogTriggerRef = useRef(null)
+
+  // === Eliminar mensaje ===
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState("")
+
+  // === Responder ===
+  const [replyMode, setReplyMode] = useState(false)
+  const [replyAsunto, setReplyAsunto] = useState("")
+  const [replyTexto, setReplyTexto] = useState("")
+  const [replyErr, setReplyErr] = useState("")
+  const [replyOk, setReplyOk] = useState("")
+  const [replySending, setReplySending] = useState(false)
+
+  const [reloadTick, setReloadTick] = useState(0)
+  const [openSendPicker, setOpenSendPicker] = useState(false)
+  const [newMsgOpen, setNewMsgOpen] = useState(false)
+  const [composerMode, setComposerMode] = useState("familia")
+  const [openAlumnoMsg, setOpenAlumnoMsg] = useState(false)
+  const [loadingAlumnoMsg, setLoadingAlumnoMsg] = useState(false)
+  const [alumnoMsgErr, setAlumnoMsgErr] = useState("")
+  const [alumnoMsgOk, setAlumnoMsgOk] = useState("")
+  const [destSel, setDestSel] = useState("")
+  const [asuntoAlu, setAsuntoAlu] = useState("")
+  const [contenidoAlu, setContenidoAlu] = useState("")
+  const [destinatariosDoc, setDestinatariosDoc] = useState([])
+  const [alumnoDestType, setAlumnoDestType] = useState("")
+  const [clientReady, setClientReady] = useState(false)
+  const myId = me?.id ?? me?.user?.id
+  const roleProfile = clientReady ? me : null
+  const blockDeleteForUnread = hasAlumnoOrPadreRole(roleProfile)
+  const groups = Array.isArray(roleProfile?.groups) ? roleProfile.groups : []
+  const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
+  const isProfesor = groups.includes("Profesores") || groups.includes("Profesor")
+  const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
+  const isPadre = groups.includes("Padres") || groups.includes("Padre")
+  const isAlumnoOrPadre = isAlumno || isPadre
+  const mensajesScopeKey = useMemo(
+    () => `${session?.username || me?.username || "anon"}:${session?.school?.id || "default"}`,
+    [me?.username, session?.school?.id, session?.username]
+  )
+  const inboxCacheKey = useMemo(
+    () => `mensajes-inbox:${mensajesScopeKey}:${isPadre ? hijoSel || "sin-hijo" : "general"}`,
+    [hijoSel, isPadre, mensajesScopeKey]
+  )
+
+  const unreadCount = useUnreadCount()
+
+  useEffect(() => {
+    setClientReady(true)
+  }, [])
+
+  useEffect(() => {
+    const sessionMe = sessionBootstrapProfile
+    if (sessionMe) {
+      setMe((prev) => ({ ...(prev || {}), ...sessionMe }))
+    }
+
+    const hasFullProfile = !!(sessionMe?.id ?? sessionMe?.user?.id)
+    if (hasFullProfile) {
+      return undefined
+    }
+
+    let alive = true
+    ;(async () => {
+      try {
+        const profile = await getSessionProfile()
+        if (alive && profile) setMe(profile)
+      } catch {
+        // ignore, the page can still work with session context
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [sessionBootstrapProfile])
+
+  useEffect(() => {
+    if (!isPadre) {
+      setHijos([])
+      setHijoSel("")
+      setHijosLoading(false)
+      return undefined
+    }
+
+    let alive = true
+    setHijosLoading(true)
+    ;(async () => {
+      try {
+        const r = await fetchJSON("/api/padres/mis-hijos/")
+        const arr = Array.isArray(r?.data?.results) ? r.data.results : []
+        if (!alive) return
+        setHijos(arr)
+        setHijoSel((prev) => {
+          const ids = arr.map((h) => String(h?.id ?? "")).filter(Boolean)
+          if (prev && ids.includes(String(prev))) return String(prev)
+          if (prev === TODOS_LOS_HIJOS_VALUE && ids.length > 0) return TODOS_LOS_HIJOS_VALUE
+          return ids.length > 0 ? TODOS_LOS_HIJOS_VALUE : ""
+        })
+      } catch {
+        if (alive) {
+          setHijos([])
+          setHijoSel("")
+        }
+      } finally {
+        if (alive) setHijosLoading(false)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [isPadre, mensajesScopeKey])
+
+  // ===== Loader de mensajes =====
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        if (isPadre && hijosLoading) return
+        if (isPadre && !hijoSel) {
+          if (alive) {
+            setMensajes([])
+            setTraces([])
+            setLoading(false)
+          }
+          return
+        }
+        if (reloadTick === 0 && mensajes.length === 0) {
+          setLoading(true)
+        }
+        setError("")
+
+        let list = null
+        let tries = []
+        try {
+          const inbox = await loadMensajesResource(
+            inboxCacheKey,
+            async () => {
+              const url =
+                isPadre && hijoSel && hijoSel !== TODOS_LOS_HIJOS_VALUE
+                  ? `/api/mensajes/recibidos/?alumno_id=${encodeURIComponent(String(hijoSel))}`
+                  : "/api/mensajes/recibidos/"
+              const r = await fetchJSON(url)
+              if (!r.ok) {
+                const detail =
+                  r?.data?.detail ||
+                  r?.data?.error ||
+                  r?.text ||
+                  `No se pudieron cargar los mensajes (HTTP ${r.status}).`
+                throw new Error(detail)
+              }
+              if (!Array.isArray(r.data)) {
+                throw new Error("La respuesta de mensajes no tiene un formato válido.")
+              }
+              return {
+                list: r.data,
+                traces: [{ url, status: r.status, ok: r.ok }],
+              }
+            },
+            { force: reloadTick > 0 }
+          )
+          list = Array.isArray(inbox?.list) ? inbox.list : null
+          tries = Array.isArray(inbox?.traces) ? inbox.traces : []
+        } catch (e) {
+          tries = [{ url: "/api/mensajes/recibidos/", status: "ERR", ok: false }]
+          if (alive) setTraces(tries)
+          throw e
+        }
+
+        if (alive) {
+          setMensajes(Array.isArray(list) ? list : [])
+          setTraces(tries)
+        }
+      } catch (e) {
+        if (alive) setError(e?.message || "No se pudieron cargar los mensajes.")
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [hijoSel, hijosLoading, inboxCacheKey, isPadre, mensajes.length, reloadTick])
+
+  // escuchar el evento global para refrescar cuando otro view cambie el inbox
+  useEffect(() => {
+    const handler = () => {
+      invalidateMensajesResource(inboxCacheKey)
+      setReloadTick((t) => t + 1)
+    }
+    window.addEventListener("inbox-changed", handler)
+    return () => window.removeEventListener("inbox-changed", handler)
+  }, [inboxCacheKey])
+
+  const list = useMemo(() => {
+    let arr = Array.isArray(mensajes) ? mensajes.slice() : []
+    const q = buscar.trim().toLowerCase()
+    if (q) {
+      arr = arr.filter(
+        (m) =>
+          (m.asunto || "").toLowerCase().includes(q) ||
+          (m.contenido || "").toLowerCase().includes(q) ||
+          (m.emisor || "").toLowerCase().includes(q)
+      )
+    }
+    arr.sort((a, b) => {
+      const da = new Date(a.fecha || a.fecha_envio || 0).getTime()
+      const db = new Date(b.fecha || b.fecha_envio || 0).getTime()
+      return db - da
+    })
+    return arr
+  }, [mensajes, buscar])
+
+  async function marcarTodoLeido() {
+    try {
+      const url =
+        isPadre && hijoSel && hijoSel !== TODOS_LOS_HIJOS_VALUE
+          ? `/api/mensajes/marcar_todos_leidos/?alumno_id=${encodeURIComponent(String(hijoSel))}`
+          : "/api/mensajes/marcar_todos_leidos/"
+      const r = await authFetch(url, { method: "POST" })
+      if (r.ok) {
+        setMensajes((prev) =>
+          prev.map((x) => ({
+            ...x,
+            leido: true,
+            leido_en: x.leido_en || new Date().toISOString(),
+          }))
+        )
+        invalidateMensajesResource(inboxCacheKey)
+        notifyInboxChanged()
+        setReloadTick((t) => t + 1)
+      }
+    } catch {}
+  }
+
+  function pedirEliminar(m, ev) {
+    try {
+      ev?.stopPropagation?.()
+    } catch {}
+    setDeleteTarget(m || null)
+    setDeleteError("")
+    setDeleteOpen(true)
+  }
+
+  async function confirmarEliminar() {
+    if (!deleteTarget?.id) {
+      setDeleteOpen(false)
+      setDeleteTarget(null)
+      return
+    }
+
+    setDeleteLoading(true)
+    setDeleteError("")
+
+    try {
+      let r = await authFetch(`/api/mensajes/${deleteTarget.id}/eliminar/`, { method: "DELETE" })
+
+      if (!r.ok) {
+        r = await authFetch(`/api/mensajes/${deleteTarget.id}/eliminar/`, { method: "POST" })
+      }
+
+      if (!r.ok) {
+        const t = await r.text().catch(() => "")
+        throw new Error(t || "No se pudo eliminar el mensaje.")
+      }
+
+      setMensajes((prev) => prev.filter((x) => x.id !== deleteTarget.id))
+
+      setOpen((prevOpen) =>
+        prevOpen && msgSel?.id === deleteTarget.id ? false : prevOpen
+      )
+      setMsgSel((prevSel) => (prevSel?.id === deleteTarget.id ? null : prevSel))
+
+      setDeleteOpen(false)
+      setDeleteTarget(null)
+
+      invalidateMensajesResource(inboxCacheKey)
+      notifyInboxChanged()
+    } catch (e) {
+      setDeleteError(e?.message || "Error al eliminar el mensaje.")
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
+  function abrirMensaje(m) {
+    setMsgSel(m)
+    setOpen(true)
+
+    setReplyMode(false)
+    setReplyErr("")
+    setReplyOk("")
+    setReplyTexto("")
+    setReplyAsunto(m?.asunto ? `Re: ${stripRePrefix(m.asunto)}` : "Re:")
+
+    try {
+      const hasLeido = Object.prototype.hasOwnProperty.call(m, "leido")
+      const hasLeidoEn = Object.prototype.hasOwnProperty.call(m, "leido_en")
+      const hasFlags = hasLeido || hasLeidoEn
+      const isMine = m?.receptor_id && myId && m.receptor_id === myId
+      const isUnread =
+        (hasLeido && m.leido === false) ||
+        (hasLeidoEn && (m.leido_en === null || m.leido_en === undefined))
+      if (hasFlags && isMine && isUnread && m?.id) {
+        ;(async () => {
+          const r = await fetchJSON(`/api/mensajes/${m.id}/marcar_leido/`, { method: "POST" })
+          if (r.ok) {
+            setMensajes((prev) =>
+              prev.map((x) =>
+                x.id === m.id
+                  ? { ...x, leido: true, leido_en: x.leido_en || new Date().toISOString() }
+                  : x
+              )
+            )
+            invalidateMensajesResource(inboxCacheKey)
+            notifyInboxChanged()
+          }
+        })()
+      }
+    } catch {}
+  }
+
+  async function handleVerHilo() {
+    if (!msgSel) return
+    if (msgSel.thread_id) {
+      setOpen(false)
+      router.push(`/mensajes/hilo/${msgSel.thread_id}`)
+      return
+    }
+    if (!msgSel.id) return
+    setVerHiloLoading(true)
+
+    let tid = null
+    try {
+      const r = await fetchJSON(`/api/mensajes/conversacion/${msgSel.id}/`)
+      if (r.ok && r.data?.thread_id) {
+        tid = r.data.thread_id
+      }
+    } catch {}
+    setVerHiloLoading(false)
+    if (tid) {
+      setOpen(false)
+      router.push(`/mensajes/hilo/${tid}`)
+    }
+  }
+
+  async function enviarRespuesta() {
+    if (!msgSel?.id) {
+      setReplyErr("No se puede responder este mensaje (no tiene identificador).")
+      return
+    }
+    if (!replyTexto.trim()) {
+      setReplyErr("Escribí un mensaje para responder.")
+      return
+    }
+
+    setReplyErr("")
+    setReplyOk("")
+    setReplySending(true)
+
+    const payload = {
+      mensaje_id: msgSel.id,
+      asunto: replyAsunto?.trim() || `Re: ${stripRePrefix(msgSel.asunto || "")}`.trim(),
+      contenido: replyTexto.trim(),
+    }
+
+    const tries = buildReplyRequestAttempts(payload)
+
+    let ok = false,
+      lastErr = "",
+      threadId = null
+    for (const attempt of tries) {
+      try {
+        const r = await fetchJSON("/api/mensajes/responder/", {
+          method: "POST",
+          headers: attempt.headers,
+          body: attempt.body,
+        })
+        if (r.ok) {
+          threadId = r.data?.thread_id || msgSel?.thread_id || null
+          ok = true
+          break
+        }
+        lastErr = r?.data?.detail || r?.text || `HTTP ${r?.status}`
+      } catch (e) {
+        lastErr = e?.message || "Error de red"
+      }
+    }
+
+    if (ok) {
+      setReplyOk("✅ Respuesta enviada.")
+      invalidateMensajesResource(inboxCacheKey)
+      notifyInboxChanged()
+      setTimeout(() => {
+        setOpen(false)
+        setReplyMode(false)
+        setReplyTexto("")
+        setReplyOk("")
+        if (threadId) {
+          router.push(`/mensajes/hilo/${threadId}`)
+        } else {
+          setReloadTick((t) => t + 1)
+        }
+      }, 700)
+    } else {
+      setReplyErr(`No se pudo enviar la respuesta. ${lastErr}`)
+    }
+    setReplySending(false)
+  }
+
+  const userLabel =
+    (me?.full_name && String(me.full_name).trim()) ||
+    me?.username ||
+    [me?.user?.first_name, me?.user?.last_name].filter(Boolean).join(" ") ||
+    ""
+
+  const cursosEndpoint = isProfesor
+    ? "/notas/catalogos/"
+    : isPreceptor
+      ? "/preceptor/cursos/"
+      : "/alumnos/cursos/"
+
+  const debugFlag =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("debug")
+  const showDebug =
+    debugFlag &&
+    unreadCount > 0 &&
+    !loading &&
+    !error &&
+    (Array.isArray(list) ? list.length : 0) === 0
+
+  const cursoChip = getCourseDisplayName(msgSel)
+  const msgSelReadReceipt = getReadReceiptLabel(msgSel, myId)
+  const cursoSugeridoAlumnoId = useMemo(() => {
+    const schoolCourseId = me?.alumno?.school_course_id ?? null
+    if (schoolCourseId != null) return Number(schoolCourseId)
+    return null
+  }, [me])
+
+  useEffect(() => {
+    if (!openAlumnoMsg) return
+    let alive = true
+    setLoadingAlumnoMsg(true)
+    setAlumnoMsgErr("")
+    ;(async () => {
+      try {
+        const base = "/api/mensajes/destinatarios_docentes/"
+        const courseQuery =
+          cursoSugeridoAlumnoId != null
+            ? `school_course_id=${encodeURIComponent(String(cursoSugeridoAlumnoId))}`
+            : ""
+        const url = courseQuery ? `${base}?${courseQuery}` : base
+        let data = null
+        try {
+          const r = await authFetch(url, { headers: { Accept: "application/json" } })
+          if (r.ok) {
+            data = await r.json().catch(() => ({}))
+          }
+        } catch {}
+
+        let list = []
+        if (Array.isArray(data?.profesores) || Array.isArray(data?.preceptores)) {
+          const profs = Array.isArray(data?.profesores) ? data.profesores : []
+          const precs = Array.isArray(data?.preceptores) ? data.preceptores : []
+          list = [
+            ...profs.map((u) => ({
+              id: u.id,
+              label: `${u.nombre || u.username || u.email} (Profesor)`,
+              kind: "profesor",
+            })),
+            ...precs.map((u) => ({
+              id: u.id,
+              label: `${u.nombre || u.username || u.email} (Preceptor)`,
+              kind: "preceptor",
+            })),
+          ]
+        } else if (Array.isArray(data?.results)) {
+          list = data.results.map((u) => ({
+            id: u.id,
+            label: `${u.nombre || u.username || u.email}`,
+            kind: "docente",
+          }))
+        }
+
+        if (alive) {
+          const filtered =
+            alumnoDestType === "profesor"
+              ? list.filter((x) => x?.kind === "profesor")
+              : alumnoDestType === "preceptor"
+              ? list.filter((x) => x?.kind === "preceptor")
+              : list
+          setDestinatariosDoc(filtered.filter((x) => x?.id))
+          if (filtered.length && !destSel) setDestSel(String(filtered[0].id))
+        }
+      } catch (e) {
+        if (alive) setAlumnoMsgErr(e?.message || "No se pudieron cargar los destinatarios.")
+      } finally {
+        if (alive) setLoadingAlumnoMsg(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [openAlumnoMsg, cursoSugeridoAlumnoId, alumnoDestType, destSel])
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-6">
+        {showDebug && (
+          <div className="mb-3 p-3 text-[12px] rounded-md border border-amber-300 bg-amber-50 text-amber-800">
+            El contador indica mensajes no leídos, pero el listado quedó vacío.
+            <div className="mt-2 font-mono whitespace-pre-wrap">
+              {traces.map((t) => `• ${t.url} → ${t.status}${t.ok ? " ✅" : " ❌"}`).join("\n")}
+            </div>
+          </div>
+        )}
+
+        <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+          <CardContent className="p-6">
+            {/* Acciones y búsqueda */}
+            <div className="mb-4 grid grid-cols-1 lg:grid-cols-12 gap-3">
+              {isPadre ? (
+                <div className="lg:col-span-4">
+                  <Label htmlFor="hijo-mensajes" className="text-xs text-gray-600">
+                    Alumno
+                  </Label>
+                  <select
+                    id="hijo-mensajes"
+                    className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                    value={hijoSel}
+                    onChange={(e) => {
+                      setHijoSel(e.target.value)
+                      setBuscar("")
+                    }}
+                    disabled={hijosLoading || hijos.length === 0}
+                  >
+                    {hijos.length === 0 ? (
+                      <option value="">
+                        {hijosLoading ? "Cargando alumnos..." : "Sin hijos asociados"}
+                      </option>
+                    ) : (
+                      <>
+                        <option value={TODOS_LOS_HIJOS_VALUE}>Todos</option>
+                        {hijos.map((h) => {
+                          const nombre = [h?.apellido, h?.nombre].filter(Boolean).join(", ")
+                          const curso = h?.school_course_name ? ` - ${h.school_course_name}` : ""
+                          return (
+                            <option key={h?.id || h?.id_alumno} value={String(h?.id || "")}>
+                              {nombre || h?.id_alumno || "Alumno"}{curso}
+                            </option>
+                          )
+                        })}
+                      </>
+                    )}
+                  </select>
+                </div>
+              ) : null}
+              <div className={isPadre ? "lg:col-span-4" : "lg:col-span-6"}>
+                <Label htmlFor="buscar" className="text-xs text-gray-600">
+                  Buscar
+                </Label>
+                <div className="mt-1 relative">
+                  <input
+                    id="buscar"
+                    className="w-full border rounded-md px-3 py-2 text-sm bg-white pl-9"
+                    placeholder="Asunto, contenido o emisor…"
+                    value={buscar}
+                    onChange={(e) => setBuscar(e.target.value)}
+                  />
+                  <Search className="h-4 w-4 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <div className={isPadre ? "grid grid-cols-1 sm:grid-cols-3 gap-2 items-end lg:col-span-4" : "grid grid-cols-1 sm:grid-cols-3 gap-2 items-end lg:col-span-6"}>
+                <Button
+                  onClick={() => (isAlumnoOrPadre ? setOpenSendPicker(true) : setOpenSendPicker(true))}
+                  className="w-full gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Mensaje nuevo
+                </Button>
+                <Button
+                  onClick={() => setReloadTick((t) => t + 1)}
+                  className="w-full gap-2"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Actualizar
+                </Button>
+                <Button onClick={marcarTodoLeido} className="w-full gap-2">
+                  <CheckCheck className="h-4 w-4" />
+                  Marcar todo leído
+                </Button>
+              </div>
+            </div>
+
+            {/* Lista */}
+            {loading ? (
+              <p role="status" aria-live="polite" className="text-sm text-gray-500">
+                Cargando mensajes…
+              </p>
+            ) : error ? (
+              <div role="alert" className="space-y-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <div>{error}</div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => {
+                    invalidateMensajesResource(inboxCacheKey)
+                    setReloadTick((tick) => tick + 1)
+                  }}
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Reintentar
+                </Button>
+              </div>
+            ) : list.length === 0 ? (
+              <div className="text-sm text-gray-600">No hay mensajes recibidos.</div>
+            ) : (
+              <div className="divide-y">
+                {list.map((m, i) => (
+                  (() => {
+                    const readReceipt = getReadReceiptLabel(m, myId)
+                    return (
+                  <div
+                    key={m.id || i}
+                    className={[
+                      "relative w-full py-3 -mx-2 px-2 rounded-lg transition-colors",
+                      esNoLeido(m, myId) ? "" : "hover:bg-[#f6f9ff]",
+                    ].join(" ")}
+                    style={
+                      {
+                        backgroundColor: esNoLeido(m, myId)
+                          ? "#dce7f8"
+                          : "#ffffff",
+                      }
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        messageDialogTriggerRef.current = event.currentTarget
+                        abrirMensaje(m)
+                      }}
+                      className="flex w-full items-start gap-3 pr-9 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)]"
+                      aria-label={`Abrir mensaje: ${collapseRePrefix(m.asunto) || "Sin asunto"}`}
+                    >
+                      <div className="w-10 h-10 rounded-full school-primary-soft-icon flex items-center justify-center font-semibold flex-shrink-0">
+                        {initials(m.emisor)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {esNoLeido(m, myId) && (
+                              <span
+                                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: "var(--school-accent)" }}
+                              />
+                            )}
+                            <div
+                              className={`truncate ${
+                                esNoLeido(m, myId)
+                                  ? "font-medium text-gray-900"
+                                  : "text-gray-700"
+                              }`}
+                            >
+                              {m.emisor || "—"}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="text-xs text-gray-700">
+                              {fmtFecha(m.fecha || m.fecha_envio)}
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          className={`text-sm truncate ${
+                            esNoLeido(m, myId) ? "font-semibold text-gray-900" : "text-gray-900"
+                          }`}
+                        >
+                          {collapseRePrefix(m.asunto) || "Sin asunto"}
+                        </div>
+                        <div className="text-sm text-gray-600 mt-0.5 line-clamp-2 max-h-[3.2rem] overflow-hidden">
+                          {preview(m.contenido || m.body || "")}
+                        </div>
+                        {readReceipt ? (
+                          <div className="mt-1 text-xs text-gray-700">{readReceipt}</div>
+                        ) : null}
+                      </div>
+                    </button>
+                    {!(blockDeleteForUnread && esNoLeido(m, myId)) ? (
+                      <button
+                        type="button"
+                        onClick={(e) => pedirEliminar(m, e)}
+                        className="absolute right-2 top-3 p-1 rounded-md border border-transparent bg-red-50/70 text-red-600 shadow-sm hover:bg-red-100 hover:text-red-700 hover:border-red-200"
+                        title="Eliminar mensaje"
+                        aria-label="Eliminar mensaje"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                    )
+                  })()
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={openSendPicker} onOpenChange={setOpenSendPicker}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Enviar mensajes</DialogTitle>
+            <DialogDescription>
+              {isAlumnoOrPadre
+                ? "Elegí si querés enviar a un profesor o preceptor."
+                : "Elegí si querés enviar a un alumno en particular o a un curso entero."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isAlumnoOrPadre ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setAlumnoDestType("profesor")
+                  setTimeout(() => setOpenAlumnoMsg(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left transition school-hover-card"
+              >
+                <div className="text-sm font-semibold text-slate-900">Profesores</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje a un profesor</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setAlumnoDestType("preceptor")
+                  setTimeout(() => setOpenAlumnoMsg(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left transition school-hover-card"
+              >
+                <div className="text-sm font-semibold text-slate-900">Preceptores</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje a un preceptor</div>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setComposerMode("alumno")
+                  setTimeout(() => setNewMsgOpen(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left transition school-hover-card"
+              >
+                <div className="text-sm font-semibold text-slate-900">A un alumno</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje individual a un alumno</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setComposerMode("curso_alumnos")
+                  setTimeout(() => setNewMsgOpen(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left transition school-hover-card"
+              >
+                <div className="text-sm font-semibold text-slate-900">A un curso</div>
+                <div className="text-xs text-slate-500 mt-1">Mensaje grupal a un curso</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenSendPicker(false)
+                  setComposerMode("familia")
+                  setTimeout(() => setNewMsgOpen(true), 0)
+                }}
+                className="border rounded-xl p-4 text-left transition school-hover-card"
+              >
+                <div className="text-sm font-semibold text-slate-900">A la familia</div>
+                <div className="text-xs text-slate-500 mt-1">Comunicado para padres o tutores</div>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end pt-2">
+            <Button onClick={() => setOpenSendPicker(false)}>Cerrar</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {newMsgOpen ? (
+        <ComposeComunicadoFamilia
+          open={newMsgOpen}
+          onOpenChange={setNewMsgOpen}
+          cursosEndpoint={cursosEndpoint}
+          defaultMode={composerMode}
+          showModeSelect={false}
+        />
+      ) : null}
+
+      {/* ====== Modal alumno -> docentes/preceptores ====== */}
+      <Dialog open={openAlumnoMsg} onOpenChange={setOpenAlumnoMsg}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Enviar mensaje</DialogTitle>
+            <DialogDescription>
+              {alumnoDestType === "profesor"
+                ? "Elegí un profesor como destinatario."
+                : alumnoDestType === "preceptor"
+                ? "Elegí un preceptor como destinatario."
+                : "Elegí un profesor o preceptor como destinatario."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {alumnoMsgErr && (
+            <div role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3">
+              {alumnoMsgErr}
+            </div>
+          )}
+          {alumnoMsgOk && <SuccessMessage className="mt-1">{alumnoMsgOk}</SuccessMessage>}
+
+          <div className="grid gap-4">
+            <div>
+              <Label htmlFor="destSel">Destinatario</Label>
+              <select
+                id="destSel"
+                className="mt-1 w-full border rounded-md px-3 py-2"
+                value={destSel}
+                onChange={(e) => {
+                  setDestSel(e.target.value)
+                  setAlumnoMsgErr("")
+                }}
+                disabled={loadingAlumnoMsg}
+              >
+                {!destinatariosDoc.length && (
+                  <option value="">
+                    {loadingAlumnoMsg ? "Cargando..." : "Sin destinatarios"}
+                  </option>
+                )}
+                {destinatariosDoc.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor="asuntoAlu">Asunto</Label>
+              <Input
+                id="asuntoAlu"
+                className="mt-1"
+                value={asuntoAlu}
+                onChange={(e) => setAsuntoAlu(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="contenidoAlu">Mensaje</Label>
+              <Textarea
+                id="contenidoAlu"
+                className="mt-1 min-h-[140px]"
+                value={contenidoAlu}
+                onChange={(e) => setContenidoAlu(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button onClick={() => setOpenAlumnoMsg(false)}>Cancelar</Button>
+            <Button
+              onClick={async () => {
+                if (!destSel) return setAlumnoMsgErr("Elegí un destinatario.")
+                if (!asuntoAlu.trim()) return setAlumnoMsgErr("Completá el asunto.")
+                if (!contenidoAlu.trim()) return setAlumnoMsgErr("Escribí el mensaje.")
+                setAlumnoMsgErr("")
+                setAlumnoMsgOk("")
+
+                const payload = {
+                  receptor_id: Number(destSel),
+                  asunto: asuntoAlu.trim(),
+                  contenido: contenidoAlu.trim(),
+                  ...(cursoSugeridoAlumnoId != null
+                    ? { school_course_id: cursoSugeridoAlumnoId }
+                    : {}),
+                }
+
+                const tries = [
+                  "/api/mensajes/alumno/enviar/",
+                  "/api/mensajes/enviar/",
+                ]
+
+                let sent = false
+                let lastErr = ""
+                for (const url of tries) {
+                  try {
+                    const r = await authFetch(url, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Accept: "application/json" },
+                      body: JSON.stringify(payload),
+                    })
+                    if (r.ok) {
+                      sent = true
+                      break
+                    }
+                    lastErr = `HTTP ${r.status}`
+                  } catch (e) {
+                    lastErr = e?.message || "Error de red"
+                  }
+                }
+
+                if (sent) {
+                  setAlumnoMsgOk("✅ Mensaje enviado.")
+                  try {
+                    window.dispatchEvent(new Event("inbox-changed"))
+                  } catch {}
+                  setTimeout(() => {
+                    setOpenAlumnoMsg(false)
+                    setDestSel("")
+                    setAsuntoAlu("")
+                    setContenidoAlu("")
+                    setAlumnoMsgOk("")
+                  }, 700)
+                } else {
+                  setAlumnoMsgErr(`No se pudo enviar el mensaje. ${lastErr}`)
+                }
+              }}
+            >
+              Enviar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===================== MODAL LECTURA (REDISEÑADO) ===================== */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          className="sm:max-w-3xl p-0 overflow-hidden"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            if (messageDialogTriggerRef.current?.isConnected) {
+              messageDialogTriggerRef.current.focus()
+            }
+          }}
+        >
+          <DialogHeader className="px-6 pt-6 pb-4">
+            <DialogTitle className="text-lg sm:text-xl font-semibold pr-10 break-words">
+              {collapseRePrefix(msgSel?.asunto) || "Mensaje"}
+            </DialogTitle>
+
+            <DialogDescription asChild className="mt-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="w-10 h-10 rounded-full border school-primary-soft-icon flex items-center justify-center font-semibold">
+                  {initials(msgSel?.emisor)}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-white text-sm text-gray-800">
+                    <User className="h-4 w-4 text-gray-500" />
+                    {msgSel?.emisor || "—"}
+                  </span>
+
+                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-white text-sm text-gray-700">
+                    <CalendarDays className="h-4 w-4 text-gray-500" />
+                    {fmtFecha(msgSel?.fecha || msgSel?.fecha_envio)}
+                  </span>
+
+                  {cursoChip && (
+                    <span className="inline-flex items-center px-3 py-1 rounded-full border bg-white text-sm text-gray-700">
+                      {cursoChip}
+                    </span>
+                  )}
+                  {msgSelReadReceipt ? (
+                    <span className="inline-flex items-center px-3 py-1 rounded-full border bg-white text-sm text-gray-700">
+                      {msgSelReadReceipt}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="h-px bg-gray-200" />
+
+          <div className="px-6 py-5">
+            <Label className="text-xs text-gray-600">Mensaje</Label>
+            <div className="mt-2 rounded-lg border bg-gray-50 p-4 text-gray-900 whitespace-pre-wrap break-words max-h-[42vh] overflow-auto">
+              {msgSel?.contenido || msgSel?.body || "—"}
+            </div>
+
+            {!replyMode && msgSel?.id && (
+              <div className="mt-3 text-xs text-gray-500">
+                Tip: abrí el historial para responder con contexto.
+              </div>
+            )}
+
+            {!msgSel?.id && (
+              <div className="mt-3 text-xs text-gray-500">
+                Este mensaje proviene de una vista HTML; no admite respuesta directa.
+              </div>
+            )}
+          </div>
+
+          {replyMode && (
+            <>
+              <div className="h-px bg-gray-200" />
+              <div className="px-6 py-5 bg-white">
+                <div className="flex items-center gap-2 mb-3">
+                  <Reply className="h-4 w-4 text-gray-500" />
+                  <div className="text-sm font-medium text-gray-900">Respuesta</div>
+                </div>
+
+                {replyErr && <div role="alert" className="mb-3 text-sm text-red-600">{replyErr}</div>}
+                {replyOk && <SuccessMessage className="mb-3">{replyOk}</SuccessMessage>}
+
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="replyAsunto">Asunto</Label>
+                    <Input
+                      id="replyAsunto"
+                      value={replyAsunto}
+                      onChange={(e) => setReplyAsunto(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="replyTexto">Mensaje</Label>
+                    <Textarea
+                      id="replyTexto"
+                      value={replyTexto}
+                      onChange={(e) => setReplyTexto(e.target.value)}
+                      rows={6}
+                      className="whitespace-pre-wrap"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="h-px bg-gray-200" />
+
+          <div className="px-6 py-4 flex items-center justify-end gap-2 bg-white">
+            {msgSel?.id && (
+              <Button
+                onClick={handleVerHilo}
+                disabled={verHiloLoading}
+                className="gap-2"
+              >
+                <History className="h-4 w-4" />
+                {verHiloLoading ? "Abriendo…" : "Ver mensajes anteriores"}
+              </Button>
+            )}
+
+            <Button onClick={() => setOpen(false)}>
+              Cerrar
+            </Button>
+
+            <Button onClick={() => setReplyMode((v) => !v)} disabled={!msgSel?.id} className="gap-2">
+              <Reply className="h-4 w-4" />
+              {replyMode ? "Cancelar" : "Responder"}
+            </Button>
+
+            {replyMode && (
+              <Button onClick={enviarRespuesta} disabled={replySending} className="ml-2">
+                {replySending ? "Enviando…" : "Enviar"}
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      
+{/* ===================== MODAL ELIMINAR ===================== */}
+<Dialog
+  open={deleteOpen}
+  onOpenChange={(v) => {
+    setDeleteOpen(v)
+    if (!v) setDeleteTarget(null)
+  }}
+>
+  <DialogContent
+    className="p-6 text-center"
+    style={{ width: "90vw", maxWidth: "360px" }}
+  >
+    <DialogHeader className="items-center text-center">
+      <DialogTitle className="text-center">Eliminar mensaje</DialogTitle>
+      <DialogDescription className="text-center">
+        ¿Seguro que quieres eliminar el mensaje?
+      </DialogDescription>
+    </DialogHeader>
+
+    {deleteError && (
+      <div role="alert" className="mt-2 text-sm text-red-600 text-center">{deleteError}</div>
+    )}
+
+    <div className="mt-6 flex items-center justify-center gap-3">
+      <Button
+        type="button"
+        onClick={() => {
+          setDeleteOpen(false)
+          setDeleteTarget(null)
+        }}
+        className="min-w-[110px]"
+        disabled={deleteLoading}
+      >
+        Cancelar
+      </Button>
+
+      <Button
+        type="button"
+        onClick={confirmarEliminar}
+        disabled={deleteLoading}
+        className="min-w-[110px]"
+      >
+        {deleteLoading ? "Eliminando..." : "Eliminar"}
+      </Button>
+    </div>
+  </DialogContent>
+</Dialog>
+    </div>
+  )
+}
+
+/* ======================== Topbar ======================== */
+function Topbar({ userLabel, unreadCount }) {
+  const session = useSessionContext()
+  const school = session?.school
+  const logoUrl = school?.logo_url || LOGO_SRC
+  const schoolName = school?.short_name || school?.name || "Colegio"
+  const headerStyle = school?.primary_color ? { backgroundColor: school.primary_color } : undefined
+
+  return (
+    <div className="text-white px-6 py-4" style={headerStyle}>
+      <div className="flex items-center justify-between max-w-7xl mx-auto">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="inline-flex">
+            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
+              <img
+                src={logoUrl}
+                alt={schoolName}
+                className="h-full w-full object-contain"
+              />
+            </div>
+          </Link>
+          <h1 className="text-xl font-semibold">Mensajes</h1>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <Link href="/dashboard">
+            <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
+              <ChevronLeft className="h-4 w-4" />
+              Volver al panel
+            </Button>
+          </Link>
+
+          {/* Campanita con menú de notificaciones */}
+          <NotificationBell unreadCount={unreadCount} />
+
+          {/* Mail con badge */}
+          <div className="relative">
+            <Link href="/mensajes">
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/15">
+                <Mail className="h-5 w-5" />
+              </Button>
+            </Link>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-red-600 text-white border border-white">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="text-white hover:bg-white/15 gap-2">
+                <User className="h-4 w-4" />
+                {userLabel}
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem asChild className="text-sm">
+                <Link href="/perfil">
+                  <div className="flex items-center">
+                    <User className="h-4 w-4 mr-2" />
+                    Perfil
+                  </div>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  try {
+                    localStorage.clear()
+                  } catch {}
+                  window.location.href = "/login"
+                }}
+              >
+                <span className="h-4 w-4 mr-2">🚪</span>
+                Cerrar sesión
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </div>
+  )
+}

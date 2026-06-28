@@ -706,6 +706,9 @@ export async function resolveSessionAlumnoRouteId(options = {}) {
   return getSessionAlumnoRouteId(profile)
 }
 
+/**
+ * @returns {{ username: string, groups: string[], role: string, isSuperuser: boolean, school: Record<string,unknown>|null, availableSchools: Array<Record<string,unknown>>, userLabel: string } | null}
+ */
 export function useSessionContext() {
   const [context, setContext] = useState(null)
 

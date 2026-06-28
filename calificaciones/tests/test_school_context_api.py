@@ -560,7 +560,7 @@ class SchoolContextApiTests(TestCase):
             accent_color="#445566",
         )
 
-        with patch("calificaciones.api_schools._schedule_school_deletion_job") as mocked_schedule:
+        with patch("calificaciones.api_schools._helpers._schedule_school_deletion_job") as mocked_schedule:
             with self.captureOnCommitCallbacks(execute=True):
                 res = self.client.delete(f"/api/admin/schools/{school.id}/")
 
@@ -611,7 +611,7 @@ class SchoolContextApiTests(TestCase):
             contenido="Mensaje asociado al colegio",
         )
 
-        with patch("calificaciones.api_schools._schedule_school_deletion_job") as mocked_schedule:
+        with patch("calificaciones.api_schools._helpers._schedule_school_deletion_job") as mocked_schedule:
             with self.captureOnCommitCallbacks(execute=True):
                 res = self.client.delete(f"/api/admin/schools/{self.school_a.id}/")
 

@@ -83,6 +83,9 @@ INSTALLED_APPS = [
 
     # CORS
     'corsheaders',
+
+    # API docs
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -179,7 +182,7 @@ if 'ENGINE' not in DATABASES['default'] and not STATIC_BUILD:
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'es-ar'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Argentina/Buenos_Aires'
 USE_I18N = True
 USE_TZ = True
 
@@ -225,6 +228,7 @@ REST_FRAMEWORK = {
         'user': '10/min',
         'login': os.environ.get('LOGIN_THROTTLE_RATE', '10/min'),
     },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     # Si querés exigir auth por defecto, descomentá:
     # 'DEFAULT_PERMISSION_CLASSES': (
     #     'rest_framework.permissions.IsAuthenticated',
@@ -240,6 +244,14 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Proyecto Comunicaciones API',
+    'DESCRIPTION': 'API de gestión académica e institucional para escuelas.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+}
+
 JWT_ACCESS_COOKIE_NAME = os.environ.get("JWT_ACCESS_COOKIE_NAME", "access_token")
 JWT_REFRESH_COOKIE_NAME = os.environ.get("JWT_REFRESH_COOKIE_NAME", "refresh_token")
 JWT_COOKIE_PATH = os.environ.get("JWT_COOKIE_PATH", "/")
