@@ -180,7 +180,7 @@ export default function HomePage() {
 
           {loading ? (
             <div className="rounded-3xl border border-slate-200 bg-white p-10 shadow-sm flex justify-center">
-              <LogoSpinner logoUrl={branding.logo_url} label="Cargando colegios..." />
+              <LogoSpinner label="Cargando colegios..." />
             </div>
           ) : error ? (
             <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 shadow-sm">
