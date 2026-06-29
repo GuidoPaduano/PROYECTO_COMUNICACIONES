@@ -3,6 +3,7 @@
 import Image from "next/image"
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import LogoSpinner from "@/components/ui/logo-spinner"
 
 import {
   buildApiUrl,
@@ -142,6 +143,13 @@ export default function LoginPage() {
         className="w-full max-w-md rounded-lg bg-white p-8 shadow"
         style={{ borderTop: `4px solid ${branding.primary_color}` }}
       >
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-10">
+            <LogoSpinner label="Ingresando..." />
+          </div>
+        ) : null}
+
+        <div className={loading ? "hidden" : ""}>
         <div className="flex justify-center mb-4">
           <Image
             src={logoSrc}
@@ -225,6 +233,7 @@ export default function LoginPage() {
             </div>
           </div>
         </form>
+        </div>
       </div>
     </div>
   )
