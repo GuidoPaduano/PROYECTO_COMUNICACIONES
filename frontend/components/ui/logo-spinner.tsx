@@ -6,7 +6,7 @@ interface LogoSpinnerProps {
   label?: string
 }
 
-const DEFAULT_LOGO = "/imagenes/Logo Color.png"
+const DEFAULT_LOGO = "/imagenes/icono-color.png"
 
 export default function LogoSpinner({
   logoUrl,
