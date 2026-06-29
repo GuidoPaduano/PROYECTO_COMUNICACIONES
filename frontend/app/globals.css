@@ -115,6 +115,17 @@
   body { @apply bg-background text-foreground font-sans antialiased; }
 }
 
+/* Logo spinner animation */
+.logo-spin-wrap { perspective: 1200px; display: inline-block; }
+.logo-spin {
+  display: block;
+  transform-style: preserve-3d;
+  animation: logo-spin 3.2s linear infinite, logo-float 4s ease-in-out infinite;
+  filter: drop-shadow(0 18px 26px rgba(60, 110, 160, 0.22));
+}
+@keyframes logo-spin  { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
+@keyframes logo-float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -14px; } }
+
 /* 🔷 Utilidades unificadas */
 @layer components {
   /* Títulos/subtítulos — calcado a “Mis cursos” */
