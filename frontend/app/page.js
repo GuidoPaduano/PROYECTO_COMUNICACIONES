@@ -4,6 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Search, ArrowRight, Building2 } from "lucide-react"
+import LogoSpinner from "@/components/ui/logo-spinner"
 
 import {
   DEFAULT_PUBLIC_BRANDING,
@@ -178,8 +179,8 @@ export default function HomePage() {
           </div>
 
           {loading ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
-              Cargando colegios...
+            <div className="rounded-3xl border border-slate-200 bg-white p-10 shadow-sm flex justify-center">
+              <LogoSpinner label="Cargando colegios..." />
             </div>
           ) : error ? (
             <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 shadow-sm">
