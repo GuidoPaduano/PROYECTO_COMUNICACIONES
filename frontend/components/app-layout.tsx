@@ -4,6 +4,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
+import LogoSpinner from "@/components/ui/logo-spinner"
 import {
   BarChart3,
   CalendarDays,
@@ -305,7 +306,15 @@ export default function AppLayout({ children }) {
     setReady(true)
   }, [pathname])
 
-  if (!ready || isPublic) {
+  if (!ready) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <LogoSpinner size={96} />
+      </div>
+    )
+  }
+
+  if (isPublic) {
     return children
   }
 

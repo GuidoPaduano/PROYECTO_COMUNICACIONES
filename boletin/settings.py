@@ -59,7 +59,7 @@ if not DEBUG and not STATIC_BUILD and not RESEND_ENABLED:
 # ALLOWED_HOSTS desde entorno o valores seguros por defecto
 ALLOWED_HOSTS = os.environ.get(
     'ALLOWED_HOSTS',
-    'proyectocomunicaciones-production.up.railway.app,localhost,127.0.0.1,0.0.0.0'
+    'localhost,127.0.0.1,0.0.0.0'
 ).split(',')
 
 # En desarrollo, permitir cualquier Host para evitar errores 400 al acceder por IP LAN
@@ -209,7 +209,6 @@ LOGIN_URL = '/accounts/login/'
 
 # ✅ CSRF (confía también en el front local y en tu IP LAN)
 CSRF_TRUSTED_ORIGINS = [
-    'https://proyectocomunicaciones-production.up.railway.app',
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
@@ -276,7 +275,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
     "http://127.0.0.1:3002",
-    "http://172.16.0.2:3000",
 ]
 if _lan_origin:
     CORS_ALLOWED_ORIGINS.append(_lan_origin)
