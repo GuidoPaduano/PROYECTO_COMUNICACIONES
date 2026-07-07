@@ -2,12 +2,13 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 export function middleware(request: NextRequest) {
-  // Railway terminates TLS at the edge and forwards X-Forwarded-Proto to the app.
-  // Redirect HTTP → HTTPS so browsers always use a secure connection.
-  // The header may contain multiple values (e.g. "https,http") — take the first one.
-  const proto = (request.headers.get("x-forwarded-proto") || "").split(",")[0].trim()
-  if (proto === "http") {
-    const host = request.headers.get("host") || ""
+  // Railway only injects X-Forwarded-Proto: https for TLS connections; HTTP
+  // connections arrive without the header. Redirect to HTTPS whenever the
+  // header is absent or not "https", skipping localhost for local development.
+  const host = request.headers.get("host") || ""
+  const isLocalhost = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)
+  const proto = (request.headers.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase()
+  if (!isLocalhost && proto !== "https") {
     const url = `https://${host}${request.nextUrl.pathname}${request.nextUrl.search}`
     return NextResponse.redirect(url, { status: 301 })
   }
