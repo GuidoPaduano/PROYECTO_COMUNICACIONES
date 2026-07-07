@@ -7,6 +7,11 @@ const CONFIGURED_API_BASE =
     ? process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "")
     : "/api"
 
+export const SCHOOL_PARENT_DOMAIN =
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PARENT_DOMAIN)
+    ? String(process.env.NEXT_PUBLIC_PARENT_DOMAIN).trim().toLowerCase()
+    : ""
+
 function resolveApiBase(): string {
   try {
     if (
@@ -16,6 +21,19 @@ function resolveApiBase(): string {
       const configured = new URL(CONFIGURED_API_BASE)
       const current = new URL(window.location.origin)
       if (configured.origin !== current.origin) {
+        // If both API and page are subdomains of the same parent domain, bypass
+        // the Next.js proxy and call the API directly — same-site means Safari
+        // ITP won't block the auth cookies.
+        if (SCHOOL_PARENT_DOMAIN) {
+          const suffix = `.${SCHOOL_PARENT_DOMAIN}`
+          const configuredHost = configured.hostname.toLowerCase()
+          const currentHost = current.hostname.toLowerCase()
+          const configuredIsSub = configuredHost.endsWith(suffix) || configuredHost === SCHOOL_PARENT_DOMAIN
+          const currentIsSub = currentHost.endsWith(suffix) || currentHost === SCHOOL_PARENT_DOMAIN
+          if (configuredIsSub && currentIsSub) {
+            return CONFIGURED_API_BASE
+          }
+        }
         // Keep auth cookies first-party on mobile Safari by using the Next rewrite.
         return "/api"
       }
@@ -25,10 +43,6 @@ function resolveApiBase(): string {
 }
 
 export const API_BASE = resolveApiBase()
-export const SCHOOL_PARENT_DOMAIN =
-  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PARENT_DOMAIN)
-    ? String(process.env.NEXT_PUBLIC_PARENT_DOMAIN).trim().toLowerCase()
-    : ""
 export const BACKEND_BASE_URL =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_BACKEND_BASE_URL)
     ? process.env.NEXT_PUBLIC_BACKEND_BASE_URL.replace(/\/+$/, "")
