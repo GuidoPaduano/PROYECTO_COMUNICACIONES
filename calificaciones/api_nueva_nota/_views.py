@@ -196,7 +196,11 @@ class NuevaNotaDatosIniciales(APIView):
             school_course_name_inicial = str(selected_course.get("nombre") or "").strip()
 
         alumnos_qs = scope_queryset_to_school(
-            Alumno.objects.only("id", "id_alumno", "nombre", "apellido", "curso"),
+            Alumno.objects.only(
+                "id", "id_alumno", "nombre", "apellido", "curso",
+                "school_course_id",
+                "school_course__id", "school_course__code", "school_course__name",
+            ).select_related("school_course"),
             active_school,
         ).order_by("nombre")
         if selected_course_code:
