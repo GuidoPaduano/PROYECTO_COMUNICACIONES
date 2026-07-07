@@ -4,7 +4,8 @@ import type { NextRequest } from "next/server"
 export function middleware(request: NextRequest) {
   // Railway terminates TLS at the edge and forwards X-Forwarded-Proto to the app.
   // Redirect HTTP → HTTPS so browsers always use a secure connection.
-  const proto = request.headers.get("x-forwarded-proto")
+  // The header may contain multiple values (e.g. "https,http") — take the first one.
+  const proto = (request.headers.get("x-forwarded-proto") || "").split(",")[0].trim()
   if (proto === "http") {
     const host = request.headers.get("host") || ""
     const url = `https://${host}${request.nextUrl.pathname}${request.nextUrl.search}`
