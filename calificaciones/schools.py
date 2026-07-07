@@ -470,8 +470,22 @@ def resolve_school_for_user(user) -> Optional[School]:
 
 
 def get_available_schools_for_user(user, *, active_school: Optional[School] = None) -> list[School]:
+    user_id = getattr(user, "id", None)
+    is_super = getattr(user, "is_superuser", False)
+
+    # For regular users, cache the list of school IDs (active_school excluded from cache key
+    # because it's always appended if missing — cheap to recheck).
+    if user_id and not is_super:
+        cache_key = f"available_schools:user:{user_id}"
+        cached_ids = cache.get(cache_key)
+        if cached_ids is not None:
+            schools = list(School.objects.filter(id__in=cached_ids).order_by("name", "id"))
+            if active_school is not None and all(s.id != active_school.id for s in schools):
+                schools.insert(0, active_school)
+            return schools
+
     try:
-        if getattr(user, "is_authenticated", False) and getattr(user, "is_superuser", False):
+        if getattr(user, "is_authenticated", False) and is_super:
             schools = list(School.objects.filter(is_active=True).order_by("name", "id"))
             if active_school is not None and all(getattr(s, "id", None) != active_school.id for s in schools):
                 schools.insert(0, active_school)
@@ -491,6 +505,8 @@ def get_available_schools_for_user(user, *, active_school: Optional[School] = No
             .order_by("name", "id")
         )
         if memberships:
+            if user_id:
+                cache.set(f"available_schools:user:{user_id}", [s.id for s in memberships], SCHOOL_RESOLUTION_CACHE_TTL)
             if active_school is not None and all(s.id != active_school.id for s in memberships):
                 memberships.insert(0, active_school)
             return memberships
