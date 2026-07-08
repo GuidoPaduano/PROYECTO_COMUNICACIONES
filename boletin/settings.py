@@ -18,10 +18,15 @@ STATIC_BUILD = (
     or any(arg == "collectstatic" for arg in sys.argv[1:])
 )
 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
-RESEND_API_KEY_EFFECTIVE = RESEND_API_KEY
-RESEND_ENABLED = bool(RESEND_API_KEY_EFFECTIVE and RESEND_FROM_EMAIL)
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtppro.zoho.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "465"))
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "True") == "True"
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "False") == "True"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
+EMAIL_CONFIGURED = bool(EMAIL_HOST_USER and EMAIL_HOST_PASSWORD)
 
 
 def _split_env_list(var_name: str, default_list: list[str]) -> list[str]:
@@ -50,10 +55,10 @@ if not FRONTEND_BASE_URL:
 PASSWORD_RESET_PATH = os.environ.get("PASSWORD_RESET_PATH", "/reset-password")
 SCHOOL_PARENT_HOSTS = _split_env_list("SCHOOL_PARENT_HOSTS", [])
 
-if not DEBUG and not STATIC_BUILD and not RESEND_ENABLED:
+if not DEBUG and not STATIC_BUILD and not EMAIL_CONFIGURED:
     raise Exception(
-        "RESEND_API_KEY/RESEND_FROM_EMAIL not configured. "
-        "Set RESEND_API_KEY and RESEND_FROM_EMAIL."
+        "EMAIL_HOST_USER/EMAIL_HOST_PASSWORD not configured. "
+        "Set EMAIL_HOST_USER and EMAIL_HOST_PASSWORD."
     )
 
 # ALLOWED_HOSTS desde entorno o valores seguros por defecto
