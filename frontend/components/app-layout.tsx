@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button"
 import {
   buildSessionContext,
   getCachedSessionProfileData,
+  getHostSchoolSlugFromWindow,
   getSessionProfile,
   useAuthGuard,
   useSessionContext,
@@ -279,7 +280,17 @@ function ProtectedShell({ children, pathname }) {
       rolesReady={rolesReady}
       isSuper={isSuper}
       school={sessionContext?.school || cachedContext?.school || null}
-      availableSchools={sessionContext?.availableSchools || cachedContext?.availableSchools || []}
+      availableSchools={(() => {
+        const schools = sessionContext?.availableSchools || cachedContext?.availableSchools || []
+        const hostSlug = getHostSchoolSlugFromWindow()
+        if (!hostSlug) return schools
+        // On a school subdomain, filter stale cached list to only the matching
+        // school so the switcher never flashes before whoami/ responds.
+        const match = schools.filter(
+          (s) => s.slug === hostSlug || String(s.id) === hostSlug
+        )
+        return match.length > 0 ? match : schools
+      })()}
       hideHeader={hideHeader}
     >
       {children}
