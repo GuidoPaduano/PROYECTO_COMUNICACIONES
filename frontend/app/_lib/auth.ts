@@ -433,10 +433,17 @@ export function usePublicSchoolBranding(options: { fallback?: PublicBranding; cl
     ;(async () => {
       try {
         const schoolParam = getRequestedSchoolIdentifierFromWindow()
-        const rememberedSchool = !schoolParam ? getLastSessionSchool() : null
+        // Use localStorage cache as immediate initial branding even when schoolParam
+        // is set (subdomain), so the correct branding shows instantly instead of
+        // flashing the generic default for 2-3 seconds while the API responds.
+        const rememberedSchool = getLastSessionSchool()
         const rememberedSchoolRef =
           rememberedSchool?.slug || (rememberedSchool?.id != null ? String(rememberedSchool.id) : "")
-        if (alive && rememberedSchoolRef) {
+        const rememberedMatchesParam =
+          !schoolParam ||
+          rememberedSchool?.slug === schoolParam ||
+          String(rememberedSchool?.id ?? "") === schoolParam
+        if (alive && rememberedSchoolRef && rememberedMatchesParam) {
           setBranding(buildPublicBranding(rememberedSchool, fallback))
         }
         const path = schoolParam
