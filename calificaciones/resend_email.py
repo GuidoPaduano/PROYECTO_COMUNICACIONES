@@ -53,6 +53,7 @@ def send_resend_email(*, to_email: str, subject: str, text: str | None = None, h
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "User-Agent": "alumnix-backend/1.0",
     }
 
     req = request.Request("https://api.resend.com/emails", data=data, headers=headers, method="POST")
