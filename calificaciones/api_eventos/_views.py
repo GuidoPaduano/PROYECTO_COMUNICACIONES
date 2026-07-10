@@ -29,6 +29,8 @@ from ._helpers import (
     _tipos_evento_default,
     _serialize_cursos_para_selector,
     _notify_evento_creado,
+    _notify_evento_modificado,
+    _notify_evento_eliminado,
     _resolve_school_course_for_event,
     _event_course_q,
     _course_ref_for_alumno_user,
@@ -463,6 +465,7 @@ def eventos_editar(request, pk: int):
         ev.tipo_evento = tipo
 
     ev.save()
+    _notify_evento_modificado(request, ev)
     return Response(_serialize_evento(ev), status=status.HTTP_200_OK)
 
 
@@ -503,6 +506,7 @@ def eventos_eliminar(request, pk: int):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+    _notify_evento_eliminado(request, ev)
     ev.delete()
     return Response({"id": pk}, status=status.HTTP_200_OK)
 
