@@ -237,6 +237,19 @@ def sanciones_lista_crear(request):
                 )
                 notificado = True
                 notif_destinatario_id = getattr(destinatario, "id", None)
+                try:
+                    from django.conf import settings as _s
+                    if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
+                        to_email = (getattr(destinatario, "email", "") or "").strip()
+                        if to_email:
+                            from ..resend_email import send_resend_email
+                            send_resend_email(
+                                to_email=to_email,
+                                subject=asunto_msg,
+                                text=contenido_msg,
+                            )
+                except Exception:
+                    pass
 
     except Exception as e:
         notificado = False
