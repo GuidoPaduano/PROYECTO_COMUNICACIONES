@@ -59,11 +59,26 @@ from ._helpers import (
 LEGACY_COURSE_DEPRECATED_DETAIL = "El parámetro 'curso' está deprecado en este endpoint. Usa school_course_id."
 
 
+def _run_in_background(fn, *args, **kwargs):
+    import threading
+    from django.db import connections
+
+    def wrapper():
+        try:
+            fn(*args, **kwargs)
+        finally:
+            connections.close_all()
+
+    t = threading.Thread(target=wrapper, daemon=True)
+    t.start()
+
+
 def _evaluar_alertas_bulk(*, alumno_ids, tipo_asistencia, actor_id=None):
     if not alumno_ids:
         return
-    try:
-        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", True):
+
+    def _run():
+        try:
             from django.contrib.auth import get_user_model
             from ..alerts import evaluar_alertas_inasistencia_por_alumnos
             actor = get_user_model().objects.filter(pk=actor_id).first() if actor_id else None
@@ -72,6 +87,12 @@ def _evaluar_alertas_bulk(*, alumno_ids, tipo_asistencia, actor_id=None):
                 tipo_asistencia=tipo_asistencia,
                 actor=actor,
             )
+        except Exception:
+            pass
+
+    try:
+        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", True):
+            _run_in_background(_run)
         else:
             evaluar_alertas_inasistencia_task.delay(
                 alumno_ids=sorted(alumno_ids),
@@ -83,8 +104,8 @@ def _evaluar_alertas_bulk(*, alumno_ids, tipo_asistencia, actor_id=None):
 
 
 def _evaluar_alerta_single(*, alumno_id, asistencia_id, tipo_asistencia, actor_id=None):
-    try:
-        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", True):
+    def _run():
+        try:
             from django.contrib.auth import get_user_model
             from ..alerts import evaluar_alerta_inasistencia
             from ..models import Alumno, Asistencia
@@ -97,6 +118,12 @@ def _evaluar_alerta_single(*, alumno_id, asistencia_id, tipo_asistencia, actor_i
                 actor=actor,
                 asistencia=asistencia,
             )
+        except Exception:
+            pass
+
+    try:
+        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", True):
+            _run_in_background(_run)
         else:
             evaluar_alerta_inasistencia_task.delay(
                 alumno_id=alumno_id,
