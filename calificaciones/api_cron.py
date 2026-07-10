@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods
 
 
 def _check_secret(request) -> bool:
@@ -18,7 +18,7 @@ def _check_secret(request) -> bool:
 
 
 @csrf_exempt
-@require_POST
+@require_http_methods(["GET", "POST"])
 def cron_evaluar_alertas_academicas(request):
     if not _check_secret(request):
         return JsonResponse({"error": "No autorizado."}, status=401)
