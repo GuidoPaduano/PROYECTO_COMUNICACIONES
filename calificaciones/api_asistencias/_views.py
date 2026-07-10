@@ -59,6 +59,55 @@ from ._helpers import (
 LEGACY_COURSE_DEPRECATED_DETAIL = "El parámetro 'curso' está deprecado en este endpoint. Usa school_course_id."
 
 
+def _evaluar_alertas_bulk(*, alumno_ids, tipo_asistencia, actor_id=None):
+    if not alumno_ids:
+        return
+    try:
+        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", True):
+            from django.contrib.auth import get_user_model
+            from ..alerts import evaluar_alertas_inasistencia_por_alumnos
+            actor = get_user_model().objects.filter(pk=actor_id).first() if actor_id else None
+            evaluar_alertas_inasistencia_por_alumnos(
+                alumno_ids=list(alumno_ids),
+                tipo_asistencia=tipo_asistencia,
+                actor=actor,
+            )
+        else:
+            evaluar_alertas_inasistencia_task.delay(
+                alumno_ids=sorted(alumno_ids),
+                tipo_asistencia=tipo_asistencia,
+                actor_id=actor_id,
+            )
+    except Exception:
+        pass
+
+
+def _evaluar_alerta_single(*, alumno_id, asistencia_id, tipo_asistencia, actor_id=None):
+    try:
+        if getattr(settings, "ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", True):
+            from django.contrib.auth import get_user_model
+            from ..alerts import evaluar_alerta_inasistencia
+            from ..models import Alumno, Asistencia
+            alumno = Alumno.objects.get(pk=alumno_id)
+            asistencia = Asistencia.objects.get(pk=asistencia_id)
+            actor = get_user_model().objects.filter(pk=actor_id).first() if actor_id else None
+            evaluar_alerta_inasistencia(
+                alumno=alumno,
+                tipo_asistencia=tipo_asistencia,
+                actor=actor,
+                asistencia=asistencia,
+            )
+        else:
+            evaluar_alerta_inasistencia_task.delay(
+                alumno_id=alumno_id,
+                asistencia_id=asistencia_id,
+                tipo_asistencia=tipo_asistencia,
+                actor_id=actor_id,
+            )
+    except Exception:
+        pass
+
+
 # =========================================================
 #  Preceptor: cursos
 # =========================================================
@@ -216,14 +265,11 @@ def registrar_asistencias(request):
                 )
             except Exception:
                 pass
-            try:
-                evaluar_alertas_inasistencia_task.delay(
-                    alumno_ids=sorted(set(res.get("afectados") or [])),
-                    tipo_asistencia=tipo_asistencia,
-                    actor_id=getattr(getattr(request, "user", None), "pk", None),
-                )
-            except Exception:
-                pass
+            _evaluar_alertas_bulk(
+                alumno_ids=sorted(set(res.get("afectados") or [])),
+                tipo_asistencia=tipo_asistencia,
+                actor_id=getattr(getattr(request, "user", None), "pk", None),
+            )
 
             items_out: List[Dict[str, Any]] = []
             if return_items and alumno_ids:
@@ -347,14 +393,11 @@ def registrar_asistencias(request):
             )
         except Exception:
             pass
-        try:
-            evaluar_alertas_inasistencia_task.delay(
-                alumno_ids=sorted(set(res.get("afectados") or [])),
-                tipo_asistencia=tipo_asistencia,
-                actor_id=getattr(getattr(request, "user", None), "pk", None),
-            )
-        except Exception:
-            pass
+        _evaluar_alertas_bulk(
+            alumno_ids=sorted(set(res.get("afectados") or [])),
+            tipo_asistencia=tipo_asistencia,
+            actor_id=getattr(getattr(request, "user", None), "pk", None),
+        )
 
         items_out: List[Dict[str, Any]] = []
         if return_items:
@@ -540,16 +583,13 @@ def registrar_asistencias(request):
         except Exception:
             errores += 1
 
-    try:
-        actor_id = getattr(getattr(request, "user", None), "pk", None)
-        for tipo_eval, ids_eval in afectados_ids_por_tipo.items():
-            evaluar_alertas_inasistencia_task.delay(
-                alumno_ids=sorted(ids_eval),
-                tipo_asistencia=tipo_eval,
-                actor_id=actor_id,
-            )
-    except Exception:
-        pass
+    actor_id = getattr(getattr(request, "user", None), "pk", None)
+    for tipo_eval, ids_eval in afectados_ids_por_tipo.items():
+        _evaluar_alertas_bulk(
+            alumno_ids=sorted(ids_eval),
+            tipo_asistencia=tipo_eval,
+            actor_id=actor_id,
+        )
 
     return _ok_response({
         "guardadas": guardadas,
@@ -647,15 +687,12 @@ def justificar_asistencia(request, pk: int):
 
     setattr(obj, "justificada", nueva)
     obj.save(update_fields=["justificada"])
-    try:
-        evaluar_alerta_inasistencia_task.delay(
-            alumno_id=obj.alumno_id,
-            asistencia_id=obj.pk,
-            tipo_asistencia=getattr(obj, "tipo_asistencia", "clases"),
-            actor_id=getattr(getattr(request, "user", None), "pk", None),
-        )
-    except Exception:
-        pass
+    _evaluar_alerta_single(
+        alumno_id=obj.alumno_id,
+        asistencia_id=obj.pk,
+        tipo_asistencia=getattr(obj, "tipo_asistencia", "clases"),
+        actor_id=getattr(getattr(request, "user", None), "pk", None),
+    )
 
     falta_valor = 0.0 if nueva else (1.0 if (not bool(obj.presente)) else (0.5 if bool(getattr(obj, "tarde", False)) else 0.0))
 
