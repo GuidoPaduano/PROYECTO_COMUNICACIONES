@@ -24,15 +24,21 @@ def cron_evaluar_alertas_academicas(request):
         return JsonResponse({"error": "No autorizado."}, status=401)
 
     try:
-        from .models import Nota, School
-        from .alerts import evaluar_alertas_notas_bulk, reconciliar_alertas_academicas
+        from .models import Nota, Alumno, School
+        from .alerts import (
+            evaluar_alertas_notas_bulk,
+            reconciliar_alertas_academicas,
+            evaluar_alertas_inasistencia_por_alumnos,
+        )
 
-        total_created = 0
-        total_closed = 0
-        total_evaluated = 0
+        total_notas_created = 0
+        total_notas_closed = 0
+        total_notas_evaluated = 0
+        total_inas_created = 0
         schools_procesados = 0
 
         for school in School.objects.filter(is_active=True):
+            # --- Alertas académicas (notas) ---
             notas_qs = (
                 Nota.objects.filter(school=school)
                 .select_related("alumno", "alumno__school_course")
@@ -50,26 +56,35 @@ def cron_evaluar_alertas_academicas(request):
                 if key not in latest_by_key:
                     latest_by_key[key] = nota
 
-            if not latest_by_key:
-                continue
+            if latest_by_key:
+                result = evaluar_alertas_notas_bulk(
+                    notas=list(latest_by_key.values()),
+                    send_email=False,
+                )
+                recon = reconciliar_alertas_academicas(school=school)
+                total_notas_created += int(result.get("created", 0))
+                total_notas_closed += int(result.get("closed", 0)) + int(recon.get("cerradas", 0))
+                total_notas_evaluated += int(result.get("evaluated", 0))
 
-            result = evaluar_alertas_notas_bulk(
-                notas=list(latest_by_key.values()),
-                send_email=False,
+            # --- Alertas de inasistencias ---
+            alumno_ids = list(
+                Alumno.objects.filter(school=school).values_list("id", flat=True)
             )
-            recon = reconciliar_alertas_academicas(school=school)
+            if alumno_ids:
+                total_inas_created += evaluar_alertas_inasistencia_por_alumnos(
+                    alumno_ids=alumno_ids,
+                    tipo_asistencia="clases",
+                )
 
-            total_created += int(result.get("created", 0))
-            total_closed += int(result.get("closed", 0)) + int(recon.get("cerradas", 0))
-            total_evaluated += int(result.get("evaluated", 0))
             schools_procesados += 1
 
         return JsonResponse({
             "ok": True,
             "schools": schools_procesados,
-            "evaluated": total_evaluated,
-            "created": total_created,
-            "closed": total_closed,
+            "notas_evaluated": total_notas_evaluated,
+            "notas_alertas_created": total_notas_created,
+            "notas_alertas_closed": total_notas_closed,
+            "inasistencias_alertas_created": total_inas_created,
         })
 
     except Exception as exc:

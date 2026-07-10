@@ -2783,7 +2783,13 @@ function AlumnoPerfilPageInner() {
                         </td>
                         <td className="py-2 pr-4">{n.materia || "—"}</td>
                         <td className="py-2 pr-4">{cuatr ?? "—"}</td>
-                        <td className="py-2 pr-4">{n.tipo || "—"}</td>
+                        <td className="py-2 pr-4">
+                          {n.es_final ? (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                              Nota Final
+                            </span>
+                          ) : (n.tipo || "—")}
+                        </td>
                         <td className="py-2 pr-4">
                           <span className="inline-flex items-center px-2 py-0.5 rounded school-primary-soft-badge">
                             {toNumberOrText(n.calificacion)}
@@ -3222,7 +3228,11 @@ function AlumnoPerfilPageInner() {
                                   Tipo
                                 </p>
                                 <p className="mt-1 text-slate-900 break-words">
-                                  {n.tipo || "—"}
+                                  {n.es_final ? (
+                                    <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                                      Nota Final
+                                    </span>
+                                  ) : (n.tipo || "—")}
                                 </p>
                               </div>
                               <div>
@@ -3347,7 +3357,13 @@ function AlumnoPerfilPageInner() {
                                 </td>
                                 <td className="py-2 pr-4">{n.materia || "—"}</td>
                                 <td className="py-2 pr-4">{cuatr ?? "—"}</td>
-                                <td className="py-2 pr-4">{n.tipo || "—"}</td>
+                                <td className="py-2 pr-4">
+                                  {n.es_final ? (
+                                    <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                                      Nota Final
+                                    </span>
+                                  ) : (n.tipo || "—")}
+                                </td>
                                 <td className="py-2 pr-4">
                                   <span className="inline-flex items-center px-2 py-0.5 rounded school-primary-soft-badge">
                                     {toNumberOrText(n.calificacion)}

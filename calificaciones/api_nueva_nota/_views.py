@@ -256,7 +256,23 @@ class CrearNota(APIView):
                     {"detail": "No tenés permiso para cargar notas para ese alumno."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
-            nota = serializer.save()
+            # Upsert para notas finales: si ya existe una, actualizarla
+            if serializer.validated_data.get("es_final"):
+                existing = scope_queryset_to_school(
+                    Nota.objects.filter(
+                        alumno=alumno,
+                        materia=serializer.validated_data.get("materia"),
+                        cuatrimestre=serializer.validated_data.get("cuatrimestre"),
+                        es_final=True,
+                    ),
+                    active_school,
+                ).first()
+                if existing:
+                    nota = serializer.update(existing, dict(serializer.validated_data))
+                else:
+                    nota = serializer.save()
+            else:
+                nota = serializer.save()
             school_ref = getattr(getattr(nota, "alumno", None), "school", None) or active_school
             if school_ref is not None and getattr(nota, "school_id", None) is None:
                 nota.school = school_ref

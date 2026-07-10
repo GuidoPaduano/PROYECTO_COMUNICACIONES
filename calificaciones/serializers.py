@@ -78,6 +78,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
     """
 
     alumno = serializers.PrimaryKeyRelatedField(queryset=Alumno.objects.all())
+    tipo = serializers.ChoiceField(choices=Nota.TIPOS, required=False, allow_blank=True, allow_null=True)
     calificacion = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     resultado = serializers.ChoiceField(
         choices=Nota.RESULTADO_CHOICES,
@@ -92,6 +93,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
     )
     fecha = serializers.DateField(required=False, allow_null=True)
     observaciones = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    es_final = serializers.BooleanField(required=False, default=False)
     version = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -100,6 +102,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
             "alumno",
             "materia",
             "tipo",
+            "es_final",
             "calificacion",
             "resultado",
             "nota_numerica",
@@ -132,6 +135,14 @@ class NotaCreateSerializer(serializers.ModelSerializer):
         return iv
 
     def validate(self, attrs):
+        # Nota final: auto-set tipo, no requiere que el frontend lo mande
+        if attrs.get("es_final"):
+            attrs.setdefault("tipo", "Nota Final")
+            if not attrs.get("tipo"):
+                attrs["tipo"] = "Nota Final"
+        elif not attrs.get("tipo") and not (self.instance and getattr(self.instance, "tipo", None)):
+            raise serializers.ValidationError({"tipo": "El tipo es requerido."})
+
         current_calificacion = getattr(self.instance, "calificacion", "") if self.instance else ""
         current_resultado = getattr(self.instance, "resultado", None) if self.instance else None
         current_nota_numerica = getattr(self.instance, "nota_numerica", None) if self.instance else None
@@ -220,6 +231,7 @@ class NotaSerializer(serializers.ModelSerializer):
             "alumno",
             "materia",
             "tipo",
+            "es_final",
             "calificacion",
             "calificacion_display",
             "resultado",
@@ -315,6 +327,7 @@ class NotaPublicSerializer(serializers.ModelSerializer):
             "id",
             "materia",
             "tipo",
+            "es_final",
             "calificacion",
             "calificacion_display",
             "resultado",

@@ -369,7 +369,7 @@ def _annotate_estado_notas(qs):
 
 
 def _build_notas_payload(base_qs):
-    qs = _annotate_estado_notas(base_qs)
+    qs = _annotate_estado_notas(base_qs.filter(es_final=False))
 
     summary = qs.aggregate(
         total_evaluaciones=Count("id"),
