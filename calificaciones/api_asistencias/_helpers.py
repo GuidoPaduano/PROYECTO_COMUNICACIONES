@@ -286,6 +286,19 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
                 except Exception:
                     pass
 
+    for n in notifs:
+        try:
+            to_email = (getattr(n.destinatario, "email", "") or "").strip()
+            if to_email:
+                from ..resend_email import send_resend_email
+                send_resend_email(
+                    to_email=to_email,
+                    subject=n.titulo,
+                    text=n.descripcion,
+                )
+        except Exception:
+            pass
+
     return created
 
 

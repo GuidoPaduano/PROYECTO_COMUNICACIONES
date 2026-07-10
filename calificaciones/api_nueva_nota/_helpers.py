@@ -519,6 +519,17 @@ def _notify_padre_nota(remitente, nota):
             )
             notificado = True
             last_id = getattr(destinatario, "id", None)
+            try:
+                to_email = (getattr(destinatario, "email", "") or "").strip()
+                if to_email:
+                    from ..resend_email import send_resend_email
+                    send_resend_email(
+                        to_email=to_email,
+                        subject=asunto_msg,
+                        text=contenido_msg,
+                    )
+            except Exception:
+                pass
 
         return notificado, last_id, "multi", None
     except Exception as e:
