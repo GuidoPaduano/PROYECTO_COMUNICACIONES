@@ -193,6 +193,29 @@ def _assignment_cache_key(prefix: str, user, school=None) -> str:
     return f"views:{prefix}:u{_assignment_cache_user_fragment(user)}:s{_assignment_cache_scope_id(school)}"
 
 
+def invalidate_assignment_cache_for_user(user, school=None):
+    """Invalida todas las cachés de asignación de cursos para el usuario dado."""
+    user_id = getattr(user, "id", None)
+    school_id = _assignment_cache_scope_id(school)
+    prefixes = [
+        "preceptor_refs",
+        "profesor_refs",
+        "preceptor_course_options",
+        "profesor_course_options",
+    ]
+    keys = [_assignment_cache_key(p, user, school) for p in prefixes]
+    # También invalida la caché de alertas
+    keys.append(f"alertas:v1:preceptor_refs:u{user_id or 'x'}:s{school_id}")
+    try:
+        cache.delete_many(keys)
+    except Exception:
+        for key in keys:
+            try:
+                cache.delete(key)
+            except Exception:
+                pass
+
+
 def _serialize_course_refs(refs) -> tuple:
     return tuple(
         (
