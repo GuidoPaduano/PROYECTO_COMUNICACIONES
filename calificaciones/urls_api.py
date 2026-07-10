@@ -2,6 +2,7 @@
 from django.urls import path, include
 from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
+from .api_cron import cron_evaluar_alertas_academicas
 
 from .auth_api import (
     SafeTokenBlacklistView,
@@ -90,7 +91,7 @@ from .api_reportes import (
     reportes_por_curso,
     reportes_materia_curso,
 )
-from .api_alertas import preceptor_alertas_academicas, preceptor_alertas_inasistencias
+from .api_alertas import preceptor_alertas_academicas, preceptor_alertas_inasistencias, marcar_alertas_inasistencia_alumno_vistas
 
 # Password reset (frontend)
 from .api_password_reset import (
@@ -439,6 +440,8 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("preceptor/alertas-academicas", preceptor_alertas_academicas, name="preceptor_alertas_academicas_noslash"),
     path("preceptor/alertas-inasistencias/", preceptor_alertas_inasistencias, name="preceptor_alertas_inasistencias"),
     path("preceptor/alertas-inasistencias", preceptor_alertas_inasistencias, name="preceptor_alertas_inasistencias_noslash"),
+    path("preceptor/alertas-inasistencias/alumno/<int:alumno_id>/vista/", marcar_alertas_inasistencia_alumno_vistas, name="marcar_alertas_inasistencia_alumno_vistas"),
+    path("preceptor/alertas-inasistencias/alumno/<int:alumno_id>/vista", marcar_alertas_inasistencia_alumno_vistas, name="marcar_alertas_inasistencia_alumno_vistas_noslash"),
 
     # ===== Asistencias =====
     path("asistencias/tipos/", tipos_asistencia, name="asistencias_tipos"),
@@ -507,6 +510,9 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("sanciones/<int:pk>/", sancion_detalle, name="sancion_detalle"),
     path("sanciones/<int:pk>/firmar/", firmar_sancion, name="sanciones_firmar"),
     path("sanciones/<int:pk>/firmar", firmar_sancion, name="sanciones_firmar_noslash"),
+
+    # ===== Cron jobs =====
+    path("cron/evaluar-alertas-academicas/", cron_evaluar_alertas_academicas, name="cron_evaluar_alertas_academicas"),
 
     # DRF router
     path("", include(router.urls)),

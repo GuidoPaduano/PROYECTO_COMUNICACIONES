@@ -234,15 +234,17 @@ def alumno_enviar(request):
         pass
 
     try:
-        to_email = (getattr(receptor, "email", "") or "").strip()
-        if to_email:
-            actor_label = (user.get_full_name() or user.username or "Usuario").strip()
-            send_message_email(
-                to_email=to_email,
-                subject=(asunto or "Nuevo mensaje").strip(),
-                content=(contenido or "").strip(),
-                actor_label=actor_label,
-            )
+        from django.conf import settings as _s
+        if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
+            to_email = (getattr(receptor, "email", "") or "").strip()
+            if to_email:
+                actor_label = (user.get_full_name() or user.username or "Usuario").strip()
+                send_message_email(
+                    to_email=to_email,
+                    subject=(asunto or "Nuevo mensaje").strip(),
+                    content=(contenido or "").strip(),
+                    actor_label=actor_label,
+                )
     except Exception:
         pass
 

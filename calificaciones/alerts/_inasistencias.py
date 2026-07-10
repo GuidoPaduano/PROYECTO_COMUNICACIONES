@@ -188,6 +188,22 @@ def _crear_notificaciones(
             )
         )
     Notificacion.objects.bulk_create(notifs, batch_size=200)
+
+    from django.conf import settings as _s
+    if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
+        from ..resend_email import send_resend_email
+        for n in notifs:
+            try:
+                to_email = (getattr(n.destinatario, "email", "") or "").strip()
+                if to_email:
+                    send_resend_email(
+                        to_email=to_email,
+                        subject=n.titulo,
+                        text=n.descripcion,
+                    )
+            except Exception:
+                pass
+
     return len(notifs)
 
 

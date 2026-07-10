@@ -49,25 +49,6 @@ class Mensaje(models.Model):
         return super().save(*args, **kwargs)
 
 
-class Comunicado(models.Model):
-    school = models.ForeignKey(School, on_delete=models.PROTECT, related_name="comunicados")
-    school_course = models.ForeignKey(SchoolCourse, on_delete=models.PROTECT, related_name="comunicados", null=True, blank=True)
-    remitente = models.ForeignKey(User, on_delete=models.CASCADE)
-    curso = models.CharField(max_length=20, blank=True, null=True, db_index=True)
-    titulo = models.CharField(max_length=255)
-    contenido = models.TextField()
-    fecha_envio = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-fecha_envio", "-id"]
-
-    def __str__(self):
-        return f"{self.titulo} ({self.curso})"
-
-    def save(self, *args, **kwargs):
-        ensure_school_course_for_save(self, kwargs)
-        return super().save(*args, **kwargs)
-
 
 class Notificacion(models.Model):
     TIPO_CHOICES = [

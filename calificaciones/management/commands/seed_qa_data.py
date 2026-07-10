@@ -12,7 +12,6 @@ from calificaciones.models import (
     AlertaInasistencia,
     Alumno,
     Asistencia,
-    Comunicado,
     Evento,
     Mensaje,
     Nota,
@@ -113,8 +112,7 @@ class Command(BaseCommand):
                     Asistencia,
                     Sancion,
                     Mensaje,
-                    Comunicado,
-                    Evento,
+                                    Evento,
                     PreceptorCurso,
                     ProfesorCurso,
                     SchoolAdmin,
@@ -429,20 +427,6 @@ class Command(BaseCommand):
                 "descripcion": "Evento local para QA.",
                 "tipo_evento": "Evaluaci\u00f3n",
                 "creado_por": users["profesor"],
-            },
-        )
-
-        self._ensure_sample(
-            Comunicado,
-            lookup={
-                "school": school,
-                "school_course": course_1a,
-                "remitente": users["preceptor"],
-                "titulo": "Comunicado QA",
-            },
-            defaults={
-                "curso": course_1a.code,
-                "contenido": "Comunicado local para validar bandeja y visibilidad.",
             },
         )
 

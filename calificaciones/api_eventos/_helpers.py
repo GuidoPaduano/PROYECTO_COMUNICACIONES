@@ -146,8 +146,8 @@ def _collect_destinatarios_evento(curso: str, school=None, school_course=None):
     return destinatarios
 
 
-def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
-    """Crea notificaciones para un evento recién creado (curso completo)."""
+def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str, accion: str = "creado"):
+    """Crea notificaciones de campana y email para un evento (curso completo)."""
     school_course = getattr(ev, "school_course", None)
     curso = (
         getattr(school_course, "code", None)
@@ -167,7 +167,14 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
         return 0
 
     course_name = getattr(school_course, "name", None) or getattr(school_course, "code", None) or curso
-    titulo = f"Nuevo evento en el calendario ({course_name})"
+
+    accion_labels = {
+        "creado": "Nuevo evento en el calendario",
+        "modificado": "Evento modificado en el calendario",
+        "eliminado": "Evento eliminado del calendario",
+    }
+    accion_label = accion_labels.get(accion, "Evento en el calendario")
+    titulo = f"{accion_label} ({course_name})"
 
     fecha = getattr(ev, "fecha", None)
     try:
@@ -187,8 +194,8 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
     if fecha_s:
         lines.append(f"Fecha: {fecha_s}")
     if actor_label:
-        lines.append(f"Creado por: {actor_label}")
-    if desc:
+        lines.append(f"{accion.capitalize()} por: {actor_label}")
+    if desc and accion != "eliminado":
         lines.append("")
         lines.append(desc)
 
@@ -202,7 +209,8 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
         "school_course_name": course_name,
         "fecha": fecha_s or None,
         "tipo_evento": tipo or None,
-        "creado_por": actor_label or None,
+        "accion": accion,
+        "actor": actor_label or None,
     }
 
     notifs = []
@@ -228,7 +236,7 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
 
     try:
         Notificacion.objects.bulk_create(notifs, batch_size=500)
-        return len(notifs)
+        created = len(notifs)
     except Exception:
         created = 0
         for n in notifs:
@@ -237,7 +245,23 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str):
                 created += 1
             except Exception:
                 pass
-        return created
+
+    from django.conf import settings as _s
+    if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
+        from ..resend_email import send_resend_email
+        for n in notifs:
+            try:
+                to_email = (getattr(n.destinatario, "email", "") or "").strip()
+                if to_email:
+                    send_resend_email(
+                        to_email=to_email,
+                        subject=titulo,
+                        text=descripcion,
+                    )
+            except Exception:
+                pass
+
+    return created
 
 
 # ------------------------------------------------------------
@@ -595,11 +619,28 @@ def _add_destinatario(destinatarios, seen_ids, u):
 
 
 def _notify_evento_creado(request, ev: Evento):
-    """Crea notificaciones para el evento recién creado (curso completo)."""
     try:
         curso = (getattr(ev, 'curso', '') or '').strip()
         actor = getattr(request, 'user', None)
-        _crear_notificaciones_evento(ev=ev, actor=actor, curso=curso)
+        _crear_notificaciones_evento(ev=ev, actor=actor, curso=curso, accion="creado")
+    except Exception:
+        return
+
+
+def _notify_evento_modificado(request, ev: Evento):
+    try:
+        curso = (getattr(ev, 'curso', '') or '').strip()
+        actor = getattr(request, 'user', None)
+        _crear_notificaciones_evento(ev=ev, actor=actor, curso=curso, accion="modificado")
+    except Exception:
+        return
+
+
+def _notify_evento_eliminado(request, ev: Evento):
+    try:
+        curso = (getattr(ev, 'curso', '') or '').strip()
+        actor = getattr(request, 'user', None)
+        _crear_notificaciones_evento(ev=ev, actor=actor, curso=curso, accion="eliminado")
     except Exception:
         return
 

@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from ..models import Alumno, SchoolCourse
 from ..models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
+from ..views._acceso import invalidate_assignment_cache_for_user
 from ..schools import (
     get_request_school,
     get_requested_school_identifier,
@@ -493,6 +494,7 @@ def _replace_profesor_assignments(*, user, school, courses: list[SchoolCourse]):
         )
     if pending:
         ProfesorCurso.objects.bulk_create(pending)
+    invalidate_assignment_cache_for_user(user, school=school)
 
 
 def _replace_preceptor_assignments(*, user, school, courses: list[SchoolCourse]):
@@ -521,6 +523,7 @@ def _replace_preceptor_assignments(*, user, school, courses: list[SchoolCourse])
         )
     if pending:
         PreceptorCurso.objects.bulk_create(pending)
+    invalidate_assignment_cache_for_user(user, school=school)
 
 
 def _set_single_course_assignment(*, user, school, course: SchoolCourse, role: str):
@@ -541,6 +544,7 @@ def _set_single_course_assignment(*, user, school, course: SchoolCourse, role: s
             preceptor=user,
             defaults={"curso": course.code},
         )
+    invalidate_assignment_cache_for_user(user, school=school)
 
 
 def _remove_single_course_assignment(*, user, school, course: SchoolCourse, role: str):
@@ -548,6 +552,7 @@ def _remove_single_course_assignment(*, user, school, course: SchoolCourse, role
         ProfesorCurso.objects.filter(profesor=user, school=school, school_course=course).delete()
     elif role == "Preceptores":
         PreceptorCurso.objects.filter(preceptor=user, school=school, school_course=course).delete()
+    invalidate_assignment_cache_for_user(user, school=school)
 
 
 def _validate_new_user_payload(payload) -> dict:

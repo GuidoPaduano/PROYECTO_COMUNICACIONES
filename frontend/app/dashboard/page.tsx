@@ -1289,6 +1289,12 @@ setMensajeSan("")
               alertasLoading={preceptorAlertasLoading}
               alertasInasistencias={preceptorAlertasInasistencias}
               alertasInasistenciasLoading={preceptorAlertasInasistenciasLoading}
+              onMarcarAlertaVista={(alumnoId) => {
+                setPreceptorAlertasInasistencias((prev) =>
+                  Array.isArray(prev) ? prev.filter((it) => it?.alumno?.id !== alumnoId) : prev
+                )
+                pfetch(`/api/preceptor/alertas-inasistencias/alumno/${alumnoId}/vista/`, { method: "PATCH" }).catch(() => {})
+              }}
               myId={myId}
             />
         ) : showPadre ? (
@@ -1958,6 +1964,7 @@ function ProfesorInicio({
 }
 
 function PreceptorInicio({
+  onMarcarAlertaVista,
   eventos,
   eventosLoading,
   hasCurso,
@@ -1995,6 +2002,7 @@ function PreceptorInicio({
           <AlertasInasistenciasCard
             alertas={alertasInasistencias}
             loading={alertasInasistenciasLoading}
+            onMarcarVista={onMarcarAlertaVista}
           />
         </div>
       </section>
@@ -2079,7 +2087,7 @@ function AlertasAcademicasCard({ alertas, loading }) {
   )
 }
 
-function AlertasInasistenciasCard({ alertas, loading }) {
+function AlertasInasistenciasCard({ alertas, loading, onMarcarVista }) {
   return (
     <Card className="surface-card">
       <CardContent className="surface-card-pad flex flex-col gap-4">
@@ -2110,22 +2118,35 @@ function AlertasInasistenciasCard({ alertas, loading }) {
                 : "/alumnos"
               const totalInas = Number(it?.total_inasistencias_clases || 0)
               return (
-                <Link
+                <div
                   key={`alerta-inasist-${alumnoId || idx}`}
-                  href={href}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-rose-200 px-4 py-3 bg-rose-50/40 hover:bg-rose-50 transition"
+                  className="flex items-center gap-2 rounded-xl border border-rose-200 px-4 py-3 bg-rose-50/40"
                 >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-900 truncate">{nombre}</p>
-                    <p className="text-xs text-slate-600 truncate">
-                      {getCourseDisplayName(a) ? `Curso ${getCourseDisplayName(a)}` : "Curso s/d"}
-                      {totalInas > 0 ? ` · ${totalInas} inasistencias totales a clases` : " · 0 inasistencias totales a clases"}
-                    </p>
-                  </div>
-                  <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-800">
-                    Ver asistencias
-                  </span>
-                </Link>
+                  <Link
+                    href={href}
+                    className="flex items-center justify-between gap-4 flex-1 min-w-0 hover:opacity-80 transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{nombre}</p>
+                      <p className="text-xs text-slate-600 truncate">
+                        {getCourseDisplayName(a) ? `Curso ${getCourseDisplayName(a)}` : "Curso s/d"}
+                        {totalInas > 0 ? ` · ${totalInas} inasistencias totales a clases` : " · 0 inasistencias totales a clases"}
+                      </p>
+                    </div>
+                    <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-800 whitespace-nowrap flex-shrink-0">
+                      Ver asistencias
+                    </span>
+                  </Link>
+                  {onMarcarVista && alumnoId != null && (
+                    <button
+                      onClick={() => onMarcarVista(alumnoId)}
+                      title="Marcar como vista"
+                      className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white border border-rose-200 text-rose-500 hover:bg-rose-100 hover:text-rose-700 transition"
+                    >
+                      ✓
+                    </button>
+                  )}
+                </div>
               )
             })}
           </div>
