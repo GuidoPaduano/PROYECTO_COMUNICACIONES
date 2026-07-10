@@ -640,14 +640,16 @@ def _notify_msg(*, msg, receptor, alumno=None, actor=None):
         except Exception:
             pass
         try:
-            to_email = (getattr(receptor, "email", "") or "").strip()
-            if to_email:
-                send_message_email(
-                    to_email=to_email,
-                    subject=titulo or "Nuevo mensaje",
-                    content=descripcion or contenido or "",
-                    actor_label=actor_label,
-                )
+            from django.conf import settings as _s
+            if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
+                to_email = (getattr(receptor, "email", "") or "").strip()
+                if to_email:
+                    send_message_email(
+                        to_email=to_email,
+                        subject=titulo or "Nuevo mensaje",
+                        content=descripcion or contenido or "",
+                        actor_label=actor_label,
+                    )
         except Exception:
             pass
     except Exception:
