@@ -265,3 +265,20 @@ def preceptor_alertas_inasistencias(request):
     rows.sort(key=lambda x: x.get("ultima_alerta") or "", reverse=True)
     rows = rows[:limit]
     return Response({"results": rows, "count": len(rows)}, status=200)
+
+
+@api_view(["PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def marcar_alertas_inasistencia_alumno_vistas(request, alumno_id: int):
+    user = request.user
+    active_school = get_request_school(request)
+    if not getattr(user, "is_superuser", False) and not _is_preceptor(user):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    updated = scope_queryset_to_school(
+        AlertaInasistencia.objects.filter(alumno_id=alumno_id, estado="activa"),
+        active_school,
+    ).update(estado="vista")
+
+    return Response({"ok": True, "alumno_id": alumno_id, "marcadas": updated}, status=200)

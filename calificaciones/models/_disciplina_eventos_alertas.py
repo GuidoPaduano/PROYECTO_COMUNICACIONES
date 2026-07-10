@@ -115,6 +115,7 @@ class AlertaInasistencia(models.Model):
     ESTADO_CHOICES = [
         ("activa", "Activa"),
         ("cerrada", "Cerrada"),
+        ("vista", "Vista"),
     ]
     MOTIVO_CHOICES = [
         ("AUSENCIAS_CONSECUTIVAS", "Ausencias consecutivas"),
