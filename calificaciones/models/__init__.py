@@ -8,7 +8,7 @@ from ._integrity import (
 )
 from ._alumno import Alumno
 from ._academico import Nota, Asistencia, TIPOS_ASISTENCIA
-from ._comunicacion import Mensaje, Comunicado, Notificacion
+from ._comunicacion import Mensaje, Notificacion
 from ._disciplina_eventos_alertas import Sancion, Evento, AlertaAcademica, AlertaInasistencia, TIPOS_EVENTO
 
 __all__ = [
@@ -27,7 +27,6 @@ __all__ = [
     "Asistencia",
     "TIPOS_ASISTENCIA",
     "Mensaje",
-    "Comunicado",
     "Notificacion",
     "Sancion",
     "Evento",

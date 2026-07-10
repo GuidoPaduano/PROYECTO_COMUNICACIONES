@@ -13,7 +13,6 @@ from ..models import (
     AlertaInasistencia,
     Alumno,
     Asistencia,
-    Comunicado,
     Evento,
     Mensaje,
     Nota,
@@ -363,7 +362,6 @@ def _delete_school_tree(school: School) -> None:
         Sancion.objects.filter(school=school).delete()
         Nota.objects.filter(school=school).delete()
         Evento.objects.filter(school=school).delete()
-        Comunicado.objects.filter(school=school).delete()
         Mensaje.objects.filter(school=school).delete()
 
         Alumno.objects.filter(school=school).delete()

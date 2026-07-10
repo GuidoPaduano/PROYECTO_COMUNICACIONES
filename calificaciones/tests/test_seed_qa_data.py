@@ -7,7 +7,6 @@ from django.contrib.auth import get_user_model
 from calificaciones.models import (
     Alumno,
     Asistencia,
-    Comunicado,
     Evento,
     Mensaje,
     Nota,
@@ -115,7 +114,6 @@ class SeedQaDataTests(TestCase):
         self.assertEqual(Asistencia.objects.filter(school=rebuilt_school).count(), 2)
         self.assertEqual(Sancion.objects.filter(school=rebuilt_school).count(), 1)
         self.assertEqual(Evento.objects.filter(school=rebuilt_school).count(), 1)
-        self.assertEqual(Comunicado.objects.filter(school=rebuilt_school).count(), 1)
         self.assertEqual(Mensaje.objects.filter(school=rebuilt_school).count(), 2)
         self.assertEqual(Notificacion.objects.filter(school=rebuilt_school).count(), 1)
         self.assertEqual(ProfesorCurso.objects.filter(school=rebuilt_school).count(), 1)
