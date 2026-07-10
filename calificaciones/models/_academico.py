@@ -35,6 +35,7 @@ class Nota(models.Model):
         ("Trabajo Práctico", "Trabajo Práctico"),
         ("Participación", "Participación"),
         ("Tarea", "Tarea"),
+        ("Nota Final", "Nota Final"),
     ]
     RESULTADO_CHOICES = [
         ("TEA", "Aprobado"),
@@ -55,6 +56,7 @@ class Nota(models.Model):
     cuatrimestre = models.IntegerField(choices=[(1, "1"), (2, "2")])
     fecha = models.DateField(default=timezone.now)
     observaciones = models.TextField(blank=True, null=True)
+    es_final = models.BooleanField(default=False, db_index=True)
     version = models.PositiveIntegerField(default=1)
     firmada = models.BooleanField(default=False, db_index=True)
     firmada_en = models.DateTimeField(null=True, blank=True)
@@ -65,6 +67,13 @@ class Nota(models.Model):
     class Meta:
         ordering = ["-fecha", "-id"]
         indexes = [models.Index(fields=["alumno", "materia", "fecha"])]
+        constraints = [
+            models.UniqueConstraint(
+                condition=models.Q(es_final=True),
+                fields=["alumno", "materia", "cuatrimestre"],
+                name="unique_nota_final_alumno_materia_cuatrimestre",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.alumno} - {self.materia}: {self.calificacion}"

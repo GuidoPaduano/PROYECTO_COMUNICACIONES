@@ -497,7 +497,11 @@ export default function HistorialNotasPadrePage() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{n.materia}</TableCell>
                         <TableCell className="capitalize whitespace-nowrap">
-                          {n.tipo}
+                          {n.es_final ? (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                              Nota Final
+                            </span>
+                          ) : n.tipo}
                         </TableCell>
                         <TableCell className="font-medium whitespace-nowrap">
                           {n.calificacion_display || n.calificacion}

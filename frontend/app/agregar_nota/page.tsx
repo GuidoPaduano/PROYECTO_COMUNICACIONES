@@ -183,6 +183,10 @@ export default function CargarNotasRapidas() {
     reemplazarTodo: false,
   })
 
+  const [modoFinal, setModoFinal] = useState(false)
+  const [finalMateria, setFinalMateria] = useState("")
+  const [finalCuatri, setFinalCuatri] = useState("")
+
   useEffect(() => {
     let alive = true
     ;(async () => {
@@ -402,6 +406,77 @@ export default function CargarNotasRapidas() {
     }
   }
 
+  async function guardarNotasFinales() {
+    setError("")
+    setOkMsg("")
+
+    if (!finalMateria) {
+      setError("Seleccioná una materia para la nota final.")
+      return
+    }
+    if (!finalCuatri) {
+      setError("Seleccioná el cuatrimestre.")
+      return
+    }
+
+    const seleccionadas = rows.filter((r) => r.incluir)
+    const invalidas = seleccionadas.filter((r) => {
+      const calif = normalizeCalificacionValue(r.calificacion)
+      if (!calif) return true
+      if (!ESTADOS_CALIFICACION.has(calif) && parseNotaNumerica(calif) == null) return true
+      return false
+    })
+
+    if (invalidas.length) {
+      setError("Completá una calificación válida en cada alumno seleccionado.")
+      return
+    }
+    if (seleccionadas.length === 0) {
+      setError("Seleccioná al menos un alumno.")
+      return
+    }
+
+    setSaving(true)
+    try {
+      const resultados = await Promise.all(
+        seleccionadas.map(async (r) => {
+          const calif = normalizeCalificacionValue(r.calificacion)
+          const isEstado = ESTADOS_CALIFICACION.has(calif)
+          const num = isEstado ? null : parseNotaNumerica(calif)
+          const resultado = isEstado ? calif : ""
+          const calificacionLegacy = resultado || (num != null ? String(num) : "")
+          const res = await authFetch("/calificaciones/notas/", {
+            method: "POST",
+            body: JSON.stringify({
+              alumno_id: r.id,
+              materia: finalMateria,
+              tipo: "Nota Final",
+              es_final: true,
+              resultado: resultado || null,
+              nota_numerica: num,
+              calificacion: calificacionLegacy,
+              cuatrimestre: Number(finalCuatri),
+              fecha: hoyISO(),
+            }),
+          })
+          return res.ok
+        })
+      )
+      const guardadas = resultados.filter(Boolean).length
+      const errores = resultados.length - guardadas
+      if (errores > 0) {
+        setError(`Se guardaron ${guardadas} notas finales, pero fallaron ${errores}. Revisá e intentá de nuevo.`)
+      } else {
+        setOkMsg(`${guardadas} notas finales guardadas (o actualizadas) para ${finalMateria} — ${finalCuatri}° cuatrimestre.`)
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" })
+      }
+    } catch (e) {
+      setError(e?.message || "Error al guardar notas finales")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const isLoading = loading
 
   return (
@@ -413,6 +488,24 @@ export default function CargarNotasRapidas() {
             <ArrowLeft className="mr-2 h-4 w-4" /> Volver
           </Button>
         </Link>
+      </div>
+
+      {/* Toggle modo regular / nota final */}
+      <div className="flex gap-2 rounded-lg border bg-white p-1 w-fit shadow-sm">
+        <button
+          type="button"
+          onClick={() => setModoFinal(false)}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${!modoFinal ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+        >
+          Notas regulares
+        </button>
+        <button
+          type="button"
+          onClick={() => setModoFinal(true)}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${modoFinal ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+        >
+          Nota final de cuatrimestre
+        </button>
       </div>
 
       {okMsg ? <SuccessMessage>{okMsg}</SuccessMessage> : null}
@@ -441,46 +534,75 @@ export default function CargarNotasRapidas() {
             </select>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <select className="rounded border px-3 py-2 text-sm" value={fill.materia} onChange={(e) => setFill((f) => ({ ...f, materia: e.target.value }))}>
-              <option value="">Materia</option>
-              {materias.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-            <select className="rounded border px-3 py-2 text-sm" value={fill.tipo} onChange={(e) => setFill((f) => ({ ...f, tipo: e.target.value }))}>
-              <option value="">Tipo</option>
-              {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-            <select className="rounded border px-3 py-2 text-sm" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
-              <option value="">Calificación</option>
-              {calificaciones.map((r) => (
-                <option key={r.id} value={r.id}>{r.label}</option>
-              ))}
-            </select>
-            <select className="rounded border px-3 py-2 text-sm" value={fill.cuatrimestre} onChange={(e) => setFill((f) => ({ ...f, cuatrimestre: e.target.value }))}>
-              <option value="">Cuatrimestre</option>
-              {cuatris.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <input type="date" className="rounded border px-3 py-2 text-sm" value={fill.fecha} onChange={(e) => setFill((f) => ({ ...f, fecha: e.target.value }))} />
-          </div>
+          {!modoFinal ? (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <select className="rounded border px-3 py-2 text-sm" value={fill.materia} onChange={(e) => setFill((f) => ({ ...f, materia: e.target.value }))}>
+                  <option value="">Materia</option>
+                  {materias.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <select className="rounded border px-3 py-2 text-sm" value={fill.tipo} onChange={(e) => setFill((f) => ({ ...f, tipo: e.target.value }))}>
+                  <option value="">Tipo</option>
+                  {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <select className="rounded border px-3 py-2 text-sm" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
+                  <option value="">Calificación</option>
+                  {calificaciones.map((r) => (
+                    <option key={r.id} value={r.id}>{r.label}</option>
+                  ))}
+                </select>
+                <select className="rounded border px-3 py-2 text-sm" value={fill.cuatrimestre} onChange={(e) => setFill((f) => ({ ...f, cuatrimestre: e.target.value }))}>
+                  <option value="">Cuatrimestre</option>
+                  {cuatris.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <input type="date" className="rounded border px-3 py-2 text-sm" value={fill.fecha} onChange={(e) => setFill((f) => ({ ...f, fecha: e.target.value }))} />
+              </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="text-sm">
-              <input
-                type="checkbox"
-                checked={fill.reemplazarTodo}
-                onChange={(e) => setFill((f) => ({ ...f, reemplazarTodo: e.target.checked }))}
-                className="mr-2"
-              />
-              Reemplazar campos ya cargados
-            </label>
-            <Button variant="outline" onClick={applyFill} className="w-full sm:w-auto">Aplicar a todas</Button>
-          </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <label className="text-sm">
+                  <input
+                    type="checkbox"
+                    checked={fill.reemplazarTodo}
+                    onChange={(e) => setFill((f) => ({ ...f, reemplazarTodo: e.target.checked }))}
+                    className="mr-2"
+                  />
+                  Reemplazar campos ya cargados
+                </label>
+                <Button variant="outline" onClick={applyFill} className="w-full sm:w-auto">Aplicar a todas</Button>
+              </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Materia</label>
+                <select
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  value={finalMateria}
+                  onChange={(e) => setFinalMateria(e.target.value)}
+                >
+                  <option value="">Seleccioná una materia</option>
+                  {materias.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Cuatrimestre</label>
+                <select
+                  className="w-full rounded border px-3 py-2 text-sm"
+                  value={finalCuatri}
+                  onChange={(e) => setFinalCuatri(e.target.value)}
+                >
+                  <option value="">Seleccioná el cuatrimestre</option>
+                  {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -507,6 +629,7 @@ export default function CargarNotasRapidas() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900">{r.nombre}</p>
+                    {modoFinal && <p className="text-xs text-slate-400 mt-0.5">Nota final de cuatrimestre</p>}
                   </div>
                   <label className="inline-flex items-center gap-2 text-sm text-slate-600">
                     <input
@@ -519,38 +642,46 @@ export default function CargarNotasRapidas() {
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Materia</label>
-                    <select className="w-full rounded border px-3 py-2 text-sm" value={r.materia} onChange={(e) => updateRowAt(idx, { materia: e.target.value })}>
-                      <option value=""></option>
-                      {materias.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tipo</label>
-                    <select className="w-full rounded border px-3 py-2 text-sm" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
-                      <option value=""></option>
-                      {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div>
+                  {!modoFinal && (
+                    <>
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Materia</label>
+                        <select className="w-full rounded border px-3 py-2 text-sm" value={r.materia} onChange={(e) => updateRowAt(idx, { materia: e.target.value })}>
+                          <option value=""></option>
+                          {materias.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tipo</label>
+                        <select className="w-full rounded border px-3 py-2 text-sm" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
+                          <option value=""></option>
+                          {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    </>
+                  )}
+                  <div className={modoFinal ? "sm:col-span-2" : ""}>
                     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Calificación</label>
                     <select className="w-full rounded border px-3 py-2 text-sm" value={r.calificacion} onChange={(e) => updateRowAt(idx, { calificacion: e.target.value })}>
                       <option value=""></option>
                       {calificaciones.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cuatrimestre</label>
-                    <select className="w-full rounded border px-3 py-2 text-sm" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
-                      <option value=""></option>
-                      {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Fecha</label>
-                    <input type="date" className="w-full rounded border px-3 py-2 text-sm" value={r.fecha || ""} onChange={(e) => updateRowAt(idx, { fecha: e.target.value })} />
-                  </div>
+                  {!modoFinal && (
+                    <>
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cuatrimestre</label>
+                        <select className="w-full rounded border px-3 py-2 text-sm" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
+                          <option value=""></option>
+                          {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Fecha</label>
+                        <input type="date" className="w-full rounded border px-3 py-2 text-sm" value={r.fecha || ""} onChange={(e) => updateRowAt(idx, { fecha: e.target.value })} />
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -575,11 +706,11 @@ export default function CargarNotasRapidas() {
                   </label>
                 </th>
                 <th className="border-b px-3 py-2">Alumno</th>
-                <th className="border-b px-3 py-2">Materia</th>
-                <th className="border-b px-3 py-2">Tipo</th>
+                {!modoFinal && <th className="border-b px-3 py-2">Materia</th>}
+                {!modoFinal && <th className="border-b px-3 py-2">Tipo</th>}
                 <th className="border-b px-3 py-2">Calificación</th>
-                <th className="border-b px-3 py-2">Cuatr.</th>
-                <th className="border-b px-3 py-2">Fecha</th>
+                {!modoFinal && <th className="border-b px-3 py-2">Cuatr.</th>}
+                {!modoFinal && <th className="border-b px-3 py-2">Fecha</th>}
               </tr>
             </thead>
             <tbody>
@@ -593,33 +724,41 @@ export default function CargarNotasRapidas() {
                     />
                   </td>
                   <td className="px-3 py-2">{r.nombre}</td>
-                  <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.materia} onChange={(e) => updateRowAt(idx, { materia: e.target.value })}>
-                      <option value=""></option>
-                      {materias.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
-                      <option value=""></option>
-                      {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </td>
+                  {!modoFinal && (
+                    <td className="px-3 py-2">
+                      <select className="w-full rounded border px-2 py-1" value={r.materia} onChange={(e) => updateRowAt(idx, { materia: e.target.value })}>
+                        <option value=""></option>
+                        {materias.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </td>
+                  )}
+                  {!modoFinal && (
+                    <td className="px-3 py-2">
+                      <select className="w-full rounded border px-2 py-1" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
+                        <option value=""></option>
+                        {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
+                  )}
                   <td className="px-3 py-2">
                     <select className="w-full rounded border px-2 py-1" value={r.calificacion} onChange={(e) => updateRowAt(idx, { calificacion: e.target.value })}>
                       <option value=""></option>
                       {calificaciones.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                     </select>
                   </td>
-                  <td className="px-3 py-2">
-                    <select className="w-full rounded border px-2 py-1" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
-                      <option value=""></option>
-                      {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <input type="date" className="w-full rounded border px-2 py-1" value={r.fecha || ""} onChange={(e) => updateRowAt(idx, { fecha: e.target.value })} />
-                  </td>
+                  {!modoFinal && (
+                    <td className="px-3 py-2">
+                      <select className="w-full rounded border px-2 py-1" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
+                        <option value=""></option>
+                        {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </td>
+                  )}
+                  {!modoFinal && (
+                    <td className="px-3 py-2">
+                      <input type="date" className="w-full rounded border px-2 py-1" value={r.fecha || ""} onChange={(e) => updateRowAt(idx, { fecha: e.target.value })} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -627,11 +766,19 @@ export default function CargarNotasRapidas() {
           </div>
 
           <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-            <Button onClick={guardarSeleccionadas} disabled={saving || isLoading} className="inline-flex w-full items-center justify-center sm:w-auto">
-              <Save className="mr-2 h-4 w-4" /> {saving ? "Guardando..." : "Guardar seleccionadas"}
-            </Button>
+            {modoFinal ? (
+              <Button onClick={guardarNotasFinales} disabled={saving || isLoading} className="inline-flex w-full items-center justify-center sm:w-auto">
+                <Save className="mr-2 h-4 w-4" /> {saving ? "Guardando..." : "Guardar notas finales"}
+              </Button>
+            ) : (
+              <Button onClick={guardarSeleccionadas} disabled={saving || isLoading} className="inline-flex w-full items-center justify-center sm:w-auto">
+                <Save className="mr-2 h-4 w-4" /> {saving ? "Guardando..." : "Guardar seleccionadas"}
+              </Button>
+            )}
             <div className="text-xs text-slate-500">
-              Debés completar una calificación válida en cada fila seleccionada.
+              {modoFinal
+                ? "Cargá la nota final del cuatrimestre por alumno. Si ya existe una nota final para esa materia/cuatrimestre, se reemplaza."
+                : "Debés completar una calificación válida en cada fila seleccionada."}
             </div>
           </div>
         </CardContent>
