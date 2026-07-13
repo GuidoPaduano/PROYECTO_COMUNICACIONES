@@ -31,6 +31,23 @@ def _frontend_base_url(request) -> str:
     return ""
 
 
+def _school_frontend_base_url(user) -> str:
+    from .schools import resolve_school_for_user
+    school = resolve_school_for_user(user)
+    if school and getattr(school, "slug", None):
+        base = _frontend_base_url(None) or ""
+        if base:
+            from urllib.parse import urlparse
+            parsed = urlparse(base)
+            parent_host = parsed.hostname or ""
+            # Strip leading www. to get the parent domain
+            if parent_host.startswith("www."):
+                parent_host = parent_host[4:]
+            scheme = parsed.scheme or "https"
+            return f"{scheme}://{school.slug}.{parent_host}"
+    return ""
+
+
 def _reset_path() -> str:
     path = (getattr(settings, "PASSWORD_RESET_PATH", "") or "").strip()
     if path:
@@ -74,7 +91,7 @@ def password_reset_request(request):
     uid = urlsafe_base64_encode(str(user.pk).encode("utf-8"))
     token = default_token_generator.make_token(user)
 
-    base = _frontend_base_url(request).rstrip("/")
+    base = (_school_frontend_base_url(user) or _frontend_base_url(request) or "").rstrip("/")
     if not base:
         return Response({"detail": _("Configuración de frontend no definida.")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     path = _reset_path().strip()
