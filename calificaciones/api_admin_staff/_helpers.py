@@ -338,13 +338,11 @@ def _build_user_directory_payload(*, school) -> dict:
         .filter(school=school)
         .order_by("school_course__sort_order", "school_course__name", "apellido", "nombre", "id")
     )
-    parent_group_ids = User.objects.filter(groups__name="Padres").values_list("id", flat=True)
     parent_ids = {
         int(parent_id)
         for parent_id in Alumno.objects.filter(school=school, padre_id__isnull=False).values_list("padre_id", flat=True)
         if parent_id is not None
     }
-    parent_ids.update(int(user_id) for user_id in parent_group_ids if user_id is not None)
     padres = list(
         User.objects.filter(id__in=parent_ids)
         .exclude(is_superuser=True)
