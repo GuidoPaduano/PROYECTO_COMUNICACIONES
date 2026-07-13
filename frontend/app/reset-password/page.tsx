@@ -123,9 +123,9 @@ export default function ResetPasswordPage() {
             </p>
           ) : null}
           {message ? (
-            <p role="status" aria-live="polite" className="text-sm text-green-700">
-              {message}
-            </p>
+            <div role="status" aria-live="polite" className="rounded-md border border-green-300 bg-green-50 px-4 py-3 text-center">
+              <p className="text-sm font-semibold text-green-800">✓ {message}</p>
+            </div>
           ) : null}
 
           <button
