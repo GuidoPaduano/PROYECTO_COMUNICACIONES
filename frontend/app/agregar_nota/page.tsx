@@ -189,6 +189,7 @@ export default function CargarNotasRapidas() {
 
   const [seedingNotas, setSeedingNotas] = useState(false)
   const [seedNotasLog, setSeedNotasLog] = useState<string[]>([])
+  const [seedFecha, setSeedFecha] = useState(hoyISO())
 
   useEffect(() => {
     let alive = true
@@ -499,7 +500,7 @@ export default function CargarNotasRapidas() {
     const materia = fill.materia
     const tipo = fill.tipo
     const cuatrimestre = fill.cuatrimestre || cuatris?.[0]
-    const fecha = fill.fecha || hoyISO()
+    const fecha = seedFecha || hoyISO()
 
     if (!materia || !tipo || !cuatrimestre) {
       setSeedNotasLog(["Completá Materia, Tipo y Cuatrimestre en el formulario de abajo primero."])
@@ -594,6 +595,16 @@ export default function CargarNotasRapidas() {
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Seleccioná Materia, Tipo y Cuatrimestre en el formulario de abajo y luego apretá el botón para generar notas aleatorias para todos los alumnos del curso.
           </p>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Fecha</label>
+            <input
+              type="date"
+              className="rounded border border-gray-200 px-3 py-1.5 text-sm bg-white dark:bg-transparent"
+              value={seedFecha}
+              max={hoyISO()}
+              onChange={(e) => e.target.value && setSeedFecha(e.target.value)}
+            />
+          </div>
           <Button
             onClick={llenarConNotasAleatorias}
             disabled={seedingNotas || !rows.length || isLoading}
