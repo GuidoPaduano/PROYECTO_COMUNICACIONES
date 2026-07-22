@@ -119,6 +119,29 @@ function todayISO() {
   return `${y}-${m}-${day}`
 }
 
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${dd}`
+}
+
+function getCurrentWeekDays(): string[] {
+  const today = new Date()
+  const dayOfWeek = today.getDay()
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+  const todayStr = todayISO()
+  const days: string[] = []
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    const dateStr = isoDate(d)
+    if (dateStr <= todayStr) days.push(dateStr)
+  }
+  return days
+}
+
 function normalizeCursoItem(c) {
   const [course] = normalizeCourseList([c])
   if (!course) return { value: "", text: "" }
@@ -149,6 +172,8 @@ export default function PasarAsistenciaPage() {
   const [saving, setSaving] = useState(false)
   const [okMsg, setOkMsg] = useState("")
   const [errMsg, setErrMsg] = useState("")
+  const [seedingWeek, setSeedingWeek] = useState(false)
+  const [seedLog, setSeedLog] = useState<string[]>([])
   const asistenciaScopeKey = useMemo(
     () => `${session?.username || "anon"}:${session?.school?.id || session?.school?.slug || "default"}`,
     [session?.school?.id, session?.school?.slug, session?.username]
@@ -385,6 +410,63 @@ export default function PasarAsistenciaPage() {
     }
   }
 
+  async function llenarSemana() {
+    if (!cursoSel || !alumnos.length || schoolCourseIdSel == null) return
+    const days = getCurrentWeekDays()
+    if (!days.length) {
+      setSeedLog(["No hay días hábiles previos esta semana."])
+      return
+    }
+    setSeedingWeek(true)
+    setSeedLog([])
+    const logs: string[] = []
+
+    for (const dia of days) {
+      const presentes: number[] = []
+      const tardes: number[] = []
+      let ausentes = 0
+
+      for (const a of alumnos) {
+        const pk = a?.id ?? a?.pk
+        if (pk == null) continue
+        const r = Math.random()
+        if (r < 0.12) {
+          ausentes++
+        } else if (r < 0.25) {
+          presentes.push(Number(pk))
+          tardes.push(Number(pk))
+        } else {
+          presentes.push(Number(pk))
+        }
+      }
+
+      try {
+        const res = await fetchApi("/api/asistencias/registrar/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            school_course_id: schoolCourseIdSel,
+            fecha: dia,
+            tipo_asistencia: tipoAsistencia,
+            tipo: tipoAsistencia,
+            presentes,
+            tardes,
+          }),
+        }, 60000)
+
+        logs.push(res.ok
+          ? `✓ ${dia}: ${presentes.length - tardes.length}P / ${tardes.length}T / ${ausentes}A`
+          : `✗ ${dia}: ${res.data?.detail || "error"}`)
+      } catch {
+        logs.push(`✗ ${dia}: error de red`)
+      }
+
+      setSeedLog([...logs])
+    }
+
+    setSeedingWeek(false)
+  }
+
   const isToday = fecha === todayISO()
 
   return (
@@ -582,6 +664,38 @@ export default function PasarAsistenciaPage() {
           </div>
         </CardContent>
       </Card>
+
+      {session?.isSuperuser && (
+        <Card className="border-2 border-dashed border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-700">
+          <CardContent className="space-y-3 pt-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-2 py-0.5 rounded">
+                Dev
+              </span>
+              <span className="font-medium text-gray-900 dark:text-gray-100 text-sm">
+                Datos de prueba — llenar semana actual
+              </span>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Genera asistencias aleatorias para los días hábiles de la semana actual (hasta hoy), usando el curso y tipo seleccionados arriba.
+            </p>
+            <Button
+              onClick={llenarSemana}
+              disabled={seedingWeek || !alumnos.length || schoolCourseIdSel == null}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              {seedingWeek ? "Cargando..." : "Llenar semana (lunes a hoy)"}
+            </Button>
+            {seedLog.length > 0 && (
+              <div className="space-y-0.5 pt-1">
+                {seedLog.map((line, i) => (
+                  <p key={i} className="text-sm font-mono text-gray-700 dark:text-gray-300">{line}</p>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
