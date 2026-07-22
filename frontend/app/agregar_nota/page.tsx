@@ -187,6 +187,9 @@ export default function CargarNotasRapidas() {
   const [finalMateria, setFinalMateria] = useState("")
   const [finalCuatri, setFinalCuatri] = useState("")
 
+  const [seedingNotas, setSeedingNotas] = useState(false)
+  const [seedNotasLog, setSeedNotasLog] = useState<string[]>([])
+
   useEffect(() => {
     let alive = true
     ;(async () => {
@@ -483,6 +486,70 @@ export default function CargarNotasRapidas() {
     }
   }
 
+  function randomCalificacion(): string {
+    const r = Math.random()
+    if (r < 0.05) return "NO ENTREGADO"
+    if (r < 0.18) return ["TEA", "TEP", "TED"][Math.floor(Math.random() * 3)]
+    if (r < 0.28) return String(Math.floor(Math.random() * 3) + 1)
+    if (r < 0.43) return String(Math.floor(Math.random() * 2) + 4)
+    return String(Math.floor(Math.random() * 5) + 6)
+  }
+
+  async function llenarConNotasAleatorias() {
+    const materia = fill.materia
+    const tipo = fill.tipo
+    const cuatrimestre = fill.cuatrimestre || cuatris?.[0]
+    const fecha = fill.fecha || hoyISO()
+
+    if (!materia || !tipo || !cuatrimestre) {
+      setSeedNotasLog(["Completá Materia, Tipo y Cuatrimestre en el formulario de abajo primero."])
+      return
+    }
+    if (!rows.length) {
+      setSeedNotasLog(["No hay alumnos cargados."])
+      return
+    }
+
+    setSeedingNotas(true)
+    setSeedNotasLog([])
+
+    try {
+      const notas = rows.map((r) => {
+        const calif = randomCalificacion()
+        const isEstado = ESTADOS_CALIFICACION.has(calif)
+        const num = isEstado ? null : parseNotaNumerica(calif)
+        const resultado = isEstado ? calif : ""
+        return {
+          alumno_id: r.id,
+          materia,
+          tipo,
+          resultado: resultado || null,
+          nota_numerica: num,
+          calificacion: resultado || (num != null ? String(num) : calif),
+          cuatrimestre: Number(cuatrimestre),
+          fecha,
+        }
+      })
+
+      const res = await authFetch("/calificaciones/notas/masivo/", {
+        method: "POST",
+        body: JSON.stringify({ notas }),
+      })
+      const payload = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        setSeedNotasLog([`✗ ${formatBulkErrors(payload?.errors) || payload?.detail || `HTTP ${res.status}`}`])
+      } else {
+        const creadas = Array.isArray(payload?.created) ? payload.created.length : notas.length
+        setSeedNotasLog([`✓ ${creadas} notas guardadas — ${materia} / ${tipo} / ${cuatrimestre}° cuatri`])
+      }
+    } catch (e) {
+      setSeedNotasLog(["✗ Error de red"])
+    } finally {
+      setSeedingNotas(false)
+    }
+  }
+
   const isLoading = loading
 
   return (
@@ -513,6 +580,36 @@ export default function CargarNotasRapidas() {
           Nota final de cuatrimestre
         </button>
       </div>
+
+      <Card className="border-2 border-dashed border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-700">
+        <CardContent className="space-y-3 pt-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-2 py-0.5 rounded">
+              Dev
+            </span>
+            <span className="font-medium text-gray-900 dark:text-gray-100 text-sm">
+              Datos de prueba — llenar notas aleatorias
+            </span>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Seleccioná Materia, Tipo y Cuatrimestre en el formulario de abajo y luego apretá el botón para generar notas aleatorias para todos los alumnos del curso.
+          </p>
+          <Button
+            onClick={llenarConNotasAleatorias}
+            disabled={seedingNotas || !rows.length || isLoading}
+            className="bg-orange-500 hover:bg-orange-600 text-white"
+          >
+            {seedingNotas ? "Guardando..." : "Llenar con notas aleatorias"}
+          </Button>
+          {seedNotasLog.length > 0 && (
+            <div className="space-y-0.5 pt-1">
+              {seedNotasLog.map((line, i) => (
+                <p key={i} className="text-sm font-mono text-gray-700 dark:text-gray-300">{line}</p>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {okMsg ? <SuccessMessage>{okMsg}</SuccessMessage> : null}
       {error ? (
