@@ -12,7 +12,6 @@ from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from rest_framework.response import Response
 
 from ..models import Mensaje, Notificacion, resolve_school_course_for_value
-from ..resend_email import send_message_email
 from ..schools import get_request_school
 from ..user_groups import get_user_group_names
 from ..utils_cursos import resolve_course_reference
@@ -239,7 +238,8 @@ def alumno_enviar(request):
             to_email = (getattr(receptor, "email", "") or "").strip()
             if to_email:
                 actor_label = (user.get_full_name() or user.username or "Usuario").strip()
-                send_message_email(
+                from ..tasks import send_message_email_task
+                send_message_email_task.delay(
                     to_email=to_email,
                     subject=(asunto or "Nuevo mensaje").strip(),
                     content=(contenido or "").strip(),

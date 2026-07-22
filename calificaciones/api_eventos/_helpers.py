@@ -248,12 +248,12 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str, accion: str =
 
     from django.conf import settings as _s
     if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
-        from ..resend_email import send_resend_email
         for n in notifs:
             try:
                 to_email = (getattr(n.destinatario, "email", "") or "").strip()
                 if to_email:
-                    send_resend_email(
+                    from ..tasks import send_email_task
+                    send_email_task.delay(
                         to_email=to_email,
                         subject=titulo,
                         text=descripcion,

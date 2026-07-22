@@ -1,7 +1,25 @@
 """
-Celery tasks para procesamiento asíncrono de alertas.
+Celery tasks para procesamiento asíncrono de alertas y notificaciones.
 """
 from celery import shared_task
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def send_email_task(self, *, to_email: str, subject: str, text: str | None = None, html: str | None = None):
+    try:
+        from .resend_email import send_resend_email
+        send_resend_email(to_email=to_email, subject=subject, text=text, html=html)
+    except Exception as exc:
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def send_message_email_task(self, *, to_email: str, subject: str, content: str, actor_label: str = ""):
+    try:
+        from .resend_email import send_message_email
+        send_message_email(to_email=to_email, subject=subject, content=content, actor_label=actor_label)
+    except Exception as exc:
+        raise self.retry(exc=exc)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)

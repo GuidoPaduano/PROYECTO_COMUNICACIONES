@@ -438,33 +438,38 @@ export default function CargarNotasRapidas() {
 
     setSaving(true)
     try {
-      const resultados = await Promise.all(
-        seleccionadas.map(async (r) => {
-          const calif = normalizeCalificacionValue(r.calificacion)
-          const isEstado = ESTADOS_CALIFICACION.has(calif)
-          const num = isEstado ? null : parseNotaNumerica(calif)
-          const resultado = isEstado ? calif : ""
-          const calificacionLegacy = resultado || (num != null ? String(num) : "")
-          const res = await authFetch("/calificaciones/notas/", {
-            method: "POST",
-            body: JSON.stringify({
-              alumno_id: r.id,
-              materia: finalMateria,
-              tipo: "Nota Final",
-              es_final: true,
-              anio_lectivo: new Date().getFullYear(),
-              resultado: resultado || null,
-              nota_numerica: num,
-              calificacion: calificacionLegacy,
-              cuatrimestre: Number(finalCuatri),
-              fecha: hoyISO(),
-            }),
-          })
-          return res.ok
-        })
-      )
-      const guardadas = resultados.filter(Boolean).length
-      const errores = resultados.length - guardadas
+      const hoy = hoyISO()
+      const anioLectivo = new Date().getFullYear()
+      const notas = seleccionadas.map((r) => {
+        const calif = normalizeCalificacionValue(r.calificacion)
+        const isEstado = ESTADOS_CALIFICACION.has(calif)
+        const num = isEstado ? null : parseNotaNumerica(calif)
+        const resultado = isEstado ? calif : ""
+        const calificacionLegacy = resultado || (num != null ? String(num) : "")
+        return {
+          alumno_id: r.id,
+          materia: finalMateria,
+          tipo: "Nota Final",
+          es_final: true,
+          anio_lectivo: anioLectivo,
+          resultado: resultado || null,
+          nota_numerica: num,
+          calificacion: calificacionLegacy,
+          cuatrimestre: Number(finalCuatri),
+          fecha: hoy,
+        }
+      })
+      const res = await authFetch("/calificaciones/notas/masivo/", {
+        method: "POST",
+        body: JSON.stringify({ notas }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok && res.status !== 207) {
+        setError(json?.detail || json?.error || "Error al guardar notas finales")
+        return
+      }
+      const errores = Array.isArray(json?.errors) ? json.errors.length : 0
+      const guardadas = seleccionadas.length - errores
       if (errores > 0) {
         setError(`Se guardaron ${guardadas} notas finales, pero fallaron ${errores}. Revisá e intentá de nuevo.`)
       } else {

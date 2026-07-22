@@ -292,8 +292,8 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
             try:
                 to_email = (getattr(n.destinatario, "email", "") or "").strip()
                 if to_email:
-                    from ..resend_email import send_resend_email
-                    send_resend_email(
+                    from ..tasks import send_email_task
+                    send_email_task.delay(
                         to_email=to_email,
                         subject=n.titulo,
                         text=n.descripcion,

@@ -7,7 +7,6 @@ from django.contrib.auth import get_user_model
 from ..api_utils import _coerce_json  # noqa: F401 — re-exported for views
 from ..course_access import build_course_membership_q, course_ref_matches, get_assignment_course_refs
 from ..models import Alumno, Mensaje, Notificacion, resolve_school_course_for_value
-from ..resend_email import send_message_email
 from ..schools import get_request_school, scope_queryset_to_school
 from ..user_groups import get_user_group_names_lower, user_has_group_fragment, user_in_groups
 from ..utils_cursos import resolve_course_reference
@@ -644,7 +643,8 @@ def _notify_msg(*, msg, receptor, alumno=None, actor=None):
             if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
                 to_email = (getattr(receptor, "email", "") or "").strip()
                 if to_email:
-                    send_message_email(
+                    from ..tasks import send_message_email_task
+                    send_message_email_task.delay(
                         to_email=to_email,
                         subject=titulo or "Nuevo mensaje",
                         content=descripcion or contenido or "",

@@ -590,6 +590,13 @@ class CrearNotasMasivo(APIView):
                 errors.append({"index": idx, "errors": row_err})
                 continue
 
+            es_final = bool(item.get('es_final', False))
+            anio_lectivo_raw = item.get('anio_lectivo')
+            try:
+                anio_lectivo = int(anio_lectivo_raw) if anio_lectivo_raw not in (None, '') else None
+            except (TypeError, ValueError):
+                anio_lectivo = None
+
             notas_objs.append(
                 Nota(
                     alumno=alumno,
@@ -601,6 +608,8 @@ class CrearNotasMasivo(APIView):
                     nota_numerica=nota_numerica,
                     cuatrimestre=cuatri,
                     fecha=fecha,
+                    es_final=es_final,
+                    anio_lectivo=anio_lectivo,
                 )
             )
 
@@ -613,7 +622,46 @@ class CrearNotasMasivo(APIView):
         # ------------------------
         # 3) Guardar (bulk) + Notificaciones (bulk, sin N queries)
         # ------------------------
+        # Separate final notes (need upsert) from regular notes (bulk_create only)
+        final_notas = [n for n in notas_objs if getattr(n, 'es_final', False)]
+        regular_notas = [n for n in notas_objs if not getattr(n, 'es_final', False)]
+
+        notas_to_create = list(regular_notas)
+        notas_to_update = []
+
+        if final_notas:
+            q = Q()
+            for n in final_notas:
+                q |= Q(
+                    alumno_id=n.alumno_id,
+                    materia=n.materia,
+                    cuatrimestre=n.cuatrimestre,
+                    anio_lectivo=n.anio_lectivo,
+                    es_final=True,
+                )
+            existing_final_qs = scope_queryset_to_school(
+                Nota.objects.filter(q),
+                active_school,
+            )
+            existing_lookup = {
+                (ex.alumno_id, ex.materia, ex.cuatrimestre, ex.anio_lectivo): ex
+                for ex in existing_final_qs
+            }
+            for n in final_notas:
+                key = (n.alumno_id, n.materia, n.cuatrimestre, n.anio_lectivo)
+                if key in existing_lookup:
+                    ex = existing_lookup[key]
+                    ex.calificacion = n.calificacion
+                    ex.resultado = n.resultado
+                    ex.nota_numerica = n.nota_numerica
+                    ex.tipo = n.tipo
+                    ex.fecha = n.fecha
+                    notas_to_update.append(ex)
+                else:
+                    notas_to_create.append(n)
+
         created_ids = []
+        updated_ids = []
         notificados = 0
         alertas_creadas = 0
 
@@ -680,12 +728,21 @@ class CrearNotasMasivo(APIView):
         alert_candidates = {}
 
         with transaction.atomic():
-            Nota.objects.bulk_create(notas_objs, batch_size=500)
-            created_ids = [getattr(n, 'id', None) for n in notas_objs if getattr(n, 'id', None) is not None]
+            if notas_to_create:
+                Nota.objects.bulk_create(notas_to_create, batch_size=500)
+                created_ids = [getattr(n, 'id', None) for n in notas_to_create if getattr(n, 'id', None) is not None]
+            if notas_to_update:
+                Nota.objects.bulk_update(
+                    notas_to_update,
+                    ['calificacion', 'resultado', 'nota_numerica', 'tipo', 'fecha'],
+                    batch_size=500,
+                )
+                updated_ids = [getattr(n, 'id', None) for n in notas_to_update if getattr(n, 'id', None) is not None]
+            all_notas = notas_to_create + notas_to_update
 
             # Agrupar para 1 notificación por (destinatario, alumno)
             grupos = {}
-            for n in notas_objs:
+            for n in all_notas:
                 a = n.alumno
                 dests = _destinatarios_para_alumno(a)
                 if not dests:
@@ -746,7 +803,7 @@ class CrearNotasMasivo(APIView):
                 Notificacion.objects.bulk_create(notifs, batch_size=500)
                 notificados = len(notifs)
 
-            for n in notas_objs:
+            for n in all_notas:
                 key = (
                     getattr(n, "alumno_id", None),
                     getattr(n, "materia", ""),
@@ -772,11 +829,12 @@ class CrearNotasMasivo(APIView):
         except Exception:
             logger.exception("Error encolando alertas academicas en carga masiva")
 
+        all_ids = created_ids + updated_ids
         # 207 si hubo errores parciales, 201 si todo ok
         if errors:
             return Response(
-                {"created": created_ids, "errors": errors, "notificados": notificados, "alertas": alertas_creadas},
+                {"created": all_ids, "errors": errors, "notificados": notificados, "alertas": alertas_creadas},
                 status=207,
             )
 
-        return Response({"created": created_ids, "notificados": notificados, "alertas": alertas_creadas}, status=status.HTTP_201_CREATED)
+        return Response({"created": all_ids, "notificados": notificados, "alertas": alertas_creadas}, status=status.HTTP_201_CREATED)
