@@ -1,6 +1,6 @@
 "use client"
 
-import { FolderCog, KeyRound, Layers3, UserPlus, UsersRound } from "lucide-react"
+import { FolderCog, History, KeyRound, Layers3, UserPlus, UsersRound } from "lucide-react"
 
 import { useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
@@ -52,6 +52,13 @@ export default function AdminColegioPage() {
           description: "Administra el catálogo de cursos del colegio activo, sin salir del alcance de esta sesión.",
           href: "/admin/colegio/cursos",
           icon: <Layers3 className="h-6 w-6" />,
+          external: false,
+        },
+        {
+          title: "Notas históricas",
+          description: "Consultá las notas finales de cuatrimestre de cada alumno por año lectivo y curso.",
+          href: "/admin/colegio/notas-historicas",
+          icon: <History className="h-6 w-6" />,
           external: false,
         },
       ]

@@ -157,6 +157,7 @@ from .api_alumnos import (
     transferir_alumno,
     cursos_disponibles,
 )
+from .api_notas_historicas import notas_historicas
 
 router = DefaultRouter()
 
@@ -328,6 +329,8 @@ urlpatterns = [
     path("alumnos/vincular", vincular_mi_legajo, name="alumnos_vincular_noslash"),
     path("alumnos/transferir/", transferir_alumno, name="alumnos_transferir"),
     path("alumnos/transferir", transferir_alumno, name="alumnos_transferir_noslash"),
+    path("notas/historicas/", notas_historicas, name="notas_historicas"),
+    path("notas/historicas", notas_historicas, name="notas_historicas_noslash"),
 
     # Dinámicas alumno
     path("alumnos/<str:alumno_id>/", alumno_detalle, name="alumno_detalle"),
