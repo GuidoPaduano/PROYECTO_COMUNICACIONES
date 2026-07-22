@@ -57,6 +57,7 @@ class Nota(models.Model):
     fecha = models.DateField(default=timezone.now)
     observaciones = models.TextField(blank=True, null=True)
     es_final = models.BooleanField(default=False, db_index=True)
+    anio_lectivo = models.IntegerField(null=True, blank=True, db_index=True)
     version = models.PositiveIntegerField(default=1)
     firmada = models.BooleanField(default=False, db_index=True)
     firmada_en = models.DateTimeField(null=True, blank=True)
@@ -69,9 +70,9 @@ class Nota(models.Model):
         indexes = [models.Index(fields=["alumno", "materia", "fecha"])]
         constraints = [
             models.UniqueConstraint(
-                condition=models.Q(es_final=True),
-                fields=["alumno", "materia", "cuatrimestre"],
-                name="unique_nota_final_alumno_materia_cuatrimestre",
+                condition=models.Q(es_final=True, anio_lectivo__isnull=False),
+                fields=["alumno", "materia", "cuatrimestre", "anio_lectivo"],
+                name="unique_nota_final_alumno_materia_cuatrimestre_anio",
             ),
         ]
 

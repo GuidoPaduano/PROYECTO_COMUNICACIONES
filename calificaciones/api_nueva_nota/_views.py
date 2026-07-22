@@ -263,6 +263,7 @@ class CrearNota(APIView):
                         alumno=alumno,
                         materia=serializer.validated_data.get("materia"),
                         cuatrimestre=serializer.validated_data.get("cuatrimestre"),
+                        anio_lectivo=serializer.validated_data.get("anio_lectivo"),
                         es_final=True,
                     ),
                     active_school,
