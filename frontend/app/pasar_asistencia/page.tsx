@@ -126,11 +126,11 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${dd}`
 }
 
-function getCurrentWeekDays(): string[] {
-  const today = new Date()
-  const dayOfWeek = today.getDay()
-  const monday = new Date(today)
-  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+function getWeekDaysFrom(anchorISO: string): string[] {
+  const anchor = new Date(anchorISO + "T12:00:00")
+  const dayOfWeek = anchor.getDay()
+  const monday = new Date(anchor)
+  monday.setDate(anchor.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
   const todayStr = todayISO()
   const days: string[] = []
   for (let i = 0; i < 5; i++) {
@@ -412,9 +412,9 @@ export default function PasarAsistenciaPage() {
 
   async function llenarSemana() {
     if (!cursoSel || !alumnos.length || schoolCourseIdSel == null) return
-    const days = getCurrentWeekDays()
+    const days = getWeekDaysFrom(fecha)
     if (!days.length) {
-      setSeedLog(["No hay días hábiles previos esta semana."])
+      setSeedLog(["No hay días hábiles hasta hoy en esa semana."])
       return
     }
     setSeedingWeek(true)
@@ -471,6 +471,36 @@ export default function PasarAsistenciaPage() {
 
   return (
     <div className="space-y-6">
+      <Card className="border-2 border-dashed border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-700">
+          <CardContent className="space-y-3 pt-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-2 py-0.5 rounded">
+                Dev
+              </span>
+              <span className="font-medium text-gray-900 dark:text-gray-100 text-sm">
+                Datos de prueba — llenar semana
+              </span>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Genera asistencias aleatorias para los días hábiles de la semana de la fecha seleccionada (hasta hoy), usando el curso y tipo elegidos abajo.
+            </p>
+            <Button
+              onClick={llenarSemana}
+              disabled={seedingWeek || !alumnos.length || schoolCourseIdSel == null}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              {seedingWeek ? "Cargando..." : "Llenar semana (lunes a hoy)"}
+            </Button>
+            {seedLog.length > 0 && (
+              <div className="space-y-0.5 pt-1">
+                {seedLog.map((line, i) => (
+                  <p key={i} className="text-sm font-mono text-gray-700 dark:text-gray-300">{line}</p>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
       <Card>
         <CardContent className="space-y-6">
           <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end">
@@ -665,35 +695,6 @@ export default function PasarAsistenciaPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-2 border-dashed border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-700">
-          <CardContent className="space-y-3 pt-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-2 py-0.5 rounded">
-                Dev
-              </span>
-              <span className="font-medium text-gray-900 dark:text-gray-100 text-sm">
-                Datos de prueba — llenar semana actual
-              </span>
-            </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Genera asistencias aleatorias para los días hábiles de la semana actual (hasta hoy), usando el curso y tipo seleccionados arriba.
-            </p>
-            <Button
-              onClick={llenarSemana}
-              disabled={seedingWeek || !alumnos.length || schoolCourseIdSel == null}
-              className="bg-orange-500 hover:bg-orange-600 text-white"
-            >
-              {seedingWeek ? "Cargando..." : "Llenar semana (lunes a hoy)"}
-            </Button>
-            {seedLog.length > 0 && (
-              <div className="space-y-0.5 pt-1">
-                {seedLog.map((line, i) => (
-                  <p key={i} className="text-sm font-mono text-gray-700 dark:text-gray-300">{line}</p>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
     </div>
   )
 }
