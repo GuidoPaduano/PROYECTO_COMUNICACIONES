@@ -487,13 +487,11 @@ export default function CargarNotasRapidas() {
     }
   }
 
-  function randomCalificacion(): string {
-    const r = Math.random()
-    if (r < 0.05) return "NO ENTREGADO"
-    if (r < 0.18) return ["TEA", "TEP", "TED"][Math.floor(Math.random() * 3)]
-    if (r < 0.28) return String(Math.floor(Math.random() * 3) + 1)
-    if (r < 0.43) return String(Math.floor(Math.random() * 2) + 4)
-    return String(Math.floor(Math.random() * 5) + 6)
+  function randomCalificacion(esFinal: boolean): string {
+    if (esFinal) {
+      return String(Math.floor(Math.random() * 10) + 1)
+    }
+    return ["TEA", "TEP", "TED"][Math.floor(Math.random() * 3)]
   }
 
   async function llenarConNotasAleatorias() {
@@ -516,7 +514,7 @@ export default function CargarNotasRapidas() {
 
     try {
       const notas = rows.map((r) => {
-        const calif = randomCalificacion()
+        const calif = randomCalificacion(modoFinal)
         const isEstado = ESTADOS_CALIFICACION.has(calif)
         const num = isEstado ? null : parseNotaNumerica(calif)
         const resultado = isEstado ? calif : ""
