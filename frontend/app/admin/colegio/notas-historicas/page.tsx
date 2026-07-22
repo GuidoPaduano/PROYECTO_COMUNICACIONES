@@ -24,9 +24,7 @@ type Course = { id: number; code: string; nombre: string; school_course_id: numb
 
 function displayCalificacion(nota: NotaCuatri | undefined): string {
   if (!nota) return "—"
-  if (nota.resultado === "TEA") return "Aprobado"
-  if (nota.resultado === "TEP") return "Desaprobado"
-  if (nota.resultado === "TED") return "Aplazado"
+  if (nota.resultado) return nota.resultado
   if (nota.nota_numerica) return nota.nota_numerica
   return nota.calificacion || "—"
 }
