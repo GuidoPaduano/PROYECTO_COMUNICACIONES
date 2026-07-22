@@ -452,6 +452,7 @@ export default function CargarNotasRapidas() {
               materia: finalMateria,
               tipo: "Nota Final",
               es_final: true,
+              anio_lectivo: new Date().getFullYear(),
               resultado: resultado || null,
               nota_numerica: num,
               calificacion: calificacionLegacy,

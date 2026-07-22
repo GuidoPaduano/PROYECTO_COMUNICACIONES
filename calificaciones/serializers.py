@@ -94,6 +94,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
     fecha = serializers.DateField(required=False, allow_null=True)
     observaciones = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     es_final = serializers.BooleanField(required=False, default=False)
+    anio_lectivo = serializers.IntegerField(required=False, allow_null=True)
     version = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -103,6 +104,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
             "materia",
             "tipo",
             "es_final",
+            "anio_lectivo",
             "calificacion",
             "resultado",
             "nota_numerica",
@@ -232,6 +234,7 @@ class NotaSerializer(serializers.ModelSerializer):
             "materia",
             "tipo",
             "es_final",
+            "anio_lectivo",
             "calificacion",
             "calificacion_display",
             "resultado",
@@ -328,6 +331,7 @@ class NotaPublicSerializer(serializers.ModelSerializer):
             "materia",
             "tipo",
             "es_final",
+            "anio_lectivo",
             "calificacion",
             "calificacion_display",
             "resultado",
