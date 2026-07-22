@@ -52,9 +52,10 @@ export default function NotasHistoricasPage() {
   const groups = Array.isArray(sessionContext?.groups) ? sessionContext.groups : []
   const isAdmin = isSuper || groups.some((g: string) => ["administradores", "administrador"].includes(String(g).toLowerCase()))
 
-  const [years, setYears] = useState<number[]>([])
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: 5 }, (_, i) => currentYear - i)
   const [courses, setCourses] = useState<Course[]>([])
-  const [selectedYear, setSelectedYear] = useState<string>("")
+  const [selectedYear, setSelectedYear] = useState<string>(String(currentYear))
   const [selectedCourse, setSelectedCourse] = useState<string>("")
   const [data, setData] = useState<{ materias: string[]; alumnos: AlumnoHistorico[] } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -62,11 +63,6 @@ export default function NotasHistoricasPage() {
 
   useEffect(() => {
     if (!isAdmin) return
-    authFetch("/calificaciones/notas/historicas/?available_years=1&anio_lectivo=0")
-      .then((r) => r.json())
-      .then((d) => setYears(d.years || []))
-      .catch(() => {})
-
     authFetch("/calificaciones/admin/school-courses/")
       .then((r) => r.json())
       .then((d) => setCourses(d.schools?.[0]?.courses || []))

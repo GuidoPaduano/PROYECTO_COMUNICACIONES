@@ -29,19 +29,6 @@ def notas_historicas(request):
     except ValueError:
         return Response({"detail": "anio_lectivo debe ser un número."}, status=400)
 
-    # Años disponibles para el selector
-    if request.GET.get("available_years"):
-        years = (
-            scope_queryset_to_school(
-                Nota.objects.filter(es_final=True, anio_lectivo__isnull=False),
-                active_school,
-            )
-            .values_list("anio_lectivo", flat=True)
-            .distinct()
-            .order_by("-anio_lectivo")
-        )
-        return Response({"years": list(years)})
-
     qs = scope_queryset_to_school(
         Nota.objects.filter(es_final=True, anio_lectivo=anio_lectivo).select_related("alumno"),
         active_school,
