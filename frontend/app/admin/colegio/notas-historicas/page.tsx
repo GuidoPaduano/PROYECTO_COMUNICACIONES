@@ -20,7 +20,7 @@ type AlumnoHistorico = {
   notas: Record<string, Record<string, NotaCuatri>>
 }
 
-type Course = { id: number; code: string; name: string }
+type Course = { id: number; code: string; nombre: string; school_course_id: number }
 
 function displayCalificacion(nota: NotaCuatri | undefined): string {
   if (!nota) return "—"
@@ -63,9 +63,9 @@ export default function NotasHistoricasPage() {
 
   useEffect(() => {
     if (!isAdmin) return
-    authFetch("/calificaciones/admin/school-courses/")
+    authFetch("/alumnos/cursos/")
       .then((r) => r.json())
-      .then((d) => setCourses(d.schools?.[0]?.courses || []))
+      .then((d) => setCourses(d.cursos || []))
       .catch(() => {})
   }, [isAdmin])
 
@@ -128,7 +128,7 @@ export default function NotasHistoricasPage() {
           >
             <option value="">Todos los cursos</option>
             {courses.map((c) => (
-              <option key={c.id} value={c.id}>{c.name || c.code}</option>
+              <option key={c.school_course_id} value={c.school_course_id}>{c.nombre || c.code}</option>
             ))}
           </select>
         </div>
