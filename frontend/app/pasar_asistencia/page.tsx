@@ -6,6 +6,7 @@ import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
 import {
   getCourseLabel,
   getCourseSchoolCourseId,
+  getCourseValue,
   loadCourseCatalog,
   normalizeCourseList,
 } from "../_lib/courses"
@@ -174,6 +175,7 @@ export default function PasarAsistenciaPage() {
   const [errMsg, setErrMsg] = useState("")
   const [seedingWeek, setSeedingWeek] = useState(false)
   const [seedLog, setSeedLog] = useState<string[]>([])
+  const [seedTodosCursos, setSeedTodosCursos] = useState(false)
   const asistenciaScopeKey = useMemo(
     () => `${session?.username || "anon"}:${session?.school?.id || session?.school?.slug || "default"}`,
     [session?.school?.id, session?.school?.slug, session?.username]
@@ -410,23 +412,13 @@ export default function PasarAsistenciaPage() {
     }
   }
 
-  async function llenarSemana() {
-    if (!cursoSel || !alumnos.length || schoolCourseIdSel == null) return
-    const days = getWeekDaysFrom(fecha)
-    if (!days.length) {
-      setSeedLog(["No hay días hábiles hasta hoy en esa semana."])
-      return
-    }
-    setSeedingWeek(true)
-    setSeedLog([])
-    const logs: string[] = []
-
+  async function llenarCurso(scId: number, alumnosList: any[], days: string[], logs: string[], label: string) {
     for (const dia of days) {
       const presentes: number[] = []
       const tardes: number[] = []
       let ausentes = 0
 
-      for (const a of alumnos) {
+      for (const a of alumnosList) {
         const pk = a?.id ?? a?.pk
         if (pk == null) continue
         const r = Math.random()
@@ -445,7 +437,7 @@ export default function PasarAsistenciaPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            school_course_id: schoolCourseIdSel,
+            school_course_id: scId,
             fecha: dia,
             tipo_asistencia: tipoAsistencia,
             tipo: tipoAsistencia,
@@ -455,13 +447,55 @@ export default function PasarAsistenciaPage() {
         }, 60000)
 
         logs.push(res.ok
-          ? `✓ ${dia}: ${presentes.length - tardes.length}P / ${tardes.length}T / ${ausentes}A`
-          : `✗ ${dia}: ${res.data?.detail || "error"}`)
+          ? `✓ [${label}] ${dia}: ${presentes.length - tardes.length}P / ${tardes.length}T / ${ausentes}A`
+          : `✗ [${label}] ${dia}: ${res.data?.detail || "error"}`)
       } catch {
-        logs.push(`✗ ${dia}: error de red`)
+        logs.push(`✗ [${label}] ${dia}: error de red`)
       }
 
       setSeedLog([...logs])
+    }
+  }
+
+  async function llenarSemana() {
+    const days = getWeekDaysFrom(fecha)
+    if (!days.length) {
+      setSeedLog(["No hay días hábiles hasta hoy en esa semana."])
+      return
+    }
+
+    setSeedingWeek(true)
+    setSeedLog([])
+    const logs: string[] = []
+
+    if (seedTodosCursos) {
+      for (const curso of cursos) {
+        const scId = getCourseSchoolCourseId(getCourseValue(curso, cursos), cursos)
+        const label = normalizeCursoItem(curso).text || String(scId)
+        if (scId == null) continue
+
+        let alumnosList: any[] = []
+        try {
+          const r = await fetchApi(`/api/alumnos/?school_course_id=${encodeURIComponent(String(scId))}`)
+          alumnosList = r.ok ? (Array.isArray(r.data?.alumnos) ? r.data.alumnos : []) : []
+        } catch {}
+
+        if (!alumnosList.length) {
+          logs.push(`— [${label}] sin alumnos, saltado`)
+          setSeedLog([...logs])
+          continue
+        }
+
+        await llenarCurso(scId, alumnosList, days, logs, label)
+      }
+    } else {
+      if (!cursoSel || !alumnos.length || schoolCourseIdSel == null) {
+        setSeedLog(["Seleccioná un curso con alumnos primero."])
+        setSeedingWeek(false)
+        return
+      }
+      const label = normalizeCursoItem(cursos.find((c) => getCourseValue(c, cursos) === cursoSel) ?? {}).text || cursoSel
+      await llenarCurso(schoolCourseIdSel, alumnos, days, logs, label)
     }
 
     setSeedingWeek(false)
@@ -482,11 +516,21 @@ export default function PasarAsistenciaPage() {
               </span>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Genera asistencias aleatorias para los días hábiles de la semana de la fecha seleccionada (hasta hoy), usando el curso y tipo elegidos abajo.
+              Genera asistencias aleatorias para los días hábiles de la semana de la fecha seleccionada (hasta hoy), usando el tipo elegido abajo.
             </p>
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                checked={seedTodosCursos}
+                onChange={(e) => setSeedTodosCursos(e.target.checked)}
+                disabled={seedingWeek}
+                className="h-4 w-4"
+              />
+              Todos los cursos
+            </label>
             <Button
               onClick={llenarSemana}
-              disabled={seedingWeek || !alumnos.length || schoolCourseIdSel == null}
+              disabled={seedingWeek || (!seedTodosCursos && (!alumnos.length || schoolCourseIdSel == null))}
               className="bg-orange-500 hover:bg-orange-600 text-white"
             >
               {seedingWeek ? "Cargando..." : "Llenar semana (lunes a hoy)"}
