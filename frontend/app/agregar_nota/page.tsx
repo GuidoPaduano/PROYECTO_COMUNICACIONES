@@ -495,15 +495,32 @@ export default function CargarNotasRapidas() {
   }
 
   async function llenarConNotasAleatorias() {
-    const materia = fill.materia
-    const tipo = fill.tipo
-    const cuatrimestre = fill.cuatrimestre || cuatris?.[0]
     const fecha = seedFecha || hoyISO()
 
-    if (!materia || !tipo || !cuatrimestre) {
-      setSeedNotasLog(["Completá Materia, Tipo y Cuatrimestre en el formulario de abajo primero."])
-      return
+    let materia: string, tipo: string, cuatrimestre: number | string, esFinal: boolean, anioLectivo: number | null
+
+    if (modoFinal) {
+      materia = finalMateria
+      tipo = "Nota Final"
+      cuatrimestre = finalCuatri
+      esFinal = true
+      anioLectivo = new Date().getFullYear()
+      if (!materia || !cuatrimestre) {
+        setSeedNotasLog(["Seleccioná Materia y Cuatrimestre en el formulario de abajo primero."])
+        return
+      }
+    } else {
+      materia = fill.materia
+      tipo = fill.tipo
+      cuatrimestre = fill.cuatrimestre || cuatris?.[0]
+      esFinal = false
+      anioLectivo = null
+      if (!materia || !tipo || !cuatrimestre) {
+        setSeedNotasLog(["Completá Materia, Tipo y Cuatrimestre en el formulario de abajo primero."])
+        return
+      }
     }
+
     if (!rows.length) {
       setSeedNotasLog(["No hay alumnos cargados."])
       return
@@ -514,7 +531,7 @@ export default function CargarNotasRapidas() {
 
     try {
       const notas = rows.map((r) => {
-        const calif = randomCalificacion(modoFinal)
+        const calif = randomCalificacion(esFinal)
         const isEstado = ESTADOS_CALIFICACION.has(calif)
         const num = isEstado ? null : parseNotaNumerica(calif)
         const resultado = isEstado ? calif : ""
@@ -522,6 +539,7 @@ export default function CargarNotasRapidas() {
           alumno_id: r.id,
           materia,
           tipo,
+          ...(esFinal ? { es_final: true, anio_lectivo: anioLectivo } : {}),
           resultado: resultado || null,
           nota_numerica: num,
           calificacion: resultado || (num != null ? String(num) : calif),
