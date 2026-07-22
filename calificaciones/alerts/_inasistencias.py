@@ -310,7 +310,7 @@ def evaluar_alerta_inasistencia(
     if not alumno:
         return {"created": False, "reason": "no_alumno"}
 
-    umbral = _cfg_int("ALERTAS_INASISTENCIAS_CONSECUTIVAS", 2)
+    umbral = _cfg_int("ALERTAS_INASISTENCIAS_CONSECUTIVAS", 3)
     cooldown = _cfg_int("ALERTAS_INASISTENCIAS_COOLDOWN_DIAS", 7)
     reapertura = _cfg_int("ALERTAS_INASISTENCIAS_REAPERTURA_DIAS", 14)
     hoy = timezone.localdate()
