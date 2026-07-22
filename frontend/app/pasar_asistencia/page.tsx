@@ -665,8 +665,7 @@ export default function PasarAsistenciaPage() {
         </CardContent>
       </Card>
 
-      {session?.isSuperuser && (
-        <Card className="border-2 border-dashed border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-700">
+      <Card className="border-2 border-dashed border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-700">
           <CardContent className="space-y-3 pt-4">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-2 py-0.5 rounded">
@@ -695,7 +694,6 @@ export default function PasarAsistenciaPage() {
             )}
           </CardContent>
         </Card>
-      )}
     </div>
   )
 }
