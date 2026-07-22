@@ -202,8 +202,32 @@ STATIC_URL = '/static/'
 STATIC_ROOT = str(BASE_DIR / "staticfiles")
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = str(BASE_DIR / "media")
+# Media storage — R2 en producción, local en desarrollo
+_R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
+_R2_SECRET_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
+_R2_BUCKET = os.environ.get("R2_BUCKET_NAME", "alumnix-media").strip()
+_R2_ENDPOINT = os.environ.get("R2_ENDPOINT_URL", "").strip()
+_R2_CUSTOM_DOMAIN = os.environ.get("R2_CUSTOM_DOMAIN", "").strip()
+
+if _R2_ACCESS_KEY and _R2_SECRET_KEY and _R2_ENDPOINT:
+    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+    AWS_ACCESS_KEY_ID = _R2_ACCESS_KEY
+    AWS_SECRET_ACCESS_KEY = _R2_SECRET_KEY
+    AWS_STORAGE_BUCKET_NAME = _R2_BUCKET
+    AWS_S3_ENDPOINT_URL = _R2_ENDPOINT
+    AWS_S3_REGION_NAME = "auto"
+    AWS_DEFAULT_ACL = None
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_QUERYSTRING_AUTH = False
+    if _R2_CUSTOM_DOMAIN:
+        AWS_S3_CUSTOM_DOMAIN = _R2_CUSTOM_DOMAIN
+        MEDIA_URL = f"https://{_R2_CUSTOM_DOMAIN}/"
+    else:
+        MEDIA_URL = f"{_R2_ENDPOINT}/{_R2_BUCKET}/"
+    MEDIA_ROOT = ""
+else:
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = str(BASE_DIR / "media")
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
