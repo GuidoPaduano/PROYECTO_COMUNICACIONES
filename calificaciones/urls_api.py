@@ -266,6 +266,7 @@ urlpatterns = [
     # Rutas “oficiales”
     path("mi-perfil/", mi_perfil, name="mi_perfil_api"),
     path("perfil_api/", perfil_api, name="perfil_api"),
+    path("perfil_api", perfil_api, name="perfil_api_noslash"),
 
     # Alias históricos (sin prefijo api/ acá adentro)
     path("mi_perfil/", mi_perfil, name="mi_perfil_alias"),
