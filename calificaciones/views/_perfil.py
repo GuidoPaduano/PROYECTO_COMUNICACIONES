@@ -167,9 +167,12 @@ def perfil_api(request):
         if changed:
             try:
                 user.full_clean(exclude=['password'])
-            except Exception:
-                return JsonResponse({"detail": "Datos inválidos"}, status=400)
-            user.save()
+                user.save()
+            except Exception as exc:
+                msg = str(exc)
+                if "unique" in msg.lower() or "duplicate" in msg.lower() or "ya está en uso" in msg.lower():
+                    return JsonResponse({"detail": "Ese correo ya está en uso."}, status=400)
+                return JsonResponse({"detail": "No se pudieron guardar los cambios."}, status=400)
 
     # ===== Stats =====
     if "Alumnos" in grupos and alumno_propio:
