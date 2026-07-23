@@ -192,11 +192,27 @@ def _crear_notificaciones(
             try:
                 to_email = (getattr(n.destinatario, "email", "") or "").strip()
                 if to_email:
+                    nombre_dest = (
+                        getattr(n.destinatario, "first_name", "") or
+                        getattr(n.destinatario, "username", "") or
+                        "usuario"
+                    ).strip()
+                    lineas = [
+                        f"Hola, {nombre_dest},",
+                        "",
+                        "Se detectaron ausencias consecutivas no justificadas:",
+                        "",
+                        f"Alumno/a: {alumno_nombre}",
+                        f"Curso: {course_name}",
+                        f"Ausencias consecutivas: {consecutivas}",
+                        "",
+                        "Ante cualquier duda contactarse con contacto@alumnix.com.ar",
+                    ]
                     from ..tasks import send_email_task
                     send_email_task.delay(
                         to_email=to_email,
-                        subject=n.titulo,
-                        text=n.descripcion,
+                        subject="Alerta por inasistencias",
+                        text="\n".join(lineas),
                     )
             except Exception:
                 pass
@@ -289,6 +305,38 @@ def _crear_alertas_faltas_acumuladas(
                     )
                 )
             Notificacion.objects.bulk_create(notifs, batch_size=200)
+
+            from django.conf import settings as _s
+            if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
+                for n in notifs:
+                    try:
+                        to_email = (getattr(n.destinatario, "email", "") or "").strip()
+                        if to_email:
+                            nombre_dest = (
+                                getattr(n.destinatario, "first_name", "") or
+                                getattr(n.destinatario, "username", "") or
+                                "usuario"
+                            ).strip()
+                            lineas = [
+                                f"Hola, {nombre_dest},",
+                                "",
+                                f"El alumno/a alcanzó el umbral de inasistencias totales ({umbral}):",
+                                "",
+                                f"Alumno/a: {alumno_nombre}",
+                                f"Curso: {course_name}",
+                                f"Total de inasistencias: {total}",
+                                "",
+                                "Ante cualquier duda contactarse con contacto@alumnix.com.ar",
+                            ]
+                            from ..tasks import send_email_task
+                            send_email_task.delay(
+                                to_email=to_email,
+                                subject="Alerta por inasistencias",
+                                text="\n".join(lineas),
+                            )
+                    except Exception:
+                        pass
+
         created += 1
     return created
 

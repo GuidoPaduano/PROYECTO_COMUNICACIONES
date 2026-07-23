@@ -209,7 +209,12 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
 
     created = 0
     notifs = []
+    email_tasks = []
     fecha_str = str(fecha) if fecha else ""
+    try:
+        fecha_display = fecha.strftime("%d/%m/%Y") if fecha else ""
+    except Exception:
+        fecha_display = fecha_str
     tipo_label = _tipo_label(tipo_asistencia) if tipo_asistencia else ""
     actor_label = ""
     try:
@@ -269,6 +274,22 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
                     },
                 )
             )
+            to_email = (getattr(dest, "email", "") or "").strip()
+            if to_email:
+                nombre_dest = (
+                    getattr(dest, "first_name", "") or getattr(dest, "username", "") or "usuario"
+                ).strip()
+                lineas = [f"Hola, {nombre_dest},", "", "Se ha registrado una inasistencia:", ""]
+                if alumno_nombre:
+                    lineas.append(f"Alumno/a: {alumno_nombre}")
+                if course_name:
+                    lineas.append(f"Curso: {course_name}")
+                if tipo_label:
+                    lineas.append(f"Tipo: {tipo_label}")
+                if fecha_display:
+                    lineas.append(f"Fecha: {fecha_display}")
+                lineas += ["", "Ante cualquier duda contactarse con contacto@alumnix.com.ar"]
+                email_tasks.append((to_email, "Inasistencia registrada", "\n".join(lineas)))
 
     if notifs:
         try:
@@ -284,16 +305,10 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
 
     from django.conf import settings as _s
     if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
-        for n in notifs:
+        for to_email, subject, text in email_tasks:
             try:
-                to_email = (getattr(n.destinatario, "email", "") or "").strip()
-                if to_email:
-                    from ..tasks import send_email_task
-                    send_email_task.delay(
-                        to_email=to_email,
-                        subject=n.titulo,
-                        text=n.descripcion,
-                    )
+                from ..tasks import send_email_task
+                send_email_task.delay(to_email=to_email, subject=subject, text=text)
             except Exception:
                 pass
 

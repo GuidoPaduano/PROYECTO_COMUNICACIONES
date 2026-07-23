@@ -481,7 +481,8 @@ def _notify_padre_nota(remitente, nota):
         fecha = getattr(nota, "fecha", None)
         fecha_str = fecha.isoformat() if fecha else ""
 
-        asunto_msg = f"Nueva nota para {alumno_nombre}"
+        asunto_notif = f"Nueva nota para {alumno_nombre}"
+        asunto_email = "Nueva calificación registrada"
 
         contenido_msg = materia_nombre or ""
         if tipo:
@@ -489,6 +490,11 @@ def _notify_padre_nota(remitente, nota):
         if calif is not None and str(calif) != tipo:
             contenido_msg += f" · {calif}"
         contenido_msg = contenido_msg.strip(" ·")
+
+        try:
+            fecha_display = fecha.strftime("%d/%m/%Y") if fecha else ""
+        except Exception:
+            fecha_display = fecha_str
 
         notificado = False
         last_id = None
@@ -499,7 +505,7 @@ def _notify_padre_nota(remitente, nota):
                 school=school_ref,
                 destinatario=destinatario,
                 tipo="nota",
-                titulo=asunto_msg,
+                titulo=asunto_notif,
                 descripcion=contenido_msg,
                 url=f"/alumnos/{getattr(alumno, 'id', '')}/?tab=notas",
                 leida=False,
@@ -520,11 +526,37 @@ def _notify_padre_nota(remitente, nota):
                 if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
                     to_email = (getattr(destinatario, "email", "") or "").strip()
                     if to_email:
+                        nombre_dest = (
+                            getattr(destinatario, "first_name", "") or
+                            getattr(destinatario, "username", "") or
+                            "usuario"
+                        ).strip()
+                        lineas = [
+                            f"Hola, {nombre_dest},",
+                            "",
+                            "Se ha registrado una nueva calificación:",
+                            "",
+                        ]
+                        if alumno_nombre:
+                            lineas.append(f"Alumno/a: {alumno_nombre}")
+                        if course_name:
+                            lineas.append(f"Curso: {course_name}")
+                        if materia_nombre:
+                            lineas.append(f"Materia: {materia_nombre}")
+                        if tipo:
+                            lineas.append(f"Tipo de calificación: {tipo}")
+                        if calif is not None:
+                            lineas.append(f"Calificación: {calif}")
+                        if fecha_display:
+                            lineas.append(f"Fecha de registro: {fecha_display}")
+                        if docente_label:
+                            lineas.append(f"Docente: {docente_label}")
+                        lineas += ["", "Ante cualquier duda contactarse con contacto@alumnix.com.ar"]
                         from ..tasks import send_email_task
                         send_email_task.delay(
                             to_email=to_email,
-                            subject=asunto_msg,
-                            text=contenido_msg,
+                            subject=asunto_email,
+                            text="\n".join(lineas),
                         )
             except Exception:
                 pass

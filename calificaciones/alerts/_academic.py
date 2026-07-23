@@ -419,20 +419,32 @@ def _enviar_email_alerta(*, alumno, destinatarios, severidad: int, riesgo: float
     ]
     motivos_txt = ", ".join(motivos) if motivos else "bajo rendimiento"
     course_name = _course_display(alumno)
-    subject = f"[Alerta académica] {alumno_nombre}"
-    text = (
-        f"Alumno: {alumno_nombre}\n"
-        f"Curso: {course_name}\n"
-        f"Materia: {trigger_map.get('materia', '')}\n"
-        f"Motivo: {motivos_txt}\n"
-        "Revisa el detalle en el sistema."
-    )
+    materia_txt = trigger_map.get("materia", "") or ""
 
     for user in destinatarios:
         to_email = (getattr(user, "email", "") or "").strip()
         if not to_email:
             continue
-        ok = send_resend_email(to_email=to_email, subject=subject, text=text)
+        nombre_dest = (
+            getattr(user, "first_name", "") or getattr(user, "username", "") or "usuario"
+        ).strip()
+        lineas = [
+            f"Hola, {nombre_dest},",
+            "",
+            "Se detectó una situación de riesgo académico:",
+            "",
+            f"Alumno/a: {alumno_nombre}",
+            f"Curso: {course_name}",
+        ]
+        if materia_txt:
+            lineas.append(f"Materia: {materia_txt}")
+        lineas.append(f"Motivo: {motivos_txt}")
+        lineas += ["", "Ante cualquier duda contactarse con contacto@alumnix.com.ar"]
+        ok = send_resend_email(
+            to_email=to_email,
+            subject="Alerta académica",
+            text="\n".join(lineas),
+        )
         if ok:
             enviados += 1
     return enviados

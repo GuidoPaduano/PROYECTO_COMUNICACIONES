@@ -241,11 +241,34 @@ def sanciones_lista_crear(request):
                     if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
                         to_email = (getattr(destinatario, "email", "") or "").strip()
                         if to_email:
+                            nombre_dest = (
+                                getattr(destinatario, "first_name", "") or
+                                getattr(destinatario, "username", "") or
+                                "usuario"
+                            ).strip()
+                            fecha_display = fecha_n.strftime("%d/%m/%Y") if fecha_n else ""
+                            lineas = [
+                                f"Hola, {nombre_dest},",
+                                "",
+                                "Se ha registrado una sanción disciplinaria:",
+                                "",
+                            ]
+                            if alumno_nombre:
+                                lineas.append(f"Alumno/a: {alumno_nombre}")
+                            if course_name:
+                                lineas.append(f"Curso: {course_name}")
+                            if tipo_sancion:
+                                lineas.append(f"Tipo de sanción: {tipo_sancion}")
+                            if fecha_display:
+                                lineas.append(f"Fecha: {fecha_display}")
+                            if motivo:
+                                lineas.append(f"Motivo: {motivo}")
+                            lineas += ["", "Ante cualquier duda contactarse con contacto@alumnix.com.ar"]
                             from ..tasks import send_email_task
                             send_email_task.delay(
                                 to_email=to_email,
-                                subject=asunto_msg,
-                                text=contenido_msg,
+                                subject="Nueva sanción registrada",
+                                text="\n".join(lineas),
                             )
                 except Exception:
                     pass

@@ -239,17 +239,51 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str, accion: str =
             except Exception:
                 pass
 
+    try:
+        fecha_display = fecha.strftime("%d/%m/%Y") if fecha else ""
+    except Exception:
+        fecha_display = fecha_s
+
+    asunto_email_labels = {
+        "creado": "Nuevo evento en el calendario",
+        "modificado": "Evento modificado en el calendario",
+        "eliminado": "Evento eliminado del calendario",
+    }
+    asunto_email = asunto_email_labels.get(accion, "Evento en el calendario")
+
+    intro_labels = {
+        "creado": "Se ha publicado un nuevo evento en el calendario:",
+        "modificado": "Se ha modificado un evento del calendario:",
+        "eliminado": "Se ha eliminado un evento del calendario:",
+    }
+    intro_email = intro_labels.get(accion, "Hay un evento en el calendario:")
+
     from django.conf import settings as _s
     if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
         for n in notifs:
             try:
                 to_email = (getattr(n.destinatario, "email", "") or "").strip()
                 if to_email:
+                    nombre_dest = (
+                        getattr(n.destinatario, "first_name", "") or
+                        getattr(n.destinatario, "username", "") or
+                        "usuario"
+                    ).strip()
+                    lineas = [f"Hola, {nombre_dest},", "", intro_email, ""]
+                    if ev_titulo:
+                        lineas.append(f"Evento: {ev_titulo}")
+                    if course_name:
+                        lineas.append(f"Curso: {course_name}")
+                    if fecha_display:
+                        lineas.append(f"Fecha: {fecha_display}")
+                    if tipo:
+                        lineas.append(f"Tipo: {tipo}")
+                    lineas += ["", "Ante cualquier duda contactarse con contacto@alumnix.com.ar"]
                     from ..tasks import send_email_task
                     send_email_task.delay(
                         to_email=to_email,
-                        subject=titulo,
-                        text=descripcion,
+                        subject=asunto_email,
+                        text="\n".join(lineas),
                     )
             except Exception:
                 pass
