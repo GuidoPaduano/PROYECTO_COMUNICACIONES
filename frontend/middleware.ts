@@ -17,7 +17,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Run on all routes except Next.js internals and static files
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    // Run on all routes except Next.js internals, static files, and API proxy routes
+    "/((?!_next/static|_next/image|favicon.ico|api/).*)",
   ],
 }
