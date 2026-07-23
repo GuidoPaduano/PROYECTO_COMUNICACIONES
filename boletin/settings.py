@@ -356,7 +356,7 @@ ALERTAS_ACADEMICAS_VENTANA_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_VENTANA
 ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA = os.environ.get("ALERTAS_ACADEMICAS_SYNC_EN_CARGA_MASIVA", "True") == "True"
 # No hay worker diferido para inasistencias; si no se evalúan al guardar,
 # las alertas esperadas por la app quedan omitidas silenciosamente.
-ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO = os.environ.get("ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", "True") == "True"
+ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO = os.environ.get("ALERTAS_INASISTENCIAS_SYNC_EN_GUARDADO", "False") == "True"
 ALERTAS_ACADEMICAS_COOLDOWN_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_COOLDOWN_DIAS", "7"))
 ALERTAS_ACADEMICAS_ESCALADO_DIAS = int(os.environ.get("ALERTAS_ACADEMICAS_ESCALADO_DIAS", "14"))
 ALERTAS_ACADEMICAS_EMAIL_ENABLED = os.environ.get("ALERTAS_ACADEMICAS_EMAIL_ENABLED", "False") == "True"
