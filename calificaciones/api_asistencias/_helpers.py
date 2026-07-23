@@ -242,15 +242,11 @@ def _notify_inasistencias_bulk(*, alumno_ids: List[int], fecha, tipo_asistencia:
 
         course_name = _school_course_name_for(alumno=a)
         titulo = f"Inasistencia registrada: {alumno_nombre}"
-        desc_parts = [f"Alumno: {alumno_nombre}"]
-        if course_name:
-            desc_parts.append(f"Curso: {course_name}")
+        desc_parts = []
         if tipo_label:
-            desc_parts.append(f"Tipo: {tipo_label}")
-        if fecha_str:
-            desc_parts.append(f"Fecha: {fecha_str}")
-        if actor_label:
-            desc_parts.append(f"Registrado por: {actor_label}")
+            desc_parts.append(tipo_label)
+        if course_name:
+            desc_parts.append(f"Curso {course_name}")
         descripcion = " · ".join([p for p in desc_parts if p]).strip()
 
         for dest in destinatarios:

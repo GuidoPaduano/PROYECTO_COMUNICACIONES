@@ -371,14 +371,14 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
                   <div className="min-w-0 flex-1 flex flex-col gap-1 text-left">
                     <span className="w-full text-sm font-medium leading-snug">{n.title}</span>
                     {n.notaMeta ? (
-                      <span className="w-full text-xs text-gray-500 leading-snug">
+                      <span className="w-full text-xs font-semibold text-gray-700 leading-snug">
                         {n.notaMeta.materia && (
-                          <strong className="font-semibold text-gray-700">{n.notaMeta.materia}</strong>
+                          <strong>{n.notaMeta.materia}</strong>
                         )}
                         {n.notaMeta.tipo_nota && ` · ${n.notaMeta.tipo_nota}`}
                       </span>
                     ) : n.description ? (
-                      <span className="w-full text-xs text-gray-500 leading-snug">{n.description}</span>
+                      <span className="w-full text-xs font-semibold text-gray-700 leading-snug">{n.description}</span>
                     ) : null}
                   </div>
                 </div>

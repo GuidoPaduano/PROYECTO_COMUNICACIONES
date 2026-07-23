@@ -186,20 +186,13 @@ def _crear_notificaciones_evento(*, ev: Evento, actor, curso: str, accion: str =
     tipo = (getattr(ev, "tipo_evento", None) or "").strip()
     actor_label = _user_label(actor) or (getattr(actor, "username", "") or "").strip()
 
-    lines = [f"Evento: {getattr(ev, 'titulo', '')}"]
-    if course_name:
-        lines.append(f"Curso: {course_name}")
-    if tipo:
-        lines.append(f"Tipo: {tipo}")
+    ev_titulo = (getattr(ev, "titulo", "") or "").strip()
+    ev_desc_parts = []
+    if ev_titulo:
+        ev_desc_parts.append(ev_titulo)
     if fecha_s:
-        lines.append(f"Fecha: {fecha_s}")
-    if actor_label:
-        lines.append(f"{accion.capitalize()} por: {actor_label}")
-    if desc and accion != "eliminado":
-        lines.append("")
-        lines.append(desc)
-
-    descripcion = "\n".join(lines).strip()
+        ev_desc_parts.append(fecha_s)
+    descripcion = " · ".join([p for p in ev_desc_parts if p]).strip()
 
     url = "/calendario"
 

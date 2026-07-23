@@ -202,16 +202,15 @@ def sanciones_lista_crear(request):
 
             asunto_msg = f"Nueva sanción para {alumno_nombre}"
 
-            contenido_msg = (
-                "Se registró una sanción disciplinaria.\n\n"
-                f"Alumno: {alumno_nombre}\n"
-                + (f"Curso: {course_name}\n" if course_name else "")
-                + f"Tipo: {getattr(sancion, 'tipo', '')}\n"
-                + (f"Fecha: {fecha_n.isoformat()}\n" if fecha_n else "")
-                + (f"Docente: {docente_u}\n" if docente_u else "")
-                + (detalle_line + "\n" if detalle_line else "")
-                + f"Motivo: {motivo}"
-            ).strip()
+            tipo_sancion = getattr(sancion, "tipo", "") or ""
+            desc_parts = []
+            if tipo_sancion:
+                desc_parts.append(tipo_sancion)
+            if course_name:
+                desc_parts.append(f"Curso {course_name}")
+            if motivo:
+                desc_parts.append(motivo)
+            contenido_msg = " · ".join([p for p in desc_parts if p]).strip()
 
             notificado = False
             notif_destinatario_id = None
