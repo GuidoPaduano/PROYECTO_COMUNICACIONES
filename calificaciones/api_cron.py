@@ -10,15 +10,12 @@ def _check_secret(request) -> bool:
     expected = (getattr(settings, "CRON_SECRET", "") or "").strip()
     if not expected:
         return False
-    provided = (
-        request.headers.get("X-Cron-Secret", "")
-        or request.GET.get("secret", "")
-    ).strip()
+    provided = request.headers.get("X-Cron-Secret", "").strip()
     return provided == expected
 
 
 @csrf_exempt
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["POST"])
 def cron_evaluar_alertas_academicas(request):
     if not _check_secret(request):
         return JsonResponse({"error": "No autorizado."}, status=401)
