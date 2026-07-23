@@ -270,6 +270,14 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
       const mapped = list.slice(0, limit).map((obj) => {
         const unread = !Boolean(obj?.leida)
         const href = buildHref(obj)
+        const tipoNotif = String(obj?.tipo || "").toLowerCase()
+        const notaMeta =
+          tipoNotif === "nota" && obj?.meta
+            ? {
+                materia: String(obj.meta.materia || ""),
+                tipo_nota: String(obj.meta.tipo_nota || ""),
+              }
+            : null
 
         return {
           id: obj?.id ?? `${Math.random()}`,
@@ -278,6 +286,7 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
           title: buildTitle(obj),
           description: buildDescription(obj),
           href,
+          notaMeta,
         }
       })
 
@@ -361,9 +370,16 @@ export function NotificationBell({ unreadCount = 0, items = null, maxPreview = 5
 
                   <div className="min-w-0 flex-1 flex flex-col gap-1 text-left">
                     <span className="w-full text-sm font-medium leading-snug">{n.title}</span>
-                    {n.description && (
+                    {n.notaMeta ? (
+                      <span className="w-full text-xs text-gray-500 leading-snug">
+                        {n.notaMeta.materia && (
+                          <strong className="font-semibold text-gray-700">{n.notaMeta.materia}</strong>
+                        )}
+                        {n.notaMeta.tipo_nota && ` · ${n.notaMeta.tipo_nota}`}
+                      </span>
+                    ) : n.description ? (
                       <span className="w-full text-xs text-gray-500 leading-snug">{n.description}</span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </DropdownMenuItem>

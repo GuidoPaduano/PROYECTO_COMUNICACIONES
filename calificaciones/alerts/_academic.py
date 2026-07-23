@@ -352,15 +352,22 @@ def _crear_notificaciones_alerta(*, alumno, destinatarios, severidad: int, riesg
     if not alumno_nombre:
         alumno_nombre = str(getattr(alumno, "id_alumno", "") or "Alumno")
 
-    triggers_txt = ", ".join(k for k, v in trigger_map.items() if k.startswith(("A_", "B_", "C_", "D_")) and v) or "sin trigger"
+    _TRIGGER_LABELS = {
+        "A_TED_critico": "nota reprobada",
+        "B_racha_2": "2 notas bajas seguidas",
+        "C_riesgo_sostenido": "rendimiento bajo sostenido",
+        "D_caida_brusca": "caída brusca de notas",
+    }
+    motivos = [
+        _TRIGGER_LABELS.get(k, k)
+        for k, v in trigger_map.items()
+        if k.startswith(("A_", "B_", "C_", "D_")) and v
+    ]
+    motivos_txt = ", ".join(motivos) if motivos else "bajo rendimiento"
+    materia_txt = trigger_map.get("materia", "") or "N/A"
     course_name = _course_display(alumno)
     titulo = f"{alumno_nombre} necesita atención académica"
-    descripcion = (
-        f"Riesgo académico en {course_name}"
-        f" - Materia: {trigger_map.get('materia', '') or 'N/A'}"
-        f" - R={riesgo:.2f}"
-        f" - Triggers: {triggers_txt}"
-    )
+    descripcion = f"{materia_txt} en {course_name} · {motivos_txt}"
 
     notifs = []
     school_ref = getattr(alumno, "school", None)
@@ -399,15 +406,25 @@ def _enviar_email_alerta(*, alumno, destinatarios, severidad: int, riesgo: float
     if not alumno_nombre:
         alumno_nombre = str(getattr(alumno, "id_alumno", "") or "Alumno")
 
-    triggers_txt = ", ".join(k for k, v in trigger_map.items() if k.startswith(("A_", "B_", "C_", "D_")) and v) or "sin trigger"
+    _TRIGGER_LABELS = {
+        "A_TED_critico": "nota reprobada",
+        "B_racha_2": "2 notas bajas seguidas",
+        "C_riesgo_sostenido": "rendimiento bajo sostenido",
+        "D_caida_brusca": "caída brusca de notas",
+    }
+    motivos = [
+        _TRIGGER_LABELS.get(k, k)
+        for k, v in trigger_map.items()
+        if k.startswith(("A_", "B_", "C_", "D_")) and v
+    ]
+    motivos_txt = ", ".join(motivos) if motivos else "bajo rendimiento"
     course_name = _course_display(alumno)
     subject = f"[Alerta académica] {alumno_nombre}"
     text = (
         f"Alumno: {alumno_nombre}\n"
         f"Curso: {course_name}\n"
         f"Materia: {trigger_map.get('materia', '')}\n"
-        f"Riesgo ponderado: {riesgo:.2f}\n"
-        f"Triggers: {triggers_txt}\n"
+        f"Motivo: {motivos_txt}\n"
         "Revisa el detalle en el sistema."
     )
 

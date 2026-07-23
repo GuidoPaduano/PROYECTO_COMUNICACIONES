@@ -483,16 +483,12 @@ def _notify_padre_nota(remitente, nota):
 
         asunto_msg = f"Nueva nota para {alumno_nombre}"
 
-        contenido_msg = (
-            "Se registraron nuevas calificaciones. "
-            f"Alumno: {alumno_nombre} "
-            + (f"Curso: {course_name} " if course_name else "")
-            + (f"Materia: {materia_nombre} " if materia_nombre else "")
-            + (f"Tipo: {tipo} " if tipo else "")
-            + (f"Calificación: {calif} " if calif is not None else "")
-            + (f"Fecha: {fecha_str} " if fecha_str else "")
-            + (f"Docente: {docente_label}" if docente_label else "")
-        ).strip()
+        contenido_msg = materia_nombre or ""
+        if tipo:
+            contenido_msg += f" · {tipo}"
+        if calif is not None and str(calif) != tipo:
+            contenido_msg += f" · {calif}"
+        contenido_msg = contenido_msg.strip(" ·")
 
         notificado = False
         last_id = None
