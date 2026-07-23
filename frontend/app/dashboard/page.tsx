@@ -2097,7 +2097,7 @@ function AlertasInasistenciasCard({ alertas, loading, onMarcarVista }) {
           </div>
           <div>
             <h3 className="tile-title">Alerta por inasistencias</h3>
-            <p className="tile-subtitle">Ausencias consecutivas detectadas</p>
+            <p className="tile-subtitle">Inasistencias detectadas</p>
           </div>
         </div>
 
@@ -2117,6 +2117,18 @@ function AlertasInasistenciasCard({ alertas, loading, onMarcarVista }) {
                 ? `/alumnos/${encodeURIComponent(String(alumnoId))}?tab=asistencias`
                 : "/alumnos"
               const totalInas = Number(it?.total_inasistencias_clases || 0)
+              const motivos: string[] = it?.motivos || []
+              const valorActual = Number(it?.valor_actual || 0)
+              const esConsecutiva = motivos.includes("AUSENCIAS_CONSECUTIVAS")
+              const esAcumulada = motivos.includes("FALTAS_ACUMULADAS")
+              let alertDetail: string
+              if (esConsecutiva && esAcumulada) {
+                alertDetail = `${valorActual} ausencias consecutivas · ${totalInas} totales`
+              } else if (esConsecutiva) {
+                alertDetail = `${valorActual} ausencia${valorActual !== 1 ? "s" : ""} consecutiva${valorActual !== 1 ? "s" : ""} no justificada${valorActual !== 1 ? "s" : ""}`
+              } else {
+                alertDetail = `${totalInas} inasistencia${totalInas !== 1 ? "s" : ""} total${totalInas !== 1 ? "es" : ""} a clases`
+              }
               return (
                 <div
                   key={`alerta-inasist-${alumnoId || idx}`}
@@ -2130,7 +2142,7 @@ function AlertasInasistenciasCard({ alertas, loading, onMarcarVista }) {
                       <p className="text-sm font-semibold text-slate-900 truncate">{nombre}</p>
                       <p className="text-xs text-slate-600 truncate">
                         {getCourseDisplayName(a) ? `Curso ${getCourseDisplayName(a)}` : "Curso s/d"}
-                        {totalInas > 0 ? ` · ${totalInas} inasistencias totales a clases` : " · 0 inasistencias totales a clases"}
+                        {` · ${alertDetail}`}
                       </p>
                     </div>
                     <span className="text-[11px] px-2 py-1 rounded-full bg-rose-100 text-rose-800 whitespace-nowrap flex-shrink-0">
