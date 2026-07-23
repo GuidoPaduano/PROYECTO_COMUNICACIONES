@@ -1060,7 +1060,13 @@ export async function logout(): Promise<void> {
       })
     } catch {}
   } finally {
-    clearTokens()
+    // Clear storage without dispatching the React context event — we're navigating
+    // away immediately, so triggering a re-render would cause a visible flash of
+    // the fallback school name. The login page handles full cleanup on mount.
+    try { sessionStore()?.removeItem(AUTH_MARKER_KEY) } catch {}
+    try { sessionStore()?.removeItem(SESSION_CONTEXT_KEY) } catch {}
+    invalidateSessionProfileCache()
+    setPreviewRole("")
     if (typeof window !== "undefined") window.location.replace(redirectHref)
   }
 }
