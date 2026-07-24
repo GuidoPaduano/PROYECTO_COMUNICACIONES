@@ -158,6 +158,7 @@ from .api_alumnos import (
     cursos_disponibles,
 )
 from .api_notas_historicas import notas_historicas
+from .api_contacto import contacto_landing
 
 router = DefaultRouter()
 
@@ -514,6 +515,10 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("sanciones/<int:pk>/", sancion_detalle, name="sancion_detalle"),
     path("sanciones/<int:pk>/firmar/", firmar_sancion, name="sanciones_firmar"),
     path("sanciones/<int:pk>/firmar", firmar_sancion, name="sanciones_firmar_noslash"),
+
+    # ===== Contacto público (landing) =====
+    path("contacto/", contacto_landing, name="contacto_landing"),
+    path("contacto", contacto_landing, name="contacto_landing_noslash"),
 
     # ===== Cron jobs =====
     path("cron/evaluar-alertas-academicas/", cron_evaluar_alertas_academicas, name="cron_evaluar_alertas_academicas"),
