@@ -304,6 +304,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
     "http://127.0.0.1:3002",
+    "https://alumnix.com.ar",
+    "https://www.alumnix.com.ar",
 ]
 if _lan_origin:
     CORS_ALLOWED_ORIGINS.append(_lan_origin)
