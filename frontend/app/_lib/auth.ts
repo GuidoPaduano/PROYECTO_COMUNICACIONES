@@ -1025,20 +1025,28 @@ export async function authFetch(path: string, opts: AuthFetchOptions = {}): Prom
   return res
 }
 
+let _refreshPromise: Promise<boolean> | null = null
+
 export async function tryRefresh(): Promise<boolean> {
-  try {
-    const res = await fetch(buildApiUrl("/token/refresh"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      credentials: "include",
-      body: JSON.stringify({}),
-    })
-    if (!res.ok) return false
-    setAuthMarker()
-    return true
-  } catch {
-    return false
-  }
+  if (_refreshPromise) return _refreshPromise
+  _refreshPromise = (async () => {
+    try {
+      const res = await fetch(buildApiUrl("/token/refresh"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        credentials: "include",
+        body: JSON.stringify({}),
+      })
+      if (!res.ok) return false
+      setAuthMarker()
+      return true
+    } catch {
+      return false
+    } finally {
+      _refreshPromise = null
+    }
+  })()
+  return _refreshPromise
 }
 
 export async function logout(): Promise<void> {

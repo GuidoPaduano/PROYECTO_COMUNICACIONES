@@ -200,7 +200,6 @@ USE_TZ = True
 # Archivos estáticos
 STATIC_URL = '/static/'
 STATIC_ROOT = str(BASE_DIR / "staticfiles")
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media storage — R2 en producción, local en desarrollo
 _R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
@@ -210,7 +209,6 @@ _R2_ENDPOINT = os.environ.get("R2_ENDPOINT_URL", "").strip()
 _R2_CUSTOM_DOMAIN = os.environ.get("R2_CUSTOM_DOMAIN", "").strip()
 
 if _R2_ACCESS_KEY and _R2_SECRET_KEY and _R2_ENDPOINT:
-    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
     AWS_ACCESS_KEY_ID = _R2_ACCESS_KEY
     AWS_SECRET_ACCESS_KEY = _R2_SECRET_KEY
     AWS_STORAGE_BUCKET_NAME = _R2_BUCKET
@@ -225,9 +223,17 @@ if _R2_ACCESS_KEY and _R2_SECRET_KEY and _R2_ENDPOINT:
     else:
         MEDIA_URL = f"{_R2_ENDPOINT}/{_R2_BUCKET}/"
     MEDIA_ROOT = ""
+    STORAGES = {
+        "default": {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    }
 else:
     MEDIA_URL = '/media/'
     MEDIA_ROOT = str(BASE_DIR / "media")
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
