@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ClipboardList,
   Gavel,
+  Plus,
   GraduationCap,
   Home,
   MessageSquare,
@@ -262,8 +263,17 @@ function ProtectedShell({ children, pathname }) {
         </div>
       )
     }
+    if (pathname === "/mis-cursos" && roles.includes("Profesores")) {
+      return (
+        <Link href="/agregar_nota">
+          <Button variant="primary" className="gap-2">
+            <Plus className="h-4 w-4" /> Nueva nota
+          </Button>
+        </Link>
+      )
+    }
     return meta.actions
-  }, [pathname, meta.actions])
+  }, [pathname, meta.actions, roles])
 
   if (isPublic) {
     return children
