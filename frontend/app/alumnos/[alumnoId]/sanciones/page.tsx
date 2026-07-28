@@ -28,10 +28,13 @@ const alumnoSancionesResourcePromises = new Map()
 
 function fmtFecha(iso) {
   if (!iso) return "-"
-  const d = new Date(iso)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso))
+  const d = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(iso)
   return isNaN(d.getTime())
     ? iso
-    : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+    : d.toLocaleDateString("es-AR", { year: "numeric", month: "short", day: "numeric" })
 }
 
 function safeGetLSJson(key) {

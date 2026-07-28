@@ -75,7 +75,10 @@ function addDaysISO(baseISO, days) {
 
 function formatFechaCorta(raw) {
   if (!raw) return ""
-  const d = new Date(raw)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw))
+  const d = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(raw)
   if (Number.isNaN(d.getTime())) return String(raw)
   return d.toLocaleDateString("es-AR", {
     weekday: "short",
