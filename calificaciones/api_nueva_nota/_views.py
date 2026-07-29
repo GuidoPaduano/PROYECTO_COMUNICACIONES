@@ -52,6 +52,7 @@ from ._helpers import (
     _notify_nota_modificada,
     _notify_padre_nota,
     _parse_decimal_optional,
+    _get_materias_para_profesor,
     _profesor_puede_editar_nota,
     _resultados_catalogo,
     _tipos_por_defecto,
@@ -214,12 +215,16 @@ class NuevaNotaDatosIniciales(APIView):
             )
             alumnos_qs = alumnos_qs.filter(allowed_course_q) if allowed_course_q is not None else alumnos_qs.none()
 
+        materias_disponibles = _get_materias_para_profesor(
+            request.user,
+            school_course_id=school_course_id_inicial,
+        )
         data = {
             "alumnos": AlumnoSerializer(alumnos_qs, many=True).data,
             "cursos": cursos_catalogo,
             "school_course_id_inicial": school_course_id_inicial,
             "school_course_name_inicial": school_course_name_inicial,
-            "materias": get_materias_catalogo(),
+            "materias": materias_disponibles,
             "tipos": _tipos_por_defecto(),
             "cuatrimestres": _cuatris_por_defecto(),
             "resultados": _resultados_catalogo(),

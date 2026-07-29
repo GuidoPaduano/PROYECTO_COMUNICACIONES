@@ -33,6 +33,11 @@ try:
 except Exception:
     PreceptorCurso = None
 
+try:
+    from ..models_preceptores import ProfesorCursoMateria  # type: ignore
+except Exception:
+    ProfesorCursoMateria = None
+
 
 def _materias_por_defecto():
     return getattr(
@@ -145,6 +150,31 @@ def get_materias_catalogo():
     return list(MATERIAS_CATALOGO) if MATERIAS_CATALOGO else _materias_por_defecto()
 
 
+def _get_materias_para_profesor(user, school_course_id=None):
+    """
+    Si el profesor tiene materias restringidas para el curso, devuelve solo esas.
+    En cualquier otro caso devuelve el catálogo completo.
+    """
+    catalogo = get_materias_catalogo()
+    if ProfesorCursoMateria is None or school_course_id is None:
+        return catalogo
+    if not _is_profesor_user(user):
+        return catalogo
+    try:
+        asignadas = list(
+            ProfesorCursoMateria.objects.filter(
+                profesor=user,
+                school_course_id=school_course_id,
+            ).values_list("materia", flat=True)
+        )
+        if not asignadas:
+            return catalogo
+        catalogo_set = set(catalogo)
+        return [m for m in catalogo if m in set(asignadas) and m in catalogo_set]
+    except Exception:
+        return catalogo
+
+
 def _cursos_catalogo(school=None):
     """Devuelve cursos del colegio con school_course_id como referencia principal y code legible para UI."""
     cursos = []
@@ -225,7 +255,7 @@ def _is_directivo_user(user) -> bool:
     return _has_group(user, "Directivos", "Directivo")
 
 
-def _usuario_puede_operar_nota_en_alumno(user, alumno: Alumno) -> bool:
+def _usuario_puede_operar_nota_en_alumno(user, alumno: Alumno, materia: str | None = None) -> bool:
     if getattr(user, "is_superuser", False):
         return True
     if _is_directivo_user(user):
@@ -236,7 +266,23 @@ def _usuario_puede_operar_nota_en_alumno(user, alumno: Alumno) -> bool:
     qs = _profesor_assignment_qs(user, school=getattr(alumno, "school", None))
     if qs is None:
         return False
-    return assignment_matches_course(qs, obj=alumno)
+    if not assignment_matches_course(qs, obj=alumno):
+        return False
+
+    if materia is not None and ProfesorCursoMateria is not None:
+        try:
+            course_id = getattr(alumno, "school_course_id", None)
+            if course_id is not None:
+                restricted_qs = ProfesorCursoMateria.objects.filter(
+                    profesor=user,
+                    school_course_id=course_id,
+                )
+                if restricted_qs.exists() and not restricted_qs.filter(materia=materia).exists():
+                    return False
+        except Exception:
+            pass
+
+    return True
 
 
 def _cursos_preceptor_asignados_refs(user, school=None):
@@ -273,7 +319,8 @@ def _profesor_puede_editar_nota(user, nota) -> bool:
     alumno = getattr(nota, "alumno", None)
     if alumno is None:
         return False
-    return _usuario_puede_operar_nota_en_alumno(user, alumno)
+    materia = getattr(nota, "materia", None)
+    return _usuario_puede_operar_nota_en_alumno(user, alumno, materia=materia)
 
 
 # ---------- Helpers para mapear alumno ----------

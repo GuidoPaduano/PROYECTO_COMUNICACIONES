@@ -1,5 +1,7 @@
 from ._views import (
     admin_parent_children_update,
+    admin_profesor_materias_overview,
+    admin_profesor_materias_update,
     admin_school_user_directory,
     admin_school_user_update,
     admin_staff_course_update,
@@ -10,6 +12,8 @@ from ._views import (
 
 __all__ = [
     "admin_parent_children_update",
+    "admin_profesor_materias_overview",
+    "admin_profesor_materias_update",
     "admin_school_user_directory",
     "admin_school_user_update",
     "admin_staff_course_update",

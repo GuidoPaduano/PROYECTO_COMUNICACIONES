@@ -1,6 +1,6 @@
 "use client"
 
-import { FolderCog, History, KeyRound, Layers3, UserPlus, UsersRound } from "lucide-react"
+import { BookOpen, FolderCog, History, KeyRound, Layers3, UserPlus, UsersRound } from "lucide-react"
 
 import { useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
@@ -59,6 +59,13 @@ export default function AdminColegioPage() {
           description: "Consultá las notas finales de cuatrimestre de cada alumno por año lectivo y curso.",
           href: "/admin/colegio/notas-historicas",
           icon: <History className="h-6 w-6" />,
+          external: false,
+        },
+        {
+          title: "Materias por profesor",
+          description: "Restringí qué materias puede calificar cada profesor en cada curso. Sin restricción, accede a todas.",
+          href: "/admin/colegio/asignacion-materias",
+          icon: <BookOpen className="h-6 w-6" />,
           external: false,
         },
       ]

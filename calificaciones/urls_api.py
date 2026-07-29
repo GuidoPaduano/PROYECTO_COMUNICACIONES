@@ -114,6 +114,8 @@ from .api_schools import (
 from .api_backups import admin_manual_platform_backup
 from .api_admin_staff import (
     admin_parent_children_update,
+    admin_profesor_materias_overview,
+    admin_profesor_materias_update,
     admin_school_user_directory,
     admin_school_user_update,
     admin_staff_overview,
@@ -257,6 +259,10 @@ urlpatterns = [
     path("admin/staff/<int:user_id>", admin_staff_update, name="admin_staff_update_noslash"),
     path("admin/staff/course/<int:course_id>/", admin_staff_course_update, name="admin_staff_course_update"),
     path("admin/staff/course/<int:course_id>", admin_staff_course_update, name="admin_staff_course_update_noslash"),
+    path("admin/staff/materias/", admin_profesor_materias_overview, name="admin_profesor_materias_overview"),
+    path("admin/staff/materias", admin_profesor_materias_overview, name="admin_profesor_materias_overview_noslash"),
+    path("admin/staff/<int:user_id>/materias/<int:course_id>/", admin_profesor_materias_update, name="admin_profesor_materias_update"),
+    path("admin/staff/<int:user_id>/materias/<int:course_id>", admin_profesor_materias_update, name="admin_profesor_materias_update_noslash"),
     path("admin/alumnos/import/", admin_importar_alumnos, name="admin_importar_alumnos"),
     path("admin/alumnos/import", admin_importar_alumnos, name="admin_importar_alumnos_noslash"),
     path("admin/alumnos/import/template/", admin_importar_alumnos_template, name="admin_importar_alumnos_template"),

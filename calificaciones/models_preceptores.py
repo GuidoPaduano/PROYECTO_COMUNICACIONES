@@ -87,6 +87,38 @@ class ProfesorCurso(models.Model):
         return super().save(*args, **kwargs)
 
 
+class ProfesorCursoMateria(models.Model):
+    school = models.ForeignKey(
+        School,
+        on_delete=models.PROTECT,
+        related_name="profesor_materia_asignaciones",
+    )
+    school_course = models.ForeignKey(
+        SchoolCourse,
+        on_delete=models.PROTECT,
+        related_name="profesor_materia_asignaciones",
+    )
+    profesor = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="materias_asignadas",
+    )
+    materia = models.CharField(max_length=100, db_index=True)
+    asignado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("profesor", "school_course", "materia")
+        verbose_name = "Materia asignada a profesor"
+        verbose_name_plural = "Materias asignadas a profesores"
+        indexes = [
+            models.Index(fields=["profesor", "school_course"]),
+            models.Index(fields=["school_course", "materia"]),
+        ]
+
+    def __str__(self):
+        return f"{self.profesor} -> {self.materia} en {self.school_course}"
+
+
 class SchoolAdmin(models.Model):
     school = models.ForeignKey(
         School,

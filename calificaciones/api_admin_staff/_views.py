@@ -7,8 +7,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
+from ..constants import MATERIAS as MATERIAS_CATALOGO
 from ..models import Alumno, SchoolCourse
-from ..models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
+from ..models_preceptores import PreceptorCurso, ProfesorCurso, ProfesorCursoMateria, SchoolAdmin, SchoolMembership
 from ..schools import (
     clear_user_school_resolution_cache,
     get_request_school,
@@ -422,5 +423,138 @@ def admin_staff_course_update(request, course_id: int):
                 )
                 for user in users
             ],
+        }
+    )
+
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_profesor_materias_overview(request):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school = get_request_school(request)
+    if active_school is None:
+        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+
+    courses = list(
+        SchoolCourse.objects.filter(school=active_school, is_active=True).order_by("sort_order", "name", "id")
+    )
+    profesor_ids = set(
+        ProfesorCurso.objects.filter(school=active_school).values_list("profesor_id", flat=True)
+    )
+    profesores = list(
+        User.objects.filter(id__in=profesor_ids).order_by("last_name", "first_name", "username")
+    )
+
+    materia_rows = ProfesorCursoMateria.objects.filter(school=active_school).values(
+        "profesor_id", "school_course_id", "materia"
+    )
+    materia_map = {}
+    for row in materia_rows:
+        key = (row["profesor_id"], row["school_course_id"])
+        materia_map.setdefault(key, []).append(row["materia"])
+
+    curso_map = {
+        row["profesor_id"]: row["school_course_id"]
+        for row in ProfesorCurso.objects.filter(school=active_school).values("profesor_id", "school_course_id")
+    }
+
+    def serialize_profesor(user):
+        course_materias = {}
+        for course in courses:
+            if curso_map.get(user.id) == course.id or any(
+                row["school_course_id"] == course.id
+                for row in materia_rows
+                if row["profesor_id"] == user.id
+            ):
+                assigned = materia_map.get((user.id, course.id), [])
+                course_materias[str(course.id)] = sorted(assigned)
+        assigned_course_ids = set(
+            ProfesorCurso.objects.filter(school=active_school, profesor=user).values_list("school_course_id", flat=True)
+        )
+        return {
+            "id": user.id,
+            "username": user.username,
+            "full_name": f"{user.first_name} {user.last_name}".strip() or user.username,
+            "email": user.email,
+            "assigned_course_ids": sorted(assigned_course_ids),
+            "course_materias": course_materias,
+        }
+
+    return Response(
+        {
+            "school": school_to_dict(active_school),
+            "courses": [_serialize_course(course) for course in courses],
+            "materias": MATERIAS_CATALOGO,
+            "profesores": [serialize_profesor(u) for u in profesores],
+        }
+    )
+
+
+@api_view(["PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_profesor_materias_update(request, user_id: int, course_id: int):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school = get_request_school(request)
+    if active_school is None:
+        return Response({"detail": "No hay un colegio activo seleccionado."}, status=400)
+
+    target = User.objects.filter(pk=user_id).exclude(is_superuser=True).first()
+    if target is None:
+        return Response({"detail": "Usuario no encontrado."}, status=404)
+
+    course = SchoolCourse.objects.filter(school=active_school, is_active=True, pk=course_id).first()
+    if course is None:
+        return Response({"detail": "Curso no encontrado en el colegio activo."}, status=404)
+
+    if not ProfesorCurso.objects.filter(school=active_school, school_course=course, profesor=target).exists():
+        return Response({"detail": "El profesor no está asignado a este curso."}, status=400)
+
+    payload = request.data or {}
+    raw_materias = payload.get("materias", [])
+    if not isinstance(raw_materias, list):
+        return Response({"detail": "El campo 'materias' debe ser una lista."}, status=400)
+
+    valid = set(MATERIAS_CATALOGO)
+    materias = [m for m in raw_materias if isinstance(m, str) and m in valid]
+
+    with transaction.atomic():
+        existing = set(
+            ProfesorCursoMateria.objects.filter(
+                school=active_school, school_course=course, profesor=target
+            ).values_list("materia", flat=True)
+        )
+        desired = set(materias)
+        to_remove = existing - desired
+        to_add = desired - existing
+        if to_remove:
+            ProfesorCursoMateria.objects.filter(
+                school=active_school, school_course=course, profesor=target, materia__in=to_remove
+            ).delete()
+        for materia in to_add:
+            ProfesorCursoMateria.objects.create(
+                school=active_school,
+                school_course=course,
+                profesor=target,
+                materia=materia,
+            )
+
+    assigned = sorted(
+        ProfesorCursoMateria.objects.filter(
+            school=active_school, school_course=course, profesor=target
+        ).values_list("materia", flat=True)
+    )
+    return Response(
+        {
+            "user_id": target.id,
+            "course_id": course.id,
+            "materias": assigned,
         }
     )
