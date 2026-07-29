@@ -2,8 +2,8 @@
 "use client"
 
 import Link from "next/link"
-import { useDeferredValue, useEffect, useMemo, useState, startTransition } from "react"
-import { ArrowLeft, BookOpen, RefreshCcw, Search } from "lucide-react"
+import { useDeferredValue, useEffect, useRef, useMemo, useState, startTransition } from "react"
+import { ArrowLeft, BookOpen, RefreshCcw } from "lucide-react"
 
 import { authFetch, useAuthGuard, useSessionContext } from "../../../_lib/auth"
 import { Button } from "@/components/ui/button"
@@ -45,6 +45,8 @@ export default function AdminAsignacionMateriasPage() {
 
   const [query, setQuery] = useState("")
   const deferredQuery = useDeferredValue(query.trim())
+  const [comboOpen, setComboOpen] = useState(false)
+  const comboRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [refreshTick, setRefreshTick] = useState(0)
   const [error, setError] = useState("")
@@ -97,6 +99,16 @@ export default function AdminAsignacionMateriasPage() {
     return () => { cancelled = true }
   }, [activeSchoolRef, allowed, refreshTick])
 
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (comboRef.current && !comboRef.current.contains(e.target)) {
+        setComboOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
   const { courses, materias, profesores } = payload
 
   const filteredProfesores = useMemo(() => {
@@ -115,6 +127,13 @@ export default function AdminAsignacionMateriasPage() {
     () => profesores.find((p) => String(p.id) === String(selectedProfesorId)) || null,
     [profesores, selectedProfesorId]
   )
+
+  function selectProfesor(p) {
+    setSelectedProfesorId(String(p.id))
+    setQuery(normalizeName(p))
+    setComboOpen(false)
+    setSelectedCourseId("")
+  }
 
   const assignedCourses = useMemo(() => {
     if (!selectedProfesor) return []
@@ -277,38 +296,43 @@ export default function AdminAsignacionMateriasPage() {
 
       <Card className="min-w-0">
         <CardContent className="flex flex-col gap-3 py-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
+          <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-[minmax(260px,1fr)_minmax(220px,1fr)]">
             <div className="space-y-2">
-              <Label htmlFor="profesor-search">Buscar profesor</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+              <Label htmlFor="profesor-combo">Profesor</Label>
+              <div className="relative" ref={comboRef}>
                 <Input
-                  id="profesor-search"
+                  id="profesor-combo"
+                  autoComplete="off"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Nombre, usuario o email"
-                  className="pl-9"
+                  onChange={(e) => {
+                    setQuery(e.target.value)
+                    setSelectedProfesorId("")
+                    setSelectedCourseId("")
+                    setComboOpen(true)
+                  }}
+                  onFocus={() => setComboOpen(true)}
+                  placeholder="Escribí para buscar un profesor..."
                 />
+                {comboOpen && filteredProfesores.length > 0 && (
+                  <ul className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg max-h-56 overflow-y-auto text-sm">
+                    {filteredProfesores.map((p) => (
+                      <li
+                        key={p.id}
+                        className="flex flex-col px-3 py-2 cursor-pointer hover:bg-slate-100"
+                        onMouseDown={(e) => { e.preventDefault(); selectProfesor(p) }}
+                      >
+                        <span className="font-medium text-slate-900">{normalizeName(p)}</span>
+                        {p.email ? <span className="text-xs text-slate-500">{p.email}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {comboOpen && query.trim() && filteredProfesores.length === 0 && (
+                  <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg px-3 py-2 text-sm text-slate-500">
+                    No se encontraron profesores
+                  </div>
+                )}
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="profesor-selector">Profesor</Label>
-              <select
-                id="profesor-selector"
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                value={selectedProfesorId}
-                onChange={(e) => {
-                  setSelectedProfesorId(e.target.value)
-                  setSelectedCourseId("")
-                }}
-              >
-                <option value="">— Seleccioná un profesor —</option>
-                {filteredProfesores.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {normalizeName(p)}
-                  </option>
-                ))}
-              </select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="course-selector">Curso</Label>
