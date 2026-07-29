@@ -307,6 +307,9 @@ export default function CargarNotasRapidas() {
 
         if (!alive) return
         setRows(mapped)
+        if (Array.isArray(data?.materias) && data.materias.length > 0) {
+          setMaterias(data.materias)
+        }
       } catch (e) {
         if (!alive) return
         setRows([])
