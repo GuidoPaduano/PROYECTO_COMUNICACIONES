@@ -66,27 +66,12 @@ const mensajesResourcePromises = new Map()
 /* ======================== Utils ======================== */
 function fmtFecha(input) {
   if (!input) return "—"
-  const d1 = new Date(input)
-  if (!isNaN(d1.getTime())) {
-    return d1.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  }
-  const m = String(input).match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/)
-  if (m) {
-    const day = parseInt(m[1], 10)
-    const mon = parseInt(m[2], 10) - 1
-    const year = parseInt(m[3].length === 2 ? "20" + m[3] : m[3], 10)
-    const d2 = new Date(year, mon, day)
-    if (!isNaN(d2.getTime())) {
-      return d2.toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    }
+  const s = String(input)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  const d = new Date(s)
+  if (!isNaN(d.getTime())) {
+    return `${String(d.getDate()).padStart(2,"0")}-${String(d.getMonth()+1).padStart(2,"0")}-${d.getFullYear()}`
   }
   return String(input)
 }

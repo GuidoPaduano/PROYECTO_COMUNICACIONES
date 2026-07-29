@@ -75,16 +75,12 @@ function addDaysISO(baseISO, days) {
 
 function formatFechaCorta(raw) {
   if (!raw) return ""
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw))
-  const d = m
-    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-    : new Date(raw)
-  if (Number.isNaN(d.getTime())) return String(raw)
-  return d.toLocaleDateString("es-AR", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-  })
+  const s = String(raw)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return s
+  return `${String(d.getDate()).padStart(2,"0")}-${String(d.getMonth()+1).padStart(2,"0")}-${d.getFullYear()}`
 }
 
 function parseEventosPayload(raw) {

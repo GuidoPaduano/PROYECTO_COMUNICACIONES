@@ -54,17 +54,16 @@ function initialsFromName(name: string) {
 
 function formatDate(input?: string) {
   if (!input) return "—"
+  const s = String(input)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
   try {
-    const d = new Date(input)
+    const d = new Date(s)
     if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString("es-AR", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
+      return `${String(d.getDate()).padStart(2,"0")}-${String(d.getMonth()+1).padStart(2,"0")}-${d.getFullYear()}`
     }
   } catch {}
-  return String(input)
+  return s
 }
 
 export default function MensajeDialog({

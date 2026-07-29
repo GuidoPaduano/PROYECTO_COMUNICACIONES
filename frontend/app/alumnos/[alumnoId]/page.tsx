@@ -742,30 +742,12 @@ async function updateDetalleAsistencia(asistenciaId, detalle) {
 /** Formatea fechas sin corrimiento: si viene "YYYY-MM-DD", se parsea en LOCAL */
 function fmtFecha(iso) {
   if (!iso) return "—"
-
   const s = String(iso)
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
-  if (m) {
-    const [, y, mo, d] = m
-    const dt = new Date(Number(y), Number(mo) - 1, Number(d))
-    return dt.toLocaleDateString("es-AR", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  }
-
-  try {
-    const d = new Date(s)
-    if (Number.isNaN(d.getTime())) return s
-    return d.toLocaleDateString("es-AR", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
-    return s
-  }
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return s
+  return `${String(d.getDate()).padStart(2,"0")}-${String(d.getMonth()+1).padStart(2,"0")}-${d.getFullYear()}`
 }
 
 function fmtFechaHora(iso) {
@@ -773,13 +755,11 @@ function fmtFechaHora(iso) {
   try {
     const d = new Date(String(iso))
     if (Number.isNaN(d.getTime())) return String(iso)
-    return d.toLocaleString("es-AR", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+    const dd = String(d.getDate()).padStart(2,"0")
+    const mm = String(d.getMonth()+1).padStart(2,"0")
+    const hh = String(d.getHours()).padStart(2,"0")
+    const min = String(d.getMinutes()).padStart(2,"0")
+    return `${dd}-${mm}-${d.getFullYear()} ${hh}:${min}`
   } catch {
     return String(iso)
   }

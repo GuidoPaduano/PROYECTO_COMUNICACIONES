@@ -58,11 +58,12 @@ async function fetchJSON(url, opts) {
 
 function prettyDate(iso) {
   if (!iso) return ""
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso))
-  const d = m
-    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-    : new Date(iso)
-  return isNaN(d.getTime()) ? iso : d.toLocaleDateString("es-AR")
+  const s = String(iso)
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return s
+  return `${String(d.getDate()).padStart(2,"0")}-${String(d.getMonth()+1).padStart(2,"0")}-${d.getFullYear()}`
 }
 
 function getQueryFromLocation() {
