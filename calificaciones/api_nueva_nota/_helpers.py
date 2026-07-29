@@ -564,3 +564,130 @@ def _notify_padre_nota(remitente, nota):
         return notificado, last_id, "multi", None
     except Exception as e:
         return False, None, None, str(e)
+
+
+def _notify_nota_modificada(remitente, nota, old_calificacion):
+    """
+    Notifica al padre/alumno cuando una nota ya firmada es modificada por un docente.
+    Debe llamarse después de que la edición ya fue persistida.
+    """
+    from ..models import Notificacion
+    try:
+        alumno = getattr(nota, "alumno", None)
+        if alumno is None:
+            return
+
+        destinatarios = _resolver_destinatarios_notif(alumno)
+        if not destinatarios:
+            return
+
+        docente_label = ""
+        try:
+            if remitente is not None:
+                docente_label = (
+                    getattr(remitente, "get_full_name", lambda: "")() or
+                    getattr(remitente, "username", "") or ""
+                )
+        except Exception:
+            pass
+
+        alumno_nombre = _alumno_nombre(alumno)
+        curso_alumno = getattr(alumno, "curso", "") or ""
+        course_name = _notification_course_name(alumno=alumno, course_code=curso_alumno)
+        school_ref = getattr(nota, "school", None) or getattr(alumno, "school", None)
+
+        materia = getattr(nota, "materia", None)
+        materia_nombre = getattr(materia, "nombre", materia) if materia else ""
+        tipo = getattr(nota, "tipo", "") or ""
+        new_calificacion = getattr(nota, "calificacion", None)
+
+        fecha = getattr(nota, "fecha", None)
+        try:
+            fecha_display = fecha.strftime("%d/%m/%Y") if fecha else ""
+            fecha_iso = fecha.isoformat() if fecha else ""
+        except Exception:
+            fecha_display = fecha_iso = ""
+
+        cambio_str = (
+            f"{old_calificacion} → {new_calificacion}"
+            if str(old_calificacion) != str(new_calificacion)
+            else str(new_calificacion)
+        )
+        descripcion = materia_nombre or ""
+        if tipo:
+            descripcion += f" · {tipo}"
+        if cambio_str:
+            descripcion += f" · {cambio_str}"
+        descripcion = descripcion.strip(" ·")
+
+        titulo = f"Nota actualizada para {alumno_nombre}"
+
+        for destinatario in destinatarios:
+            Notificacion.objects.create(
+                school=school_ref,
+                destinatario=destinatario,
+                tipo="nota",
+                titulo=titulo,
+                descripcion=descripcion,
+                url=f"/alumnos/{getattr(alumno, 'id', '')}/?tab=notas",
+                leida=False,
+                meta={
+                    "alumno_id": getattr(alumno, "id", None),
+                    "alumno_legajo": getattr(alumno, "id_alumno", None),
+                    **_notification_course_meta(alumno=alumno, course_code=curso_alumno, school=school_ref),
+                    "materia": materia_nombre or "",
+                    "tipo_nota": tipo or "",
+                    "calificacion_anterior": str(old_calificacion) if old_calificacion is not None else None,
+                    "calificacion_nueva": str(new_calificacion) if new_calificacion is not None else None,
+                    "modificada_por": docente_label,
+                    "fecha": fecha_iso,
+                },
+            )
+            try:
+                from django.conf import settings as _s
+                if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
+                    to_email = (getattr(destinatario, "email", "") or "").strip()
+                    if to_email:
+                        nombre_dest = (
+                            getattr(destinatario, "first_name", "") or
+                            getattr(destinatario, "username", "") or
+                            "usuario"
+                        ).strip()
+                        lineas = [
+                            f"Hola, {nombre_dest},",
+                            "",
+                            "Una calificación que ya habías firmado fue actualizada:",
+                            "",
+                        ]
+                        if alumno_nombre:
+                            lineas.append(f"Alumno/a: {alumno_nombre}")
+                        if course_name:
+                            lineas.append(f"Curso: {course_name}")
+                        if materia_nombre:
+                            lineas.append(f"Materia: {materia_nombre}")
+                        if tipo:
+                            lineas.append(f"Tipo: {tipo}")
+                        if old_calificacion is not None:
+                            lineas.append(f"Calificación anterior: {old_calificacion}")
+                        if new_calificacion is not None:
+                            lineas.append(f"Calificación actualizada: {new_calificacion}")
+                        if fecha_display:
+                            lineas.append(f"Fecha: {fecha_display}")
+                        if docente_label:
+                            lineas.append(f"Modificado por: {docente_label}")
+                        lineas += [
+                            "",
+                            "La firma anterior fue invalidada. Ingresá a Alumnix para revisar y firmar la calificación actualizada.",
+                            "",
+                            "Ante cualquier duda contactarse con contacto@alumnix.com.ar",
+                        ]
+                        from ..tasks import send_email_task
+                        send_email_task.delay(
+                            to_email=to_email,
+                            subject="Calificación actualizada",
+                            text="\n".join(lineas),
+                        )
+            except Exception:
+                pass
+    except Exception:
+        pass

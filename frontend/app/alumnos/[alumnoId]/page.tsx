@@ -13,7 +13,7 @@ import {
   useState,
 } from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
-import { getSessionProfile, useAuthGuard, authFetch, useSessionContext } from "../../_lib/auth"
+import { getSessionProfile, useAuthGuard, authFetch, useSessionContext, logout } from "../../_lib/auth"
 import { getCourseDisplayName } from "../../_lib/courses"
 import { INBOX_EVENT } from "../../_lib/inbox" // ✅ NUEVO: evento unificado inbox
 import { useUnreadMessages } from "../../_lib/useUnreadMessages"
@@ -135,9 +135,27 @@ function safeSetLSJson(key, value) {
   } catch {}
 }
 
+function safeGetSSJson(key) {
+  try {
+    if (typeof window === "undefined") return null
+    const raw = sessionStorage.getItem(key)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function safeSetSSJson(key, value) {
+  try {
+    if (typeof window === "undefined") return
+    sessionStorage.setItem(key, JSON.stringify(value))
+  } catch {}
+}
+
 function getCachedAlumnoDetail(idParam) {
   if (!idParam) return null
-  const cached = safeGetLSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${idParam}`)
+  const cached = safeGetSSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${idParam}`)
   if (!cached?.data) return null
   if (cached.ts && Date.now() - cached.ts > ALUMNO_DETAIL_CACHE_TTL_MS) return null
   return cached.data
@@ -145,7 +163,7 @@ function getCachedAlumnoDetail(idParam) {
 
 function setCachedAlumnoDetail(idParam, data) {
   if (!idParam || !data) return
-  safeSetLSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${idParam}`, {
+  safeSetSSJson(`${ALUMNO_DETAIL_CACHE_PREFIX}${idParam}`, {
     ts: Date.now(),
     data,
   })
@@ -153,7 +171,7 @@ function setCachedAlumnoDetail(idParam, data) {
 
 function getCachedList(prefix, idParam) {
   if (!idParam) return { data: null, fresh: false }
-  const cached = safeGetLSJson(`${prefix}${idParam}`)
+  const cached = safeGetSSJson(`${prefix}${idParam}`)
   if (!cached?.data) return { data: null, fresh: false }
   if (cached.ts && Date.now() - cached.ts > ALUMNO_DATA_CACHE_TTL_MS) {
     return { data: cached.data, fresh: false }
@@ -163,7 +181,7 @@ function getCachedList(prefix, idParam) {
 
 function setCachedList(prefix, idParam, data) {
   if (!idParam || !data) return
-  safeSetLSJson(`${prefix}${idParam}`, {
+  safeSetSSJson(`${prefix}${idParam}`, {
     ts: Date.now(),
     data,
   })
@@ -4677,14 +4695,7 @@ function Topbar({
                 </Link>
               </DropdownMenuItem>
 
-              <DropdownMenuItem
-                onClick={() => {
-                  try {
-                    localStorage.clear()
-                  } catch {}
-                  window.location.href = "/login"
-                }}
-              >
+              <DropdownMenuItem onClick={() => logout()}>
                 <span className="h-4 w-4 mr-2">🚪</span>
                 Cerrar sesión
               </DropdownMenuItem>

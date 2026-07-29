@@ -611,15 +611,7 @@ export default function Profile() {
                     </div>
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-sm"
-                  onClick={() => {
-                    try {
-                      localStorage.clear();
-                    } catch {}
-                    window.location.href = "/login";
-                  }}
-                >
+                <DropdownMenuItem className="text-sm" onClick={() => logout()}>
                   <span className="h-4 w-4 mr-2">🚪</span>
                   Cerrar sesión
                 </DropdownMenuItem>

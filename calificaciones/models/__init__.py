@@ -10,6 +10,7 @@ from ._alumno import Alumno
 from ._academico import Nota, Asistencia, TIPOS_ASISTENCIA
 from ._comunicacion import Mensaje, Notificacion
 from ._disciplina_eventos_alertas import Sancion, Evento, AlertaAcademica, AlertaInasistencia, TIPOS_EVENTO
+from ._ciclo_lectivo import CicloLectivo, Matricula
 
 __all__ = [
     "validate_calificacion_ext",
@@ -33,4 +34,6 @@ __all__ = [
     "AlertaAcademica",
     "AlertaInasistencia",
     "TIPOS_EVENTO",
+    "CicloLectivo",
+    "Matricula",
 ]

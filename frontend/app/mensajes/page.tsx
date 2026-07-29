@@ -10,6 +10,7 @@ import {
   getCachedSessionProfileData,
   getSessionProfile,
   useSessionContext,
+  logout,
 } from "../_lib/auth"
 import { useRouter } from "next/navigation"
 import { getCourseDisplayName } from "../_lib/courses"
@@ -1427,14 +1428,7 @@ function Topbar({ userLabel, unreadCount }) {
                   </div>
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  try {
-                    localStorage.clear()
-                  } catch {}
-                  window.location.href = "/login"
-                }}
-              >
+              <DropdownMenuItem onClick={() => logout()}>
                 <span className="h-4 w-4 mr-2">🚪</span>
                 Cerrar sesión
               </DropdownMenuItem>

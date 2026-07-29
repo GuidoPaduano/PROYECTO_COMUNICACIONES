@@ -49,6 +49,7 @@ from ._helpers import (
     _normalizar_nota_payload,
     _notification_course_meta,
     _notification_course_name,
+    _notify_nota_modificada,
     _notify_padre_nota,
     _parse_decimal_optional,
     _profesor_puede_editar_nota,
@@ -342,6 +343,12 @@ class EditarNota(APIView):
 
         updates = dict(serializer.validated_data)
         updates.pop("alumno", None)
+
+        was_firmada = nota.firmada
+        old_calificacion = nota.calificacion
+        if was_firmada:
+            updates["firmada"] = False
+
         updated = scope_queryset_to_school(Nota.objects.all(), active_school).filter(
             pk=nota.pk,
             version=expected_version,
@@ -360,6 +367,9 @@ class EditarNota(APIView):
             )
 
         nota.refresh_from_db()
+        if was_firmada:
+            _notify_nota_modificada(request.user, nota, old_calificacion)
+
         return Response({"nota": NotaCreateSerializer(nota).data}, status=status.HTTP_200_OK)
 
 

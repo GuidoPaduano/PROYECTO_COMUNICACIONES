@@ -320,11 +320,11 @@ CORS_ALLOW_CREDENTIALS = True
 
 # (Opcional, solo en dev) permite cualquier IP de la subred 192.168.*:3000
 # para no tener que tocar settings si cambia la IP por DHCP.
-CORS_ALLOWED_ORIGIN_REGEXES = []
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://[a-z0-9-]+\.alumnix\.com\.ar$",
+]
 if DEBUG:
-    CORS_ALLOWED_ORIGIN_REGEXES = [
-        r"^http://192\.168\.\d{1,3}\.\d{1,3}:3000$",
-    ]
+    CORS_ALLOWED_ORIGIN_REGEXES.append(r"^http://192\.168\.\d{1,3}\.\d{1,3}:3000$")
 
 # ✅ Permitir el header custom de vista previa
 CORS_ALLOWED_ORIGIN_REGEXES = _split_env_list("CORS_ALLOWED_ORIGIN_REGEXES", CORS_ALLOWED_ORIGIN_REGEXES)

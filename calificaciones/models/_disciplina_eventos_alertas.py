@@ -31,6 +31,10 @@ class Sancion(models.Model):
     detalle = models.TextField(blank=True, null=True)
     fecha = models.DateField(default=timezone.now)
     docente = models.CharField(max_length=100, blank=True, null=True)
+    school_course_snapshot = models.ForeignKey(
+        SchoolCourse, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="sanciones_snapshot",
+    )
     firmada = models.BooleanField(default=False, db_index=True)
     firmada_en = models.DateTimeField(null=True, blank=True)
     firmada_por = models.ForeignKey(
@@ -45,6 +49,14 @@ class Sancion(models.Model):
 
     def save(self, *args, **kwargs):
         ensure_school_for_save(self, kwargs, related_fields=("alumno",))
+        if self.school_course_snapshot_id is None and self.alumno_id is not None:
+            try:
+                self.school_course_snapshot_id = (
+                    Alumno.objects.values_list("school_course_id", flat=True)
+                    .get(pk=self.alumno_id)
+                )
+            except Exception:
+                pass
         return super().save(*args, **kwargs)
 
 

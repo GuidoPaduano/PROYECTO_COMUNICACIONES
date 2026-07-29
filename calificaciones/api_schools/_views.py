@@ -74,7 +74,7 @@ def public_school_branding(request):
 def public_school_directory(request):
     query = str(request.GET.get("q") or "").strip()
 
-    schools_qs = School.objects.filter(is_active=True).order_by("name", "id")
+    schools_qs = School.objects.filter(is_active=True, is_public=True).order_by("name", "id")
     if query:
         schools_qs = schools_qs.filter(
             Q(name__icontains=query)

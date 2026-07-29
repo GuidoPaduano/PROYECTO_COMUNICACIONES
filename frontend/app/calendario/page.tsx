@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Head from "next/head"
 import Script from "next/script"
 import Link from "next/link"
-import { authFetch, getSessionProfile, useAuthGuard, useSessionContext } from "../_lib/auth"
+import { authFetch, getSessionProfile, useAuthGuard, useSessionContext, logout } from "../_lib/auth"
 import {
   getCourseCode,
   getCourseDisplayName,
@@ -1154,14 +1154,7 @@ export default function CalendarioEscolarPage() {
                     </div>
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    try {
-                      localStorage.clear()
-                    } catch {}
-                    window.location.href = "/login"
-                  }}
-                >
+                <DropdownMenuItem onClick={() => logout()}>
                   <span className="h-4 w-4 mr-2">🚪</span>
                   Cerrar sesión
                 </DropdownMenuItem>

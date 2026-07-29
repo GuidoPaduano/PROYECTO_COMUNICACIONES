@@ -34,7 +34,7 @@ def _frontend_base_url(request) -> str:
 def _school_frontend_base_url(user) -> str:
     from .schools import resolve_school_for_user
     school = resolve_school_for_user(user)
-    if school and getattr(school, "slug", None):
+    if school and getattr(school, "slug", None) and getattr(school, "is_public", False):
         base = _frontend_base_url(None) or ""
         if base:
             from urllib.parse import urlparse

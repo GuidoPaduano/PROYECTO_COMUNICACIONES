@@ -36,7 +36,14 @@ def notas_historicas(request):
 
     if school_course_id:
         try:
-            qs = qs.filter(alumno__school_course_id=int(school_course_id))
+            cid = int(school_course_id)
+            # Use school_course_snapshot (historical) when available; fall back to
+            # alumno.school_course only for records that predate the snapshot field.
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(school_course_snapshot_id=cid) |
+                Q(school_course_snapshot__isnull=True, alumno__school_course_id=cid)
+            )
         except ValueError:
             pass
 

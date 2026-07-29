@@ -8,7 +8,9 @@ from celery import shared_task
 def send_email_task(self, *, to_email: str, subject: str, text: str | None = None, html: str | None = None):
     try:
         from .resend_email import send_resend_email
-        send_resend_email(to_email=to_email, subject=subject, text=text, html=html)
+        ok = send_resend_email(to_email=to_email, subject=subject, text=text, html=html)
+        if not ok:
+            raise RuntimeError(f"send_resend_email returned False for {to_email!r}")
     except Exception as exc:
         raise self.retry(exc=exc)
 
@@ -17,7 +19,9 @@ def send_email_task(self, *, to_email: str, subject: str, text: str | None = Non
 def send_message_email_task(self, *, to_email: str, subject: str, content: str, actor_label: str = ""):
     try:
         from .resend_email import send_message_email
-        send_message_email(to_email=to_email, subject=subject, content=content, actor_label=actor_label)
+        ok = send_message_email(to_email=to_email, subject=subject, content=content, actor_label=actor_label)
+        if not ok:
+            raise RuntimeError(f"send_message_email returned False for {to_email!r}")
     except Exception as exc:
         raise self.retry(exc=exc)
 

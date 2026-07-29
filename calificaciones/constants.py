@@ -1,11 +1,14 @@
-
 MATERIAS = [
-    "Matemática",
     "Lengua",
+    "Matemática",
+    "Ciencias Naturales",
     "Historia",
     "Geografía",
-    "Ciencias Naturales",
-    "Educación Física",
-    "Tecnología",
     "Inglés",
+    "Educación Física",
+    "Música",
+    "Plástica",
+    "Catequesis",
+    "Tecnología",
+    "Informática",
 ]

@@ -12,6 +12,11 @@ class School(models.Model):
     primary_color = models.CharField(max_length=7, blank=True, default="", validators=[HEX_COLOR_VALIDATOR])
     accent_color = models.CharField(max_length=7, blank=True, default="", validators=[HEX_COLOR_VALIDATOR])
     is_active = models.BooleanField(default=True, db_index=True)
+    is_public = models.BooleanField(
+        default=False, db_index=True,
+        help_text="Visible en el directorio público y habilitada para links de reset de contraseña. "
+                  "Activar solo cuando DNS y CORS estén operativos.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

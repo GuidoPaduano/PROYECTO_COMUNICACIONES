@@ -39,7 +39,7 @@ function fmtFecha(iso) {
 function safeGetLSJson(key) {
   try {
     if (typeof window === "undefined") return null
-    const raw = localStorage.getItem(key)
+    const raw = sessionStorage.getItem(key)
     if (!raw) return null
     return JSON.parse(raw)
   } catch {
@@ -50,7 +50,7 @@ function safeGetLSJson(key) {
 function safeSetLSJson(key, value) {
   try {
     if (typeof window === "undefined") return
-    localStorage.setItem(key, JSON.stringify(value))
+    sessionStorage.setItem(key, JSON.stringify(value))
   } catch {}
 }
 

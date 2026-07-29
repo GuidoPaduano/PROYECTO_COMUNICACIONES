@@ -3,9 +3,10 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
-from ._school import School
+from ._school import School, SchoolCourse
 from ._alumno import Alumno
 from ._integrity import ensure_school_for_save
+from ..constants import MATERIAS as _MATERIAS_LIST
 from ._validators import validate_calificacion_ext
 
 
@@ -17,19 +18,7 @@ TIPOS_ASISTENCIA = (
 
 
 class Nota(models.Model):
-    MATERIAS = [
-        ("Lengua", "Lengua"),
-        ("Matemática", "Matemática"),
-        ("Ciencias", "Ciencias"),
-        ("Historia", "Historia"),
-        ("Geografía", "Geografía"),
-        ("Inglés", "Inglés"),
-        ("Educación Física", "Educación Física"),
-        ("Música", "Música"),
-        ("Plástica", "Plástica"),
-        ("Catequesis", "Catequesis"),
-        ("Informática", "Informática"),
-    ]
+    MATERIAS = [(m, m) for m in _MATERIAS_LIST]
     TIPOS = [
         ("Examen", "Examen"),
         ("Trabajo Práctico", "Trabajo Práctico"),
@@ -58,6 +47,10 @@ class Nota(models.Model):
     observaciones = models.TextField(blank=True, null=True)
     es_final = models.BooleanField(default=False, db_index=True)
     anio_lectivo = models.IntegerField(null=True, blank=True, db_index=True)
+    school_course_snapshot = models.ForeignKey(
+        SchoolCourse, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="notas_snapshot",
+    )
     version = models.PositiveIntegerField(default=1)
     firmada = models.BooleanField(default=False, db_index=True)
     firmada_en = models.DateTimeField(null=True, blank=True)
@@ -81,6 +74,14 @@ class Nota(models.Model):
 
     def save(self, *args, **kwargs):
         ensure_school_for_save(self, kwargs, related_fields=("alumno",))
+        if self.school_course_snapshot_id is None and self.alumno_id is not None:
+            try:
+                self.school_course_snapshot_id = (
+                    Alumno.objects.values_list("school_course_id", flat=True)
+                    .get(pk=self.alumno_id)
+                )
+            except Exception:
+                pass
         return super().save(*args, **kwargs)
 
 
@@ -94,6 +95,10 @@ class Asistencia(models.Model):
     justificada = models.BooleanField(default=False, db_index=True)
     observacion = models.CharField(max_length=255, blank=True, null=True)
     creado_por = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    school_course_snapshot = models.ForeignKey(
+        SchoolCourse, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="asistencias_snapshot",
+    )
     firmada = models.BooleanField(default=False, db_index=True)
     firmada_en = models.DateTimeField(null=True, blank=True)
     firmada_por = models.ForeignKey(
@@ -128,4 +133,12 @@ class Asistencia(models.Model):
 
     def save(self, *args, **kwargs):
         ensure_school_for_save(self, kwargs, related_fields=("alumno",))
+        if self.school_course_snapshot_id is None and self.alumno_id is not None:
+            try:
+                self.school_course_snapshot_id = (
+                    Alumno.objects.values_list("school_course_id", flat=True)
+                    .get(pk=self.alumno_id)
+                )
+            except Exception:
+                pass
         return super().save(*args, **kwargs)
