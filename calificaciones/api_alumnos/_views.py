@@ -17,7 +17,11 @@ from rest_framework.response import Response
 from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+
 from ..models import Alumno, SchoolCourse
+from ..models_preceptores import SchoolMembership
 from ..schools import get_request_school, get_school_by_identifier, school_to_dict
 from ..user_groups import get_user_group_names
 from ..utils_cursos import (
@@ -35,6 +39,8 @@ from ._helpers import (
     _can_manage_alumnos,
     _course_code_for_storage,
     _generar_id_alumno_para_curso,
+    _generar_password_aleatoria,
+    _generar_username,
     _is_valid_curso,
     _legajo_exists_in_school,
     _parse_import_file,
@@ -66,19 +72,42 @@ def admin_importar_alumnos_template(request):
     except Exception:
         return Response({"detail": "No se pudo generar la plantilla Excel."}, status=500)
 
+    school_ref = (
+        request.query_params.get("school")
+        or request.headers.get("X-School")
+        or ""
+    )
+    school = get_school_by_identifier(school_ref) if school_ref else None
+    if school is not None:
+        cursos = list(
+            SchoolCourse.objects.filter(school=school, is_active=True)
+            .order_by("sort_order", "code", "id")
+            .values_list("code", flat=True)
+        )
+    else:
+        cursos = list(VALID_CURSOS)
+
     workbook = Workbook()
     header_fill = PatternFill(fill_type="solid", fgColor="E8EEF9")
-    headers = ["apellido", "nombre"]
-    for index, code in enumerate(VALID_CURSOS):
-        sheet = workbook.active if index == 0 else workbook.create_sheet(title=code)
-        sheet.title = code
+    headers = [
+        "Apellido Estudiante",
+        "Nombre Estudiante",
+        "Apellido Padre/Madre/Tutor",
+        "Nombre Padre/Madre/Tutor",
+        "Mail",
+    ]
+    col_widths = [28, 24, 32, 28, 36]
+
+    for idx, code in enumerate(cursos):
+        sheet = workbook.active if idx == 0 else workbook.create_sheet(title=str(code))
+        sheet.title = str(code)
         sheet.append(headers)
         sheet.freeze_panes = "A2"
-        for index, _header in enumerate(headers, start=1):
-            cell = sheet.cell(row=1, column=index)
+        for col_idx, (header, width) in enumerate(zip(headers, col_widths), start=1):
+            cell = sheet.cell(row=1, column=col_idx)
             cell.font = Font(bold=True)
             cell.fill = header_fill
-            sheet.column_dimensions[get_column_letter(index)].width = 24
+            sheet.column_dimensions[get_column_letter(col_idx)].width = width
 
     output = io.BytesIO()
     workbook.save(output)
@@ -262,7 +291,13 @@ def admin_importar_alumnos(request):
             status=400,
         )
 
+    credentials = []
+
     if commit:
+        User = get_user_model()
+        group_alumnos, _ = Group.objects.get_or_create(name="Alumnos")
+        group_padres, _ = Group.objects.get_or_create(name="Padres")
+
         try:
             with transaction.atomic():
                 course_map = {
@@ -307,6 +342,34 @@ def admin_importar_alumnos(request):
                     school_course = item["school_course"] or course_map.get(item["curso"])
                     if school_course is None:
                         raise IntegrityError("No se pudo resolver el curso de la fila importada.")
+
+                    # Usuario del alumno
+                    username_alumno = _generar_username(item["nombre"], item["apellido"])
+                    password_alumno = _generar_password_aleatoria()
+                    user_alumno = User.objects.create_user(
+                        username=username_alumno,
+                        password=password_alumno,
+                        first_name=item["nombre"],
+                        last_name=item["apellido"],
+                    )
+                    user_alumno.groups.add(group_alumnos)
+                    SchoolMembership.objects.get_or_create(school=school, user=user_alumno)
+
+                    # Usuario del padre/tutor (si hay datos)
+                    user_padre = None
+                    password_padre = None
+                    if item.get("has_padre_data") and item.get("mail_padre"):
+                        password_padre = _generar_password_aleatoria()
+                        user_padre = User.objects.create_user(
+                            username=item["mail_padre"],
+                            email=item["mail_padre"],
+                            password=password_padre,
+                            first_name=item.get("nombre_padre", ""),
+                            last_name=item.get("apellido_padre", ""),
+                        )
+                        user_padre.groups.add(group_padres)
+                        SchoolMembership.objects.get_or_create(school=school, user=user_padre)
+
                     alumno = Alumno.objects.create(
                         school=school,
                         school_course=school_course,
@@ -314,8 +377,23 @@ def admin_importar_alumnos(request):
                         id_alumno=item["legajo"],
                         nombre=item["nombre"],
                         apellido=item["apellido"],
+                        usuario=user_alumno,
+                        padre=user_padre,
                     )
                     created.append(_alumno_to_dict(alumno))
+                    credentials.append({
+                        "legajo": item["legajo"],
+                        "nombre": item["nombre"],
+                        "apellido": item["apellido"],
+                        "curso": item["curso"],
+                        "usuario_alumno": username_alumno,
+                        "password_alumno": password_alumno,
+                        "nombre_padre": item.get("nombre_padre", ""),
+                        "apellido_padre": item.get("apellido_padre", ""),
+                        "mail_padre": item.get("mail_padre", ""),
+                        "password_padre": password_padre,
+                    })
+
                 if created_courses:
                     clear_school_course_cache(school)
         except IntegrityError:
@@ -335,12 +413,13 @@ def admin_importar_alumnos(request):
             "errors": errors[:100],
             "skipped": skipped[:100],
             "preview": [
-                {k: v for k, v in item.items() if k != "school_course"}
+                {k: v for k, v in item.items() if k not in {"school_course"}}
                 for item in plan[:100]
             ],
             "courses_to_create": courses_to_create[:100],
             "created_courses": created_courses[:100],
             "created": created[:100],
+            "credentials": credentials,
         },
         status=201 if commit else 200,
     )

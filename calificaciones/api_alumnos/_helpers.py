@@ -1,8 +1,11 @@
 # calificaciones/api_alumnos/_helpers.py
 import csv
 import io
+import random
 import re
 import unicodedata
+
+from django.contrib.auth import get_user_model
 
 from ..course_access import build_course_ref, course_ref_matches, get_assignment_course_refs
 from ..models import Alumno, School, SchoolCourse
@@ -267,6 +270,33 @@ def _truthy(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "si", "sí", "on"}
 
 
+def _generar_password_aleatoria() -> str:
+    return str(random.randint(10000, 99999))
+
+
+def _normalizar_para_username(text: str) -> str:
+    s = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def _generar_username(nombre: str, apellido: str) -> str:
+    User = get_user_model()
+    n = _normalizar_para_username(nombre)
+    a = _normalizar_para_username(apellido)
+    base = f"{n}.{a}" if n and a else (n or a or "alumno")
+    base = base[:28]
+    username = base
+    counter = 2
+    while User.objects.filter(username=username).exists():
+        username = f"{base}{counter}"
+        counter += 1
+    return username
+
+
+def _validate_email_format(mail: str) -> bool:
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", mail.strip()))
+
+
 def _normalize_import_header(value) -> str:
     raw = str(value or "").strip().lower()
     replacements = {
@@ -376,7 +406,10 @@ def _parse_import_file(uploaded):
                 candidate = [_normalize_import_header(value) for value in (raw_headers or [])]
                 candidate_set = set(candidate)
                 has_student_name = bool(
-                    candidate_set.intersection({"nombre", "nombres", "name", "apellido", "apellidos", "last_name"})
+                    candidate_set.intersection({
+                        "nombre", "nombres", "name", "apellido", "apellidos", "last_name",
+                        "nombre_estudiante", "apellido_estudiante",
+                    })
                 )
                 has_course = bool(candidate_set.intersection({"curso", "course", "grado", "division", "school_course"}))
                 has_identifier = bool(candidate_set.intersection({"id_alumno", "legajo", "matricula", "id", "dni"}))
@@ -402,6 +435,8 @@ def _parse_import_file(uploaded):
 
 
 def _build_import_plan(*, rows: list[dict], school: School):
+    User = get_user_model()
+
     courses_by_code = {}
     for course in SchoolCourse.objects.filter(school=school, is_active=True).order_by("sort_order", "code", "id"):
         raw_code = str(course.code or "").strip().upper()
@@ -416,16 +451,31 @@ def _build_import_plan(*, rows: list[dict], school: School):
         if str(value or "").strip()
     }
 
+    # Pre-fetch emails que ya existen en el sistema para detectar conflictos
+    all_file_mails = set()
+    for row in rows:
+        mail = _first_import_value(row, "mail", "email", "correo", "correo_electronico").lower()
+        if mail:
+            all_file_mails.add(mail)
+    existing_emails = set()
+    if all_file_mails:
+        existing_emails = (
+            set(User.objects.filter(email__in=all_file_mails).values_list("email", flat=True))
+            | set(User.objects.filter(username__in=all_file_mails).values_list("username", flat=True))
+        )
+        existing_emails = {e.lower() for e in existing_emails}
+
     plan = []
     errors = []
     skipped = []
     seen_legajos = set()
+    seen_mails = set()
     seen_rows = {}
     courses_to_create = {}
 
     for index, row in enumerate(rows, start=2):
-        nombre = _first_import_value(row, "nombre", "name", "nombres")
-        apellido = _first_import_value(row, "apellido", "apellidos", "last_name")
+        nombre = _first_import_value(row, "nombre_estudiante", "nombre", "name", "nombres")
+        apellido = _first_import_value(row, "apellido_estudiante", "apellido", "apellidos", "last_name")
         legajo = _first_import_value(row, "id_alumno", "legajo", "matricula", "id", "dni")
         raw_curso = _first_import_value(row, "curso", "course", "grado", "division", "school_course")
         curso = _course_code_for_import(raw_curso)
@@ -433,6 +483,10 @@ def _build_import_plan(*, rows: list[dict], school: School):
             _first_import_value(row, "curso_nombre", "nombre_curso", "course_name", "school_course_name")
             or raw_curso
         )
+        nombre_padre = _first_import_value(row, "nombre_padre_madre_tutor", "nombre_tutor", "nombre_padre", "nombre_apoderado")
+        apellido_padre = _first_import_value(row, "apellido_padre_madre_tutor", "apellido_tutor", "apellido_padre", "apellido_apoderado")
+        mail = _first_import_value(row, "mail", "email", "correo", "correo_electronico").lower()
+        has_padre_data = bool(mail or nombre_padre or apellido_padre)
 
         if not any([nombre, apellido, legajo, curso]):
             continue
@@ -455,6 +509,21 @@ def _build_import_plan(*, rows: list[dict], school: School):
         row_errors.extend(_validate_import_person_name(apellido, "apellido"))
         if not curso:
             row_errors.append("Falta curso.")
+
+        # Validaciones de padre/tutor
+        if has_padre_data:
+            if not mail:
+                row_errors.append("Falta mail del padre/tutor.")
+            elif not _validate_email_format(mail):
+                row_errors.append(f"Mail inválido: {mail}.")
+            elif mail in existing_emails:
+                row_errors.append(f"El mail {mail} ya está registrado en el sistema.")
+            elif mail in seen_mails:
+                row_errors.append(f"El mail {mail} aparece más de una vez en el archivo.")
+            if not nombre_padre:
+                row_errors.append("Falta nombre del padre/tutor.")
+            if not apellido_padre:
+                row_errors.append("Falta apellido del padre/tutor.")
 
         school_course = courses_by_code.get(curso)
         if curso and school_course is None:
@@ -519,6 +588,8 @@ def _build_import_plan(*, rows: list[dict], school: School):
             continue
 
         seen_legajos.add(legajo_key)
+        if mail:
+            seen_mails.add(mail)
         plan.append(
             {
                 "row": index,
@@ -531,6 +602,10 @@ def _build_import_plan(*, rows: list[dict], school: School):
                 "school_course_name": getattr(school_course, "name", None) or curso_nombre or curso,
                 "will_create_school_course": school_course is None,
                 "generated_legajo": generated_legajo,
+                "nombre_padre": nombre_padre,
+                "apellido_padre": apellido_padre,
+                "mail_padre": mail,
+                "has_padre_data": has_padre_data,
             }
         )
 

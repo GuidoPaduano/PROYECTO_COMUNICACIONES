@@ -3,7 +3,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Download, FileSpreadsheet, Upload } from "lucide-react"
+import { ArrowLeft, Download, FileSpreadsheet, KeyRound, Upload } from "lucide-react"
 
 import { authFetch, buildApiUrl, normalizeSchool, useAuthGuard, useSessionContext } from "../../../../_lib/auth"
 import { Button } from "@/components/ui/button"
@@ -165,8 +165,10 @@ export default function ImportarAlumnosPage() {
   const downloadTemplate = async () => {
     setError("")
     try {
-      const res = await authFetch("/admin/alumnos/import/template/", {
+      const params = school ? `?school=${encodeURIComponent(school)}` : ""
+      const res = await authFetch(`/admin/alumnos/import/template/${params}`, {
         method: "GET",
+        headers: school ? { "X-School": school } : undefined,
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -185,6 +187,33 @@ export default function ImportarAlumnosPage() {
     } catch {
       setError("No se pudo conectar con el servidor.")
     }
+  }
+
+  const downloadCredentials = () => {
+    const rows = Array.isArray(result?.credentials) ? result.credentials : []
+    if (!rows.length) return
+    const headers = ["Legajo", "Apellido", "Nombre", "Curso", "Usuario Alumno", "Contraseña Alumno", "Nombre Padre/Tutor", "Apellido Padre/Tutor", "Mail Padre/Tutor", "Contraseña Padre/Tutor"]
+    const lines = [
+      headers.join(","),
+      ...rows.map((r) =>
+        [
+          r.legajo, r.apellido, r.nombre, r.curso,
+          r.usuario_alumno, r.password_alumno,
+          r.nombre_padre, r.apellido_padre, r.mail_padre, r.password_padre ?? "",
+        ]
+          .map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`)
+          .join(",")
+      ),
+    ]
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "credenciales-importacion.csv"
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
   }
 
   if (loadingSession) {
@@ -226,7 +255,7 @@ export default function ImportarAlumnosPage() {
           <CardHeader>
             <CardTitle>Archivo de alumnos</CardTitle>
             <CardDescription>
-              Primero previsualizá. La importación solo crea alumnos válidos y no crea usuarios ni tutores.
+              Primero previsualizá. Al importar se crean los alumnos, sus usuarios y los usuarios de los padres/tutores.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -334,6 +363,7 @@ export default function ImportarAlumnosPage() {
                     <TableHead>Apellido</TableHead>
                     <TableHead>Nombre</TableHead>
                     <TableHead>Curso</TableHead>
+                    <TableHead>Mail padre/tutor</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -344,10 +374,54 @@ export default function ImportarAlumnosPage() {
                       <TableCell>{item.apellido}</TableCell>
                       <TableCell>{item.nombre}</TableCell>
                       <TableCell>{item.school_course_name || item.curso}</TableCell>
+                      <TableCell>{item.mail_padre || "-"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+            ) : null}
+
+            {Array.isArray(result?.credentials) && result.credentials.length ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <KeyRound className="h-4 w-4" />
+                    Credenciales generadas — guardá este listado
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={downloadCredentials}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Descargar CSV
+                  </Button>
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Alumno</TableHead>
+                        <TableHead>Curso</TableHead>
+                        <TableHead>Usuario alumno</TableHead>
+                        <TableHead>Contraseña alumno</TableHead>
+                        <TableHead>Padre/Tutor</TableHead>
+                        <TableHead>Usuario padre</TableHead>
+                        <TableHead>Contraseña padre</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {result.credentials.map((item, i) => (
+                        <TableRow key={`cred-${i}`}>
+                          <TableCell>{item.apellido}, {item.nombre}</TableCell>
+                          <TableCell>{item.curso}</TableCell>
+                          <TableCell className="font-mono text-xs">{item.usuario_alumno}</TableCell>
+                          <TableCell className="font-mono text-xs font-semibold">{item.password_alumno}</TableCell>
+                          <TableCell>{item.apellido_padre ? `${item.apellido_padre}, ${item.nombre_padre}` : "-"}</TableCell>
+                          <TableCell className="font-mono text-xs">{item.mail_padre || "-"}</TableCell>
+                          <TableCell className="font-mono text-xs font-semibold">{item.password_padre || "-"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             ) : null}
           </CardContent>
         </Card>
@@ -357,10 +431,21 @@ export default function ImportarAlumnosPage() {
             <CardTitle>Columnas esperadas</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
-            <p>Usa encabezados simples. La herramienta reconoce:</p>
-            <p><span className="font-medium text-slate-900">apellido</span> y <span className="font-medium text-slate-900">nombre</span>.</p>
-            <p>La plantilla usa una hoja por curso. El nombre de la hoja será el nombre del curso y, si no existe, se crea al importar.</p>
-            <p>El legajo se genera automáticamente por curso.</p>
+            <p>Una hoja por curso. El nombre de la hoja es el código del curso — si no existe, se crea al importar.</p>
+            <p>Columnas requeridas en cada hoja:</p>
+            <ul className="space-y-1 list-none">
+              {[
+                "Apellido Estudiante",
+                "Nombre Estudiante",
+                "Apellido Padre/Madre/Tutor",
+                "Nombre Padre/Madre/Tutor",
+                "Mail",
+              ].map((col) => (
+                <li key={col} className="font-medium text-slate-900">{col}</li>
+              ))}
+            </ul>
+            <p>El legajo se genera automáticamente. Se crean usuarios para el alumno y el padre/tutor, cada uno con una contraseña de 5 dígitos.</p>
+            <p className="text-amber-700">Descargá la plantilla del colegio seleccionado para obtener las hojas correctas.</p>
           </CardContent>
         </Card>
       </div>
