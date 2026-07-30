@@ -451,25 +451,13 @@ def _build_import_plan(*, rows: list[dict], school: School):
         if str(value or "").strip()
     }
 
-    # Pre-fetch emails que ya existen en el sistema para detectar conflictos
-    all_file_mails = set()
-    for row in rows:
-        mail = _first_import_value(row, "mail", "email", "correo", "correo_electronico").lower()
-        if mail:
-            all_file_mails.add(mail)
-    existing_emails = set()
-    if all_file_mails:
-        existing_emails = (
-            set(User.objects.filter(email__in=all_file_mails).values_list("email", flat=True))
-            | set(User.objects.filter(username__in=all_file_mails).values_list("username", flat=True))
-        )
-        existing_emails = {e.lower() for e in existing_emails}
+    # No pre-cargamos mails existentes: mails duplicados (en archivo o en DB)
+    # se reutilizan — el padre ya existente se vincula al nuevo alumno.
 
     plan = []
     errors = []
     skipped = []
     seen_legajos = set()
-    seen_mails = set()
     seen_rows = {}
     courses_to_create = {}
 
@@ -516,10 +504,6 @@ def _build_import_plan(*, rows: list[dict], school: School):
                 row_errors.append("Falta mail del padre/tutor.")
             elif not _validate_email_format(mail):
                 row_errors.append(f"Mail inválido: {mail}.")
-            elif mail in existing_emails:
-                row_errors.append(f"El mail {mail} ya está registrado en el sistema.")
-            elif mail in seen_mails:
-                row_errors.append(f"El mail {mail} aparece más de una vez en el archivo.")
             if not nombre_padre:
                 row_errors.append("Falta nombre del padre/tutor.")
             if not apellido_padre:
@@ -588,8 +572,6 @@ def _build_import_plan(*, rows: list[dict], school: School):
             continue
 
         seen_legajos.add(legajo_key)
-        if mail:
-            seen_mails.add(mail)
         plan.append(
             {
                 "row": index,

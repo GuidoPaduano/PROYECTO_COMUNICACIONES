@@ -300,6 +300,8 @@ def admin_importar_alumnos(request):
 
         try:
             with transaction.atomic():
+                padres_creados = {}  # mail → User, para reutilizar en mellizos/hermanos
+
                 course_map = {
                     str(course.code or "").strip().upper(): course
                     for course in SchoolCourse.objects.filter(school=school, is_active=True)
@@ -359,16 +361,28 @@ def admin_importar_alumnos(request):
                     user_padre = None
                     password_padre = None
                     if item.get("has_padre_data") and item.get("mail_padre"):
-                        password_padre = _generar_password_aleatoria()
-                        user_padre = User.objects.create_user(
-                            username=item["mail_padre"],
-                            email=item["mail_padre"],
-                            password=password_padre,
-                            first_name=item.get("nombre_padre", ""),
-                            last_name=item.get("apellido_padre", ""),
-                        )
-                        user_padre.groups.add(group_padres)
-                        SchoolMembership.objects.get_or_create(school=school, user=user_padre)
+                        mail_padre = item["mail_padre"]
+                        if mail_padre in padres_creados:
+                            # Mellizos/hermanos: reutilizar padre ya creado en esta importación
+                            user_padre = padres_creados[mail_padre]
+                        else:
+                            # Buscar si el usuario ya existe en el sistema por username o email
+                            user_padre = (
+                                User.objects.filter(username=mail_padre).first()
+                                or User.objects.filter(email=mail_padre).first()
+                            )
+                            if user_padre is None:
+                                password_padre = _generar_password_aleatoria()
+                                user_padre = User.objects.create_user(
+                                    username=mail_padre,
+                                    email=mail_padre,
+                                    password=password_padre,
+                                    first_name=item.get("nombre_padre", ""),
+                                    last_name=item.get("apellido_padre", ""),
+                                )
+                                user_padre.groups.add(group_padres)
+                            SchoolMembership.objects.get_or_create(school=school, user=user_padre)
+                            padres_creados[mail_padre] = user_padre
 
                     alumno = Alumno.objects.create(
                         school=school,
