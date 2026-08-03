@@ -89,25 +89,32 @@ def admin_importar_alumnos_template(request):
 
     workbook = Workbook()
     header_fill = PatternFill(fill_type="solid", fgColor="E8EEF9")
+    course_fill = PatternFill(fill_type="solid", fgColor="F0F4FF")
     headers = [
+        "Curso",
         "Apellido Estudiante",
         "Nombre Estudiante",
         "Apellido Padre/Madre/Tutor",
         "Nombre Padre/Madre/Tutor",
         "Mail",
     ]
-    col_widths = [28, 24, 32, 28, 36]
+    col_widths = [12, 28, 24, 32, 28, 36]
 
-    for idx, code in enumerate(cursos):
-        sheet = workbook.active if idx == 0 else workbook.create_sheet(title=str(code))
-        sheet.title = str(code)
-        sheet.append(headers)
-        sheet.freeze_panes = "A2"
-        for col_idx, (header, width) in enumerate(zip(headers, col_widths), start=1):
-            cell = sheet.cell(row=1, column=col_idx)
-            cell.font = Font(bold=True)
-            cell.fill = header_fill
-            sheet.column_dimensions[get_column_letter(col_idx)].width = width
+    sheet = workbook.active
+    sheet.title = "Alumnos"
+    sheet.append(headers)
+    sheet.freeze_panes = "A2"
+    for col_idx, (header, width) in enumerate(zip(headers, col_widths), start=1):
+        cell = sheet.cell(row=1, column=col_idx)
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        sheet.column_dimensions[get_column_letter(col_idx)].width = width
+
+    for code in cursos:
+        row_data = [str(code)] + [""] * (len(headers) - 1)
+        sheet.append(row_data)
+        curso_cell = sheet.cell(row=sheet.max_row, column=1)
+        curso_cell.fill = course_fill
 
     output = io.BytesIO()
     workbook.save(output)

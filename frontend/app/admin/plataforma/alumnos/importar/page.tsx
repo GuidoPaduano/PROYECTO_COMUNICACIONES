@@ -431,10 +431,10 @@ export default function ImportarAlumnosPage() {
             <CardTitle>Columnas esperadas</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
-            <p>Una hoja por curso. El nombre de la hoja es el código del curso — si no existe, se crea al importar.</p>
-            <p>Columnas requeridas en cada hoja:</p>
+            <p>Una sola hoja con todos los alumnos. Columnas requeridas:</p>
             <ul className="space-y-1 list-none">
               {[
+                "Curso",
                 "Apellido Estudiante",
                 "Nombre Estudiante",
                 "Apellido Padre/Madre/Tutor",
@@ -444,8 +444,9 @@ export default function ImportarAlumnosPage() {
                 <li key={col} className="font-medium text-slate-900">{col}</li>
               ))}
             </ul>
+            <p>La plantilla descargada ya incluye una fila por curso para guiarte. Completá los datos de cada alumno en la columna correspondiente.</p>
             <p>El legajo se genera automáticamente. Se crean usuarios para el alumno y el padre/tutor, cada uno con una contraseña de 5 dígitos.</p>
-            <p className="text-amber-700">Descargá la plantilla del colegio seleccionado para obtener las hojas correctas.</p>
+            <p className="text-amber-700">Si el curso no existe en el colegio, se crea automáticamente al importar.</p>
           </CardContent>
         </Card>
       </div>
