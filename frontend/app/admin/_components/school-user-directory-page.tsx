@@ -381,6 +381,14 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                       : "Sin hijos vinculados"}
                   </span>
                 </div>
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Curso</span>
+                  <span>
+                    {Array.isArray(row.children)
+                      ? [...new Set(row.children.map((c) => c.course_code).filter(Boolean))].join(", ") || "-"
+                      : "-"}
+                  </span>
+                </div>
                 <Button
                   type="button"
                   size="sm"
@@ -411,11 +419,16 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                 <TableHead>Nombre</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Hijos vinculados</TableHead>
+                <TableHead>Curso</TableHead>
                 <TableHead className="text-right">Acción</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const courses = Array.isArray(row.children)
+                  ? [...new Set(row.children.map((c) => c.course_code).filter(Boolean))].join(", ")
+                  : ""
+                return (
                 <TableRow key={row.id}>
                   <TableCell className="font-medium text-slate-900">{row.username}</TableCell>
                   <TableCell>{row.full_name || "-"}</TableCell>
@@ -427,6 +440,7 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                       <span className="text-amber-700">Sin hijos vinculados</span>
                     )}
                   </TableCell>
+                  <TableCell className="text-sm text-slate-600">{courses || "-"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button
@@ -449,7 +463,8 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                )
+              })}
               {!rows.length ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
