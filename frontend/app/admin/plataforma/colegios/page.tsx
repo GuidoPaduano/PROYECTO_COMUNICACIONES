@@ -587,15 +587,18 @@ export default function ColegiosPage() {
                 </div>
               </div>
 
-              <label className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3">
+              <div className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3">
                 <Checkbox
+                  id="school-is-active"
                   checked={!!form.is_active}
                   onCheckedChange={(checked) =>
                     setForm((current) => ({ ...current, is_active: checked === true }))
                   }
                 />
-                <span className="text-sm font-medium text-slate-800">Colegio activo</span>
-              </label>
+                <label htmlFor="school-is-active" className="cursor-pointer text-sm font-medium text-slate-800 select-none">
+                  Colegio activo
+                </label>
+              </div>
 
               <div
                 className="overflow-hidden rounded-xl border border-slate-200 bg-white"
