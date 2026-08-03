@@ -132,13 +132,11 @@ function getWeekDaysFrom(anchorISO: string): string[] {
   const dayOfWeek = anchor.getDay()
   const monday = new Date(anchor)
   monday.setDate(anchor.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
-  const todayStr = todayISO()
   const days: string[] = []
   for (let i = 0; i < 5; i++) {
     const d = new Date(monday)
     d.setDate(monday.getDate() + i)
-    const dateStr = isoDate(d)
-    if (dateStr <= todayStr) days.push(dateStr)
+    days.push(isoDate(d))
   }
   return days
 }
@@ -460,7 +458,7 @@ export default function PasarAsistenciaPage() {
   async function llenarSemana() {
     const days = getWeekDaysFrom(fecha)
     if (!days.length) {
-      setSeedLog(["No hay días hábiles hasta hoy en esa semana."])
+      setSeedLog(["No hay días hábiles en esa semana."])
       return
     }
 
@@ -516,7 +514,7 @@ export default function PasarAsistenciaPage() {
               </span>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Genera asistencias aleatorias para los días hábiles de la semana de la fecha seleccionada (hasta hoy), usando el tipo elegido abajo.
+              Genera asistencias aleatorias para los días hábiles de la semana de la fecha seleccionada, usando el tipo elegido abajo.
             </p>
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer w-fit">
               <input
@@ -533,7 +531,7 @@ export default function PasarAsistenciaPage() {
               disabled={seedingWeek || (!seedTodosCursos && (!alumnos.length || schoolCourseIdSel == null))}
               className="bg-orange-500 hover:bg-orange-600 text-white"
             >
-              {seedingWeek ? "Cargando..." : "Llenar semana (lunes a hoy)"}
+              {seedingWeek ? "Cargando..." : "Llenar semana completa"}
             </Button>
             {seedLog.length > 0 && (
               <div className="space-y-0.5 pt-1">
@@ -589,11 +587,10 @@ export default function PasarAsistenciaPage() {
                   type="date"
                   className={`mt-1 h-10 rounded-xl border border-gray-200 px-3 ${!isToday ? "bg-gray-50" : "bg-white"}`}
                   value={fecha}
-                  max={todayISO()}
                   disabled={saving}
                   onChange={(e) => {
                     const v = e.target.value
-                    if (v && v <= todayISO()) {
+                    if (v) {
                       setFecha(v)
                       setOkMsg("")
                       setErrMsg("")
