@@ -154,6 +154,7 @@ from .api_asistencias import (
 from .api_alumnos import (
     admin_importar_alumnos,
     admin_importar_alumnos_template,
+    admin_exportar_credenciales_xlsx,
     crear_alumno,
     vincular_mi_legajo,
     transferir_alumno,
@@ -267,6 +268,8 @@ urlpatterns = [
     path("admin/alumnos/import", admin_importar_alumnos, name="admin_importar_alumnos_noslash"),
     path("admin/alumnos/import/template/", admin_importar_alumnos_template, name="admin_importar_alumnos_template"),
     path("admin/alumnos/import/template", admin_importar_alumnos_template, name="admin_importar_alumnos_template_noslash"),
+    path("admin/alumnos/import/credenciales/", admin_exportar_credenciales_xlsx, name="admin_exportar_credenciales_xlsx"),
+    path("admin/alumnos/import/credenciales", admin_exportar_credenciales_xlsx, name="admin_exportar_credenciales_xlsx_noslash"),
     path("admin/backups/manual/", admin_manual_platform_backup, name="admin_manual_platform_backup"),
     path("admin/backups/manual", admin_manual_platform_backup, name="admin_manual_platform_backup_noslash"),
 

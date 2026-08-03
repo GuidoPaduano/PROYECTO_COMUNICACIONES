@@ -189,31 +189,26 @@ export default function ImportarAlumnosPage() {
     }
   }
 
-  const downloadCredentials = () => {
+  const downloadCredentials = async () => {
     const rows = Array.isArray(result?.credentials) ? result.credentials : []
     if (!rows.length) return
-    const headers = ["Legajo", "Apellido", "Nombre", "Curso", "Usuario Alumno", "Contraseña Alumno", "Nombre Padre/Tutor", "Apellido Padre/Tutor", "Mail Padre/Tutor", "Contraseña Padre/Tutor"]
-    const lines = [
-      headers.join(","),
-      ...rows.map((r) =>
-        [
-          r.legajo, r.apellido, r.nombre, r.curso,
-          r.usuario_alumno, r.password_alumno,
-          r.nombre_padre, r.apellido_padre, r.mail_padre, r.password_padre ?? "",
-        ]
-          .map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`)
-          .join(",")
-      ),
-    ]
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = "credenciales-importacion.csv"
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
+    try {
+      const res = await authFetch("/admin/alumnos/import/credenciales/", {
+        method: "POST",
+        body: JSON.stringify(rows),
+        headers: { "Content-Type": "application/json" },
+      })
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "credenciales-importacion.xlsx"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {}
   }
 
   if (loadingSession) {

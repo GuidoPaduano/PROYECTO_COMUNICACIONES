@@ -132,6 +132,70 @@ def admin_importar_alumnos_template(request):
 @parser_classes([JSONParser])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
+def admin_exportar_credenciales_xlsx(request):
+    if not getattr(request.user, "is_superuser", False):
+        return Response({"detail": "No autorizado."}, status=403)
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        from openpyxl.utils import get_column_letter
+    except Exception:
+        return Response({"detail": "No se pudo generar el archivo Excel."}, status=500)
+
+    credentials = request.data if isinstance(request.data, list) else []
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Credenciales"
+
+    header_fill = PatternFill(fill_type="solid", fgColor="E8EEF9")
+    headers = [
+        "Legajo", "Apellido", "Nombre", "Curso",
+        "Usuario Alumno", "Contraseña Alumno",
+        "Nombre Padre/Tutor", "Apellido Padre/Tutor",
+        "Mail Padre/Tutor", "Contraseña Padre/Tutor",
+    ]
+    col_widths = [14, 22, 22, 10, 26, 18, 22, 22, 36, 18]
+
+    sheet.append(headers)
+    sheet.freeze_panes = "A2"
+    for col_idx, (header, width) in enumerate(zip(headers, col_widths), start=1):
+        cell = sheet.cell(row=1, column=col_idx)
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        sheet.column_dimensions[get_column_letter(col_idx)].width = width
+
+    for item in credentials:
+        sheet.append([
+            item.get("legajo", ""),
+            item.get("apellido", ""),
+            item.get("nombre", ""),
+            item.get("curso", ""),
+            item.get("usuario_alumno", ""),
+            str(item.get("password_alumno", "") or ""),
+            item.get("nombre_padre", ""),
+            item.get("apellido_padre", ""),
+            item.get("mail_padre", ""),
+            str(item.get("password_padre", "") or ""),
+        ])
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = 'attachment; filename="credenciales-importacion.xlsx"'
+    return response
+
+
+@csrf_exempt
+@api_view(["POST"])
+@parser_classes([JSONParser])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
 def crear_alumno(request):
     """
     POST /alumnos/crear/
