@@ -296,6 +296,10 @@ def _school_payload_from_request(request, *, instance: School | None = None) -> 
     if instance is not None:
         payload = {field: getattr(instance, field) for field in allowed}
         payload.update({key: value for key, value in raw.items() if key in allowed})
+        # Preserve is_public from instance — SchoolAdminForm uses __all__ so a missing
+        # is_public in the request payload would silently reset it to False.
+        if "is_public" not in raw:
+            payload["is_public"] = getattr(instance, "is_public", False)
     else:
         payload = {key: value for key, value in raw.items() if key in allowed}
 

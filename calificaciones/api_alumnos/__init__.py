@@ -2,6 +2,7 @@
 from ._views import (
     admin_importar_alumnos,
     admin_importar_alumnos_template,
+    admin_exportar_credenciales_xlsx,
     crear_alumno,
     vincular_mi_legajo,
     transferir_alumno,
@@ -12,6 +13,7 @@ from ._helpers import _parse_import_file  # noqa: F401 — usado por tests
 __all__ = [
     "admin_importar_alumnos",
     "admin_importar_alumnos_template",
+    "admin_exportar_credenciales_xlsx",
     "crear_alumno",
     "vincular_mi_legajo",
     "transferir_alumno",

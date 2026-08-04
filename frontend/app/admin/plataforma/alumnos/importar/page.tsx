@@ -189,31 +189,26 @@ export default function ImportarAlumnosPage() {
     }
   }
 
-  const downloadCredentials = () => {
+  const downloadCredentials = async () => {
     const rows = Array.isArray(result?.credentials) ? result.credentials : []
     if (!rows.length) return
-    const headers = ["Legajo", "Apellido", "Nombre", "Curso", "Usuario Alumno", "Contraseña Alumno", "Nombre Padre/Tutor", "Apellido Padre/Tutor", "Mail Padre/Tutor", "Contraseña Padre/Tutor"]
-    const lines = [
-      headers.join(","),
-      ...rows.map((r) =>
-        [
-          r.legajo, r.apellido, r.nombre, r.curso,
-          r.usuario_alumno, r.password_alumno,
-          r.nombre_padre, r.apellido_padre, r.mail_padre, r.password_padre ?? "",
-        ]
-          .map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`)
-          .join(",")
-      ),
-    ]
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = "credenciales-importacion.csv"
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
+    try {
+      const res = await authFetch("/admin/alumnos/import/credenciales/", {
+        method: "POST",
+        body: JSON.stringify(rows),
+        headers: { "Content-Type": "application/json" },
+      })
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "credenciales-importacion.xlsx"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {}
   }
 
   if (loadingSession) {
@@ -431,10 +426,10 @@ export default function ImportarAlumnosPage() {
             <CardTitle>Columnas esperadas</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm leading-6 text-slate-600">
-            <p>Una hoja por curso. El nombre de la hoja es el código del curso — si no existe, se crea al importar.</p>
-            <p>Columnas requeridas en cada hoja:</p>
+            <p>Una sola hoja con todos los alumnos. Columnas requeridas:</p>
             <ul className="space-y-1 list-none">
               {[
+                "Curso",
                 "Apellido Estudiante",
                 "Nombre Estudiante",
                 "Apellido Padre/Madre/Tutor",
@@ -444,8 +439,9 @@ export default function ImportarAlumnosPage() {
                 <li key={col} className="font-medium text-slate-900">{col}</li>
               ))}
             </ul>
+            <p>La plantilla descargada ya incluye una fila por curso para guiarte. Completá los datos de cada alumno en la columna correspondiente.</p>
             <p>El legajo se genera automáticamente. Se crean usuarios para el alumno y el padre/tutor, cada uno con una contraseña de 5 dígitos.</p>
-            <p className="text-amber-700">Descargá la plantilla del colegio seleccionado para obtener las hojas correctas.</p>
+            <p className="text-amber-700">Si el curso no existe en el colegio, se crea automáticamente al importar.</p>
           </CardContent>
         </Card>
       </div>

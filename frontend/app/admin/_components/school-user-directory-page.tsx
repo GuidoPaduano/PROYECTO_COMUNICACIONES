@@ -263,8 +263,9 @@ function StudentsSection({ course }) {
   )
 }
 
-function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
+function ParentsSection({ rows, availableStudents, onLinked, onEdit, allCourses }) {
   const emptyLabel = "No hay padres registrados en el colegio activo."
+  const [courseFilter, setCourseFilter] = useState("")
   const [selectedParent, setSelectedParent] = useState(null)
   const [selectedCourseKey, setSelectedCourseKey] = useState("")
   const [selectedStudentId, setSelectedStudentId] = useState("")
@@ -354,15 +355,38 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
     }
   }
 
+  const filteredRows = courseFilter
+    ? rows.filter((row) =>
+        Array.isArray(row.children) && row.children.some((c) => c.course_code === courseFilter)
+      )
+    : rows
+
   return (
     <Card>
       <CardHeader className="pb-4">
-        <CardTitle>Padres</CardTitle>
-        <CardDescription>{rows.length ? `${rows.length} usuario(s)` : emptyLabel}</CardDescription>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle>Padres</CardTitle>
+            <CardDescription>{rows.length ? `${rows.length} usuario(s)` : emptyLabel}</CardDescription>
+          </div>
+          {Array.isArray(allCourses) && allCourses.length ? (
+            <Select value={courseFilter || "__all__"} onValueChange={(v) => setCourseFilter(v === "__all__" ? "" : v)}>
+              <SelectTrigger className="h-9 w-full sm:w-48" aria-label="Filtrar por curso">
+                <SelectValue placeholder="Todos los cursos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos los cursos</SelectItem>
+                {allCourses.map((code) => (
+                  <SelectItem key={code} value={code}>{code}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="pt-0">
         <div className="space-y-3 md:hidden">
-          {rows.map((row) => (
+          {filteredRows.map((row) => (
             <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-900">{row.full_name || row.username}</p>
@@ -379,6 +403,14 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                     {row.children_count
                       ? row.children.map((child) => child.full_name || child.id_alumno).join(", ")
                       : "Sin hijos vinculados"}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Curso</span>
+                  <span>
+                    {Array.isArray(row.children)
+                      ? row.children.map((c) => c.course_code).filter(Boolean).join(", ") || "-"
+                      : "-"}
                   </span>
                 </div>
                 <Button
@@ -411,11 +443,16 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                 <TableHead>Nombre</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Hijos vinculados</TableHead>
+                <TableHead>Curso</TableHead>
                 <TableHead className="text-right">Acción</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {filteredRows.map((row) => {
+                const courses = Array.isArray(row.children)
+                  ? row.children.map((c) => c.course_code).filter(Boolean).join(", ")
+                  : ""
+                return (
                 <TableRow key={row.id}>
                   <TableCell className="font-medium text-slate-900">{row.username}</TableCell>
                   <TableCell>{row.full_name || "-"}</TableCell>
@@ -427,6 +464,7 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                       <span className="text-amber-700">Sin hijos vinculados</span>
                     )}
                   </TableCell>
+                  <TableCell className="text-sm text-slate-600">{courses || "-"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button
@@ -449,7 +487,8 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit }) {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                )
+              })}
               {!rows.length ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
@@ -830,6 +869,13 @@ export default function SchoolUserDirectoryPage() {
           availableStudents={payload?.students_without_parent || []}
           onLinked={setPayload}
           onEdit={openEditDialog}
+          allCourses={
+            [...new Set(
+              (Array.isArray(payload?.padres) ? payload.padres : [])
+                .flatMap((p) => (Array.isArray(p.children) ? p.children.map((c) => c.course_code) : []))
+                .filter(Boolean)
+            )].sort()
+          }
         />
       ) : null}
 
