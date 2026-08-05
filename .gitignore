@@ -33,7 +33,7 @@ out/
 build/
 
 # Artefactos locales de trabajo
-backups/
+/backups/
 handoff-diseno/
 handoff-diseno.rar
 frontend/dev-frontend*.log

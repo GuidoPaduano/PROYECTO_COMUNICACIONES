@@ -71,7 +71,7 @@ jobs:
           SECRET_KEY: ci-only-not-secret
           DEBUG: "True"
           ALLOWED_HOSTS: localhost
-        run: python manage.py check --deploy --fail-level WARNING 2>&1 | grep -v "WARNINGS" || true
+        run: python manage.py check --fail-level ERROR
 
       - name: Run tests
         env:
