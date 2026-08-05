@@ -134,7 +134,9 @@ WSGI_APPLICATION = 'boletin.wsgi.application'
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
 if DATABASE_URL:
-    DB_SSL_REQUIRE = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
+    _is_postgres = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
+    _is_local = '127.0.0.1' in DATABASE_URL or 'localhost' in DATABASE_URL
+    DB_SSL_REQUIRE = _is_postgres and not _is_local
     DATABASES = {
         'default': dj_database_url.config(
             default=DATABASE_URL,
