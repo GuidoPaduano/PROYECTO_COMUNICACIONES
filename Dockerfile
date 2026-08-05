@@ -27,7 +27,7 @@ RUN RAILWAY_STATIC_BUILD=1 python manage.py collectstatic --noinput
 EXPOSE 8080
 
 # Comando de inicio: aplica migraciones y arranca Gunicorn en el puerto de Railway
-CMD ["sh", "-c", "python manage.py migrate && daphne -b 0.0.0.0 -p ${PORT:-8080} boletin.asgi:application"]
+CMD ["sh", "-c", "python manage.py migrate && gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} boletin.asgi:application"]
 
 
 
