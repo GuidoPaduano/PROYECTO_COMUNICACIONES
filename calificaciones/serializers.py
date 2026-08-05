@@ -113,6 +113,10 @@ class NotaCreateSerializer(serializers.ModelSerializer):
             "observaciones",
             "version",
         ]
+        # DRF auto-genera un validator para el UniqueConstraint condicional del modelo
+        # que hace KeyError('es_final') en PATCH parciales. Lo desactivamos y
+        # validamos la unicidad de notas finales manualmente en validate().
+        validators = []
 
     def validate_calificacion(self, value):
         v = str(value or "").strip()
@@ -173,6 +177,29 @@ class NotaCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Debés informar resultado, nota_numerica o calificacion."
             )
+
+        # Validación manual del UniqueConstraint condicional de nota final.
+        # Solo aplica cuando es_final=True y anio_lectivo está presente.
+        instance = self.instance
+        es_final = attrs.get("es_final", getattr(instance, "es_final", False) if instance else False)
+        anio_lectivo = attrs.get("anio_lectivo", getattr(instance, "anio_lectivo", None) if instance else None)
+        if es_final and anio_lectivo is not None:
+            alumno = attrs.get("alumno", getattr(instance, "alumno", None) if instance else None)
+            materia = attrs.get("materia", getattr(instance, "materia", None) if instance else None)
+            cuatrimestre = attrs.get("cuatrimestre", getattr(instance, "cuatrimestre", None) if instance else None)
+            qs = Nota.objects.filter(
+                es_final=True,
+                alumno=alumno,
+                materia=materia,
+                cuatrimestre=cuatrimestre,
+                anio_lectivo=anio_lectivo,
+            )
+            if instance is not None:
+                qs = qs.exclude(pk=instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    "Ya existe una nota final para este alumno, materia, cuatrimestre y año lectivo."
+                )
 
         # Mantener calificacion poblada para clientes que aun leen ese campo.
         if not attrs.get("calificacion"):
