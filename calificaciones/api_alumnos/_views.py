@@ -452,7 +452,30 @@ def admin_importar_alumnos(request):
                                     last_name=item.get("apellido_padre", ""),
                                 )
                                 user_padre.groups.add(group_padres)
-                            SchoolMembership.objects.get_or_create(school=school, user=user_padre)
+                            else:
+                                # Verificar que no tenga un rol incompatible con ser padre
+                                roles_existentes = set(
+                                    user_padre.groups.values_list("name", flat=True)
+                                )
+                                roles_incompatibles = roles_existentes & {
+                                    "Profesores", "Directivos", "Preceptores"
+                                }
+                                if roles_incompatibles or user_padre.is_staff or user_padre.is_superuser:
+                                    errors.append({
+                                        "fila": item.get("_fila", "?"),
+                                        "error": (
+                                            f"El email {mail_padre} ya pertenece a un usuario con rol "
+                                            f"incompatible ({', '.join(roles_incompatibles) or 'staff/admin'}). "
+                                            "No se puede vincular como padre."
+                                        ),
+                                    })
+                                    user_padre = None
+                                else:
+                                    # Asegurar que tenga el grupo Padres
+                                    if "Padres" not in roles_existentes:
+                                        user_padre.groups.add(group_padres)
+                            if user_padre is not None:
+                                SchoolMembership.objects.get_or_create(school=school, user=user_padre)
                             padres_creados[mail_padre] = user_padre
 
                     alumno = Alumno.objects.create(
