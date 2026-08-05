@@ -111,8 +111,8 @@ class ProfesorCursoMateria(models.Model):
         verbose_name = "Materia asignada a profesor"
         verbose_name_plural = "Materias asignadas a profesores"
         indexes = [
-            models.Index(fields=["profesor", "school_course"]),
-            models.Index(fields=["school_course", "materia"]),
+            models.Index(fields=["profesor", "school_course"], name="calificaci_profeso_idx_pcm_pc"),
+            models.Index(fields=["school_course", "materia"], name="calificaci_school_idx_pcm_cm"),
         ]
 
     def __str__(self):
