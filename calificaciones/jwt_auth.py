@@ -4,6 +4,7 @@ from django.conf import settings
 from django.middleware.csrf import CsrfViewMiddleware
 from rest_framework import exceptions
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 
 class _CSRFCheck(CsrfViewMiddleware):
@@ -23,10 +24,16 @@ class CookieJWTAuthentication(JWTAuthentication):
         if not raw_token:
             return None
 
-        # Cookie-based auth: enforce CSRF igual que SessionAuthentication de DRF.
+        # Token en cookie inválido o expirado → tratar como anónimo para no
+        # bloquear endpoints públicos (AllowAny) con cookies obsoletas.
+        try:
+            validated_token = self.get_validated_token(raw_token)
+        except (InvalidToken, TokenError):
+            return None
+
+        # Cookie válida: enforce CSRF igual que SessionAuthentication de DRF.
         self._enforce_csrf(request)
 
-        validated_token = self.get_validated_token(raw_token)
         return self.get_user(validated_token), validated_token
 
     def _enforce_csrf(self, request):
