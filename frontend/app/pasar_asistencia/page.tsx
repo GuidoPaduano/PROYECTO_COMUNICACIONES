@@ -455,10 +455,11 @@ export default function PasarAsistenciaPage() {
                   type="date"
                   className={`mt-1 h-10 rounded-xl border border-gray-200 px-3 ${!isToday ? "bg-gray-50" : "bg-white"}`}
                   value={fecha}
+                  max={todayISO()}
                   disabled={saving}
                   onChange={(e) => {
                     const v = e.target.value
-                    if (v) {
+                    if (v && v <= todayISO()) {
                       setFecha(v)
                       setOkMsg("")
                       setErrMsg("")
