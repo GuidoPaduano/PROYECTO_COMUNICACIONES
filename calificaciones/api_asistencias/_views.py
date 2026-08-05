@@ -209,6 +209,9 @@ def registrar_asistencias(request):
             fecha_raw = _first_scalar(payload.get("fecha") or payload.get("date"))
             fecha = parse_date(str(fecha_raw)) if fecha_raw else date_cls.today()
 
+            if fecha and fecha > date_cls.today():
+                return _err("No se pueden registrar asistencias para fechas futuras.", 400)
+
             if course_error:
                 return _err(course_error, 400)
             if not tipo_asistencia:
@@ -342,6 +345,9 @@ def registrar_asistencias(request):
 
         fecha_raw = _first_scalar(payload.get("fecha") or payload.get("date"))
         fecha = parse_date(str(fecha_raw)) if fecha_raw else date_cls.today()
+
+        if fecha and fecha > date_cls.today():
+            return _err("No se pueden registrar asistencias para fechas futuras.", 400)
 
         presentes = payload.get("presentes") or payload.get("presentes_ids") or payload.get("presentesId") or []
         tardes = payload.get("tardes") or payload.get("tardes_ids") or payload.get("tardesId") or []
