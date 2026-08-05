@@ -59,6 +59,12 @@ export const DEFAULT_SCHOOL_LOGO_URL = "/imagenes/Logo%20Color.png"
 export const DEFAULT_SCHOOL_PRIMARY_COLOR = "#0c1b3f"
 export const DEFAULT_SCHOOL_ACCENT_COLOR = "#1d4ed8"
 
+function getCsrfToken(): string {
+  if (typeof document === "undefined") return ""
+  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)
+  return match ? decodeURIComponent(match[1]) : ""
+}
+
 export interface School {
   id: number | string | null
   name: string
@@ -997,6 +1003,11 @@ export async function authFetch(path: string, opts: AuthFetchOptions = {}): Prom
 
   if (!headers.has("Content-Type") && opts.body && !(opts.body instanceof FormData)) {
     headers.set("Content-Type", "application/json")
+  }
+
+  if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method) && !headers.has("X-CSRFToken")) {
+    const csrfToken = getCsrfToken()
+    if (csrfToken) headers.set("X-CSRFToken", csrfToken)
   }
 
   let res = await fetch(finalUrl, { credentials: "include", ...opts, headers })
