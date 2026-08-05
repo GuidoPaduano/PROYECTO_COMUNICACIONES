@@ -124,9 +124,16 @@ function resetUrl(tokenData: { uid: string; token: string }) {
   return `/reset-password?school=qa-local&uid=${encodeURIComponent(tokenData.uid)}&token=${encodeURIComponent(tokenData.token)}`
 }
 
+function resolvePython(projectRoot: string): string {
+  if (process.env.DJANGO_PYTHON) return process.env.DJANGO_PYTHON
+  return process.platform === "win32"
+    ? path.join(projectRoot, "venv", "Scripts", "python.exe")
+    : path.join(projectRoot, "venv", "bin", "python")
+}
+
 function runDjangoShell(script: string) {
   const projectRoot = path.resolve(__dirname, "../..")
-  const python = path.join(projectRoot, "venv", "Scripts", "python.exe")
+  const python = resolvePython(projectRoot)
   return execFileSync(python, ["manage.py", "shell", "-c", script], {
     cwd: projectRoot,
     encoding: "utf8",
