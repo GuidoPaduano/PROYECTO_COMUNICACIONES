@@ -6,6 +6,11 @@ const backendPort = Number(process.env.E2E_BACKEND_PORT || 8000)
 const baseURL = process.env.E2E_BASE_URL || `http://localhost:${frontendPort}`
 const backendURL = process.env.E2E_BACKEND_URL || `http://127.0.0.1:${backendPort}`
 const projectRoot = path.resolve(__dirname, "..")
+const pythonBin =
+  process.env.DJANGO_PYTHON ||
+  (process.platform === "win32"
+    ? path.join(projectRoot, "venv", "Scripts", "python.exe")
+    : path.join(projectRoot, "venv", "bin", "python"))
 
 export default defineConfig({
   testDir: "./e2e",
@@ -28,7 +33,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `.\\venv\\Scripts\\python.exe manage.py runserver 127.0.0.1:${backendPort}`,
+      command: `"${pythonBin}" manage.py runserver 127.0.0.1:${backendPort}`,
       cwd: projectRoot,
       url: `${backendURL}/api/public/school-branding/?school=qa-local`,
       reuseExistingServer: true,
