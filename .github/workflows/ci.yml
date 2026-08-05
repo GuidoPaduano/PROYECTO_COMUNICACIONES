@@ -35,6 +35,11 @@ jobs:
       - name: Unit tests
         run: npm test -- --passWithNoTests --ci
 
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
+
   backend:
     name: Backend — Django checks & tests
     runs-on: ubuntu-latest
