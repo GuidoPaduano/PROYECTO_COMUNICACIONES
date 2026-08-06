@@ -252,6 +252,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
     'http://127.0.0.1:3002',
+    'https://*.alumnix.com.ar',
 ]
 _lan_origin = os.environ.get("LAN_ORIGIN", "").strip()
 if _lan_origin:
