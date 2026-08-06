@@ -3,5 +3,5 @@
     "builder": "NIXPACKS",
     "buildCommand": "pip install -r requirements.txt && python manage.py collectstatic --noinput"
   },
-  "start": "python manage.py migrate && gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} boletin.asgi:application"
+  "start": "python manage.py migrate && gunicorn -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} boletin.asgi:application"
 }
