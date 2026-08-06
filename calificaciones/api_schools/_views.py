@@ -5,6 +5,7 @@ from django.db.models import Count, Exists, OuterRef, Q
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.utils.text import get_valid_filename, slugify
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -86,6 +87,7 @@ def public_school_directory(request):
     return Response({"schools": schools_to_dicts(schools)}, status=200)
 
 
+@csrf_exempt
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def admin_create_school(request):
@@ -152,6 +154,7 @@ def admin_create_school(request):
     )
 
 
+@csrf_exempt
 @api_view(["PATCH", "PUT", "DELETE"])
 @permission_classes([IsAuthenticated])
 def admin_update_school(request, school_id: int):
@@ -205,6 +208,7 @@ def admin_update_school(request, school_id: int):
     )
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def admin_upload_school_logo(request, school_id: int):
@@ -302,6 +306,7 @@ def admin_school_admins(request):
     )
 
 
+@csrf_exempt
 @api_view(["PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def admin_update_school_admins(request, school_id: int):
@@ -393,6 +398,7 @@ def admin_school_courses(request):
     )
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def admin_create_school_course(request, school_id: int):
@@ -425,6 +431,7 @@ def admin_create_school_course(request, school_id: int):
     )
 
 
+@csrf_exempt
 @api_view(["PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def admin_update_school_course(request, course_id: int):
