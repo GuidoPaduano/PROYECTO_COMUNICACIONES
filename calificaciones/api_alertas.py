@@ -24,6 +24,24 @@ def _active_school_id(school) -> str:
     return str(sid) if sid is not None else "none"
 
 
+_RECONCILIAR_TTL = 600  # segundos entre reconciliaciones por school
+
+
+def _reconciliar_throttled(*, course_refs, school=None):
+    sid = _active_school_id(school)
+    cache_key = f"alertas:v1:reconciliar_lock:s{sid}"
+    if cache.get(cache_key):
+        return
+    try:
+        cache.set(cache_key, 1, _RECONCILIAR_TTL)
+    except Exception:
+        pass
+    try:
+        reconciliar_alertas_academicas(course_refs=course_refs)
+    except Exception:
+        pass
+
+
 def _is_preceptor(user) -> bool:
     return user_in_groups(user, "Preceptores", "Preceptor", "Directivos", "Directivo")
 
@@ -120,7 +138,7 @@ def preceptor_alertas_academicas(request):
             return Response({"results": [], "count": 0}, status=200)
 
     limit = _parse_limit(request)
-    reconciliar_alertas_academicas(course_refs=course_refs)
+    _reconciliar_throttled(course_refs=course_refs, school=active_school)
     base_qs = scope_queryset_to_school(AlertaAcademica.objects.filter(estado="activa"), active_school)
     if course_refs is not None:
         course_q = _assignment_alert_filter(
