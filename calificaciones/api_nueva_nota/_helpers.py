@@ -579,6 +579,7 @@ def _notify_padre_nota(remitente, nota):
         ])
         notificado = bool(destinatarios)
         last_id = getattr(destinatarios[-1], "id", None) if destinatarios else None
+        for destinatario in destinatarios:
             try:
                 from django.conf import settings as _s
                 if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
@@ -705,6 +706,7 @@ def _notify_nota_modificada(remitente, nota, old_calificacion):
             )
             for destinatario in destinatarios
         ])
+        for destinatario in destinatarios:
             try:
                 from django.conf import settings as _s
                 if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
