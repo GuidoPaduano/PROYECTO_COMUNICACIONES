@@ -552,12 +552,7 @@ export default function CargarNotasRapidas() {
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
-                <select className="rounded border px-3 py-2 text-sm" value={fill.tipo} onChange={(e) => setFill((f) => ({ ...f, tipo: e.target.value }))}>
-                  <option value="">Tipo</option>
-                  {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
+                <input type="text" placeholder="Tipo" className="rounded border px-3 py-2 text-sm" value={fill.tipo} onChange={(e) => setFill((f) => ({ ...f, tipo: e.target.value }))} />
                 <select className="rounded border px-3 py-2 text-sm" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
                   <option value="">Calificación</option>
                   {calificaciones.map((r) => (
@@ -662,10 +657,7 @@ export default function CargarNotasRapidas() {
                       </div>
                       <div>
                         <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Tipo</label>
-                        <select className="w-full rounded border px-3 py-2 text-sm" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
-                          <option value=""></option>
-                          {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <input type="text" placeholder="Ej: Examen, TP, Oral…" className="w-full rounded border px-3 py-2 text-sm" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })} />
                       </div>
                     </>
                   )}

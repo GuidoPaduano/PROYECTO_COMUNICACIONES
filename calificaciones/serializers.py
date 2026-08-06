@@ -78,7 +78,7 @@ class NotaCreateSerializer(serializers.ModelSerializer):
     """
 
     alumno = serializers.PrimaryKeyRelatedField(queryset=Alumno.objects.select_related("padre", "usuario"))
-    tipo = serializers.ChoiceField(choices=Nota.TIPOS, required=False, allow_blank=True, allow_null=True)
+    tipo = serializers.CharField(max_length=50, required=False, allow_blank=True, allow_null=True)
     calificacion = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     resultado = serializers.ChoiceField(
         choices=Nota.RESULTADO_CHOICES,

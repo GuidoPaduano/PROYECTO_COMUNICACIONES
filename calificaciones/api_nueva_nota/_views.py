@@ -543,8 +543,6 @@ class CrearNotasMasivo(APIView):
 
             if not tipo:
                 row_err.setdefault('tipo', []).append('Tipo requerido.')
-            elif allowed_tipos_map and tipo_canon is None:
-                row_err.setdefault('tipo', []).append('Tipo inválido.')
             else:
                 tipo = tipo_canon or tipo
 

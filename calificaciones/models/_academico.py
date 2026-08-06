@@ -35,7 +35,7 @@ class Nota(models.Model):
     school = models.ForeignKey(School, on_delete=models.PROTECT, related_name="notas")
     alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE, related_name="notas")
     materia = models.CharField(max_length=50, choices=MATERIAS)
-    tipo = models.CharField(max_length=50, choices=TIPOS)
+    tipo = models.CharField(max_length=50)
     calificacion = models.CharField(max_length=15, validators=[validate_calificacion_ext])
     resultado = models.CharField(max_length=3, choices=RESULTADO_CHOICES, null=True, blank=True, db_index=True)
     nota_numerica = models.DecimalField(
