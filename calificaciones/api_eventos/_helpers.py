@@ -554,18 +554,27 @@ def _serialize_cursos_para_selector(cursos, school=None):
     Salida: {"cursos":[{"id":"5A","code":"5A","nombre":"5A","school_course_id": 1}, ...]}
     El frontend usa `school_course_id` como referencia principal y `code` como identificador legible.
     """
+    codes = [str(c).strip() for c in (cursos or []) if str(c).strip()]
+    if not codes:
+        return {"cursos": []}
+
+    # Batch: 1 sola query para todos los SchoolCourse en vez de 1 por curso.
+    sc_by_code: dict[str, int] = {}
+    if school is not None:
+        codes_upper = [c.upper() for c in codes]
+        for sc in SchoolCourse.objects.filter(
+            school=school, code__in=codes_upper
+        ).values("id", "code"):
+            sc_by_code[sc["code"].upper()] = sc["id"]
+
     out = []
-    for c in cursos or []:
-        c = (str(c) or "").strip()
-        if not c:
-            continue
-        school_course = resolve_school_course_for_value(school=school, curso=c) if school is not None else None
+    for c in codes:
         out.append(
             {
                 "id": c,
                 "code": c,
                 "nombre": get_course_label(c, school=school),
-                "school_course_id": getattr(school_course, "id", None),
+                "school_course_id": sc_by_code.get(c.upper()),
             }
         )
     return {"cursos": out}

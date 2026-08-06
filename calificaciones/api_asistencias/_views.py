@@ -23,7 +23,7 @@ from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..tasks import evaluar_alertas_inasistencia_task, evaluar_alerta_inasistencia_task
-from ..models import Alumno, Asistencia
+from ..models import Alumno, Asistencia, SchoolCourse
 from ..models import resolve_school_course_for_value
 from ..schools import get_request_school, scope_queryset_to_school
 from ..signatures import claim_signature
@@ -144,15 +144,24 @@ def _evaluar_alerta_single(*, alumno_id, asistencia_id, tipo_asistencia, actor_i
 def preceptor_cursos(request):
     active_school = get_request_school(request)
     cursos = _cursos_de_usuario(request.user, school=active_school)
+
+    # Batch: 1 sola query para todos los SchoolCourse en vez de 1 por curso.
+    sc_by_code: dict[str, int] = {}
+    if active_school is not None and cursos:
+        codes_upper = [str(c).strip().upper() for c in cursos]
+        for sc in SchoolCourse.objects.filter(
+            school=active_school, code__in=codes_upper
+        ).values("id", "code"):
+            sc_by_code[sc["code"].upper()] = sc["id"]
+
     data = []
     for c in cursos:
-        school_course = resolve_school_course_for_value(school=active_school, curso=c) if active_school is not None else None
         data.append(
             {
                 "curso": c,
                 "code": c,
                 "nombre": _curso_label(c, school=active_school),
-                "school_course_id": getattr(school_course, "id", None),
+                "school_course_id": sc_by_code.get(str(c).strip().upper()),
             }
         )
     return _ok_response({"cursos": data})
