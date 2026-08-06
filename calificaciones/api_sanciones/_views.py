@@ -215,8 +215,17 @@ def sanciones_lista_crear(request):
             notificado = False
             notif_destinatario_id = None
 
-            for destinatario in destinatarios:
-                Notificacion.objects.create(
+            notif_meta = {
+                "alumno_id": getattr(alumno, "id", None),
+                "alumno_legajo": getattr(alumno, "id_alumno", None),
+                **_course_meta(alumno),
+                "tipo_sancion": getattr(sancion, "tipo", None),
+                "fecha": fecha_n.isoformat() if fecha_n else None,
+                "docente": docente_u,
+                "remitente": getattr(request.user, "username", None),
+            }
+            Notificacion.objects.bulk_create([
+                Notificacion(
                     school=school_ref,
                     destinatario=destinatario,
                     tipo="sancion",
@@ -224,18 +233,14 @@ def sanciones_lista_crear(request):
                     descripcion=contenido_msg,
                     url=url_sanc,
                     leida=False,
-                    meta={
-                        "alumno_id": getattr(alumno, "id", None),
-                        "alumno_legajo": getattr(alumno, "id_alumno", None),
-                        **_course_meta(alumno),
-                        "tipo_sancion": getattr(sancion, "tipo", None),
-                        "fecha": fecha_n.isoformat() if fecha_n else None,
-                        "docente": docente_u,
-                        "remitente": getattr(request.user, "username", None),
-                    },
+                    meta=notif_meta,
                 )
-                notificado = True
-                notif_destinatario_id = getattr(destinatario, "id", None)
+                for destinatario in destinatarios
+            ])
+            notificado = bool(destinatarios)
+            notif_destinatario_id = getattr(destinatarios[-1], "id", None) if destinatarios else None
+
+            for destinatario in destinatarios:
                 try:
                     from django.conf import settings as _s
                     if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):

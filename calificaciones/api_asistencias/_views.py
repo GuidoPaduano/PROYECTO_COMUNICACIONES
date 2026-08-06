@@ -522,6 +522,17 @@ def registrar_asistencias(request):
         for _a in _base_alumno_qs.filter(id_alumno__in=_batch_legajos):
             _alumno_by_legajo[_a.id_alumno] = _a
 
+    # Pre-fetch existing Asistencia records to avoid 1 SELECT per item in the main loop.
+    # Formato B almost always shares the same fecha_global; cover that case with one IN query.
+    _asistencia_lookup: Dict[tuple, Any] = {}
+    _all_alumno_ids_batch = set(_alumno_by_pk.keys()) | {a.pk for a in _alumno_by_legajo.values()}
+    if _all_alumno_ids_batch and fecha_global:
+        for _ast in scope_queryset_to_school(
+            Asistencia.objects.filter(alumno_id__in=_all_alumno_ids_batch, fecha=fecha_global),
+            active_school,
+        ):
+            _asistencia_lookup[(_ast.alumno_id, _ast.fecha, str(_ast.tipo_asistencia))] = _ast
+
     for it in items:
         it = _try_parse_json(it)
         if not isinstance(it, dict):
@@ -595,9 +606,12 @@ def registrar_asistencias(request):
             presente = bool(it.get("presente", True))
 
         try:
-            prev = scope_queryset_to_school(Asistencia.objects.filter(
-                alumno=alumno, fecha=fecha, tipo_asistencia=tipo_asistencia
-            ), active_school).first()
+            _lookup_key = (alumno.pk, fecha, str(tipo_asistencia))
+            prev = _asistencia_lookup.get(_lookup_key)
+            if prev is None and fecha != fecha_global:
+                prev = scope_queryset_to_school(Asistencia.objects.filter(
+                    alumno=alumno, fecha=fecha, tipo_asistencia=tipo_asistencia
+                ), active_school).first()
             obj, _created = scope_queryset_to_school(Asistencia.objects.all(), active_school).update_or_create(
                 alumno=alumno,
                 fecha=fecha,

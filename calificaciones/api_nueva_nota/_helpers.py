@@ -377,11 +377,13 @@ def _normalizar_nota_payload(d, school=None):
 # ---------- Notificación: nota nueva → padre (campanita) ----------
 def _infer_tipo_remitente(user) -> str:
     try:
-        if user.groups.filter(name__icontains="precep").exists():
+        from ..user_groups import get_user_group_names
+        names_lower = " ".join(get_user_group_names(user)).lower()
+        if "precep" in names_lower:
             return "Preceptor"
-        if user.groups.filter(name__icontains="direct").exists():
+        if "direct" in names_lower:
             return "Directivo"
-        if user.groups.filter(name__icontains="profe").exists():
+        if "profe" in names_lower:
             return "Profesor"
     except Exception:
         pass
@@ -552,27 +554,31 @@ def _notify_padre_nota(remitente, nota):
         last_id = None
         school_ref = getattr(nota, "school", None) or getattr(alumno, "school", None)
 
-        for destinatario in destinatarios:
-            Notificacion.objects.create(
+        alumno_url = f"/alumnos/{getattr(alumno, 'id', '')}/?tab=notas"
+        notif_meta = {
+            "alumno_id": getattr(alumno, "id", None),
+            "alumno_legajo": getattr(alumno, "id_alumno", None),
+            **_notification_course_meta(alumno=alumno, course_code=curso_alumno, school=school_ref),
+            "materia": materia_nombre or "",
+            "tipo_nota": tipo or "",
+            "calificacion": calif,
+            "fecha": fecha_str,
+        }
+        Notificacion.objects.bulk_create([
+            Notificacion(
                 school=school_ref,
                 destinatario=destinatario,
                 tipo="nota",
                 titulo=asunto_notif,
                 descripcion=contenido_msg,
-                url=f"/alumnos/{getattr(alumno, 'id', '')}/?tab=notas",
+                url=alumno_url,
                 leida=False,
-                meta={
-                    "alumno_id": getattr(alumno, "id", None),
-                    "alumno_legajo": getattr(alumno, "id_alumno", None),
-                    **_notification_course_meta(alumno=alumno, course_code=curso_alumno, school=school_ref),
-                    "materia": materia_nombre or "",
-                    "tipo_nota": tipo or "",
-                    "calificacion": calif,
-                    "fecha": fecha_str,
-                },
+                meta=notif_meta,
             )
-            notificado = True
-            last_id = getattr(destinatario, "id", None)
+            for destinatario in destinatarios
+        ])
+        notificado = bool(destinatarios)
+        last_id = getattr(destinatarios[-1], "id", None) if destinatarios else None
             try:
                 from django.conf import settings as _s
                 if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):
@@ -674,27 +680,31 @@ def _notify_nota_modificada(remitente, nota, old_calificacion):
 
         titulo = f"Nota actualizada para {alumno_nombre}"
 
-        for destinatario in destinatarios:
-            Notificacion.objects.create(
+        alumno_url = f"/alumnos/{getattr(alumno, 'id', '')}/?tab=notas"
+        notif_meta = {
+            "alumno_id": getattr(alumno, "id", None),
+            "alumno_legajo": getattr(alumno, "id_alumno", None),
+            **_notification_course_meta(alumno=alumno, course_code=curso_alumno, school=school_ref),
+            "materia": materia_nombre or "",
+            "tipo_nota": tipo or "",
+            "calificacion_anterior": str(old_calificacion) if old_calificacion is not None else None,
+            "calificacion_nueva": str(new_calificacion) if new_calificacion is not None else None,
+            "modificada_por": docente_label,
+            "fecha": fecha_iso,
+        }
+        Notificacion.objects.bulk_create([
+            Notificacion(
                 school=school_ref,
                 destinatario=destinatario,
                 tipo="nota",
                 titulo=titulo,
                 descripcion=descripcion,
-                url=f"/alumnos/{getattr(alumno, 'id', '')}/?tab=notas",
+                url=alumno_url,
                 leida=False,
-                meta={
-                    "alumno_id": getattr(alumno, "id", None),
-                    "alumno_legajo": getattr(alumno, "id_alumno", None),
-                    **_notification_course_meta(alumno=alumno, course_code=curso_alumno, school=school_ref),
-                    "materia": materia_nombre or "",
-                    "tipo_nota": tipo or "",
-                    "calificacion_anterior": str(old_calificacion) if old_calificacion is not None else None,
-                    "calificacion_nueva": str(new_calificacion) if new_calificacion is not None else None,
-                    "modificada_por": docente_label,
-                    "fecha": fecha_iso,
-                },
+                meta=notif_meta,
             )
+            for destinatario in destinatarios
+        ])
             try:
                 from django.conf import settings as _s
                 if getattr(_s, "EMAIL_NOTIFICATIONS_ENABLED", True):

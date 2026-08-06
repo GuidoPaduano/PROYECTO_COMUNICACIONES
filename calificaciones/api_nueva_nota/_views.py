@@ -316,7 +316,7 @@ class EditarNota(APIView):
         active_school = get_request_school(request)
         try:
             nota = scope_queryset_to_school(
-                Nota.objects.select_related("alumno"),
+                Nota.objects.select_related("alumno", "alumno__padre", "alumno__usuario"),
                 active_school,
             ).get(pk=nota_id)
         except Nota.DoesNotExist:
