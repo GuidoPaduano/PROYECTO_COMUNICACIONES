@@ -297,7 +297,11 @@ def _alumnos_por_curso_qs(curso: str, *, school=None, school_course=None, school
     )
     if course_q is None:
         return Alumno.objects.none()
-    return scope_queryset_to_school(Alumno.objects.all(), school).filter(course_q)
+    return (
+        scope_queryset_to_school(Alumno.objects.all(), school)
+        .filter(course_q)
+        .select_related("school_course", "padre")
+    )
 
 
 def _build_alumnos_payload(qs, *, school=None, course_code="", school_course=None):
