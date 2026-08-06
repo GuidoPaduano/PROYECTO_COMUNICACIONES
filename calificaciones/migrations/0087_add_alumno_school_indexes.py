@@ -12,14 +12,14 @@ class Migration(migrations.Migration):
             model_name="alumno",
             index=models.Index(
                 fields=["school", "nombre"],
-                name="calificaci_alumno_school_nombre_idx",
+                name="alumno_school_nombre_idx",
             ),
         ),
         migrations.AddIndex(
             model_name="alumno",
             index=models.Index(
                 fields=["school", "school_course"],
-                name="calificaci_alumno_school_course_idx",
+                name="alumno_school_course_idx",
             ),
         ),
     ]
