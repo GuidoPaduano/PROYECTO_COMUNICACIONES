@@ -735,10 +735,7 @@ export default function CargarNotasRapidas() {
                   )}
                   {!modoFinal && (
                     <td className="px-3 py-2">
-                      <select className="w-full rounded border px-2 py-1" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })}>
-                        <option value=""></option>
-                        {(tipos.length ? tipos : ["Examen", "Trabajo Practico", "Participacion", "Tarea"]).map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                      <input type="text" placeholder="Ej: Examen, TP…" className="w-full rounded border px-2 py-1" value={r.tipo} onChange={(e) => updateRowAt(idx, { tipo: e.target.value })} />
                     </td>
                   )}
                   <td className="px-3 py-2">
