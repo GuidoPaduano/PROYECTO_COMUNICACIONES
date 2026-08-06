@@ -33,8 +33,8 @@ class Alumno(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["school", "nombre"], name="calificaci_alumno_school_nombre_idx"),
-            models.Index(fields=["school", "school_course"], name="calificaci_alumno_school_course_idx"),
+            models.Index(fields=["school", "nombre"], name="alumno_school_nombre_idx"),
+            models.Index(fields=["school", "school_course"], name="alumno_school_course_idx"),
         ]
 
     def __str__(self):
