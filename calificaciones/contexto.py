@@ -38,6 +38,7 @@ def alumno_to_dict(a: Optional[Alumno]) -> Optional[Dict[str, Any]]:
         "school_course_id": getattr(a, "school_course_id", None),
         "school_course_name": getattr(school_course, "name", None) or getattr(school_course, "code", None) or a.curso,
         "school_id": getattr(a, "school_id", None),
+        "nivel": getattr(a, "nivel", "secundaria"),
         "padre_id": a.padre_id,
         "usuario_id": getattr(a, "usuario_id", None),
     }

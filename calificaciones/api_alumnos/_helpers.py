@@ -46,6 +46,7 @@ def _alumno_to_dict(a: Alumno) -> dict:
         "school_course_name": getattr(getattr(a, "school_course", None), "name", None)
         or getattr(getattr(a, "school_course", None), "code", None)
         or getattr(a, "curso", None),
+        "nivel": getattr(a, "nivel", "secundaria"),
         "padre": getattr(a, "padre_id", None),
         # Si existe el campo usuario (OneToOne/FK), lo exponemos como id (si no existe, queda None)
         "usuario": getattr(a, "usuario_id", None) if hasattr(a, "usuario_id") else None,
@@ -471,6 +472,8 @@ def _build_import_plan(*, rows: list[dict], school: School):
             _first_import_value(row, "curso_nombre", "nombre_curso", "course_name", "school_course_name")
             or raw_curso
         )
+        raw_nivel = _first_import_value(row, "nivel", "level", "modalidad").lower()
+        nivel = "primaria" if "prim" in raw_nivel else "secundaria"
         nombre_padre = _first_import_value(row, "nombre_padre_madre_tutor", "nombre_tutor", "nombre_padre", "nombre_apoderado")
         apellido_padre = _first_import_value(row, "apellido_padre_madre_tutor", "apellido_tutor", "apellido_padre", "apellido_apoderado")
         mail = _first_import_value(row, "mail", "email", "correo", "correo_electronico").lower()
@@ -579,6 +582,7 @@ def _build_import_plan(*, rows: list[dict], school: School):
                 "nombre": nombre,
                 "apellido": apellido,
                 "curso": curso,
+                "nivel": nivel,
                 "school_course": school_course,
                 "school_course_id": getattr(school_course, "id", None),
                 "school_course_name": getattr(school_course, "name", None) or curso_nombre or curso,

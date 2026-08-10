@@ -94,11 +94,12 @@ def admin_importar_alumnos_template(request):
         "Curso",
         "Apellido Estudiante",
         "Nombre Estudiante",
+        "Nivel",
         "Apellido Padre/Madre/Tutor",
         "Nombre Padre/Madre/Tutor",
         "Mail",
     ]
-    col_widths = [12, 28, 24, 32, 28, 36]
+    col_widths = [12, 28, 24, 16, 32, 28, 36]
 
     sheet = workbook.active
     sheet.title = "Alumnos"
@@ -110,11 +111,28 @@ def admin_importar_alumnos_template(request):
         cell.fill = header_fill
         sheet.column_dimensions[get_column_letter(col_idx)].width = width
 
+    nivel_col = headers.index("Nivel") + 1
+    nivel_col_letter = get_column_letter(nivel_col)
+
     for code in cursos:
         row_data = [str(code)] + [""] * (len(headers) - 1)
         sheet.append(row_data)
         curso_cell = sheet.cell(row=sheet.max_row, column=1)
         curso_cell.fill = course_fill
+
+    # Dropdown selector para columna Nivel (filas de datos, desde fila 2)
+    try:
+        from openpyxl.worksheet.datavalidation import DataValidation
+        dv = DataValidation(
+            type="list",
+            formula1='"Secundaria,Primaria"',
+            allow_blank=True,
+            showDropDown=False,
+        )
+        dv.sqref = f"{nivel_col_letter}2:{nivel_col_letter}5000"
+        sheet.add_data_validation(dv)
+    except Exception:
+        pass
 
     output = io.BytesIO()
     workbook.save(output)
@@ -482,6 +500,7 @@ def admin_importar_alumnos(request):
                         school=school,
                         school_course=school_course,
                         curso=item["curso"],
+                        nivel=item.get("nivel", "secundaria"),
                         id_alumno=item["legajo"],
                         nombre=item["nombre"],
                         apellido=item["apellido"],

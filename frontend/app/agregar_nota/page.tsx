@@ -27,22 +27,27 @@ const NOTAS_RAPIDAS_RESOURCE_MAX_AGE_MS = 15000
 const notasRapidasResourceCache = new Map()
 const notasRapidasResourcePromises = new Map()
 
-function buildCalificacionOptions() {
-  const values = ["TEA", "TEP", "TED", "S", "MB", "B", "R"]
-  for (let value = 1; value <= 10; value += 1) {
-    values.push(String(value))
-  }
-  values.push("NO ENTREGADO")
-  const labels: Record<string, string> = {
-    "NO ENTREGADO": "No entregado",
-    "S": "S - Sobresaliente",
-    "MB": "MB - Muy Bueno",
-    "B": "B - Bueno",
-    "R": "R - Regular",
-  }
+const CALIFICACION_LABELS: Record<string, string> = {
+  "NO ENTREGADO": "No entregado",
+  "S": "S - Sobresaliente",
+  "MB": "MB - Muy Bueno",
+  "B": "B - Bueno",
+  "R": "R - Regular",
+}
+
+function buildCalificacionOptions(nivel: string = "secundaria") {
+  const isPrimaria = nivel === "primaria"
+  const values = isPrimaria
+    ? ["S", "MB", "B", "R", "NO ENTREGADO"]
+    : (() => {
+        const v = ["TEA", "TEP", "TED"]
+        for (let n = 1; n <= 10; n += 1) v.push(String(n))
+        v.push("NO ENTREGADO")
+        return v
+      })()
   return values.map((value) => ({
     id: value,
-    label: labels[value] ?? value,
+    label: CALIFICACION_LABELS[value] ?? value,
   }))
 }
 
@@ -233,6 +238,7 @@ export default function CargarNotasRapidas() {
           .map((a) => ({
             id: pickId(a),
             nombre: String(a?.nombre || "Alumno"),
+            nivel: String(a?.nivel || "secundaria"),
             materia: "",
             tipo: "",
             calificacion: "",
@@ -672,7 +678,7 @@ export default function CargarNotasRapidas() {
                     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Calificación</label>
                     <select className="w-full rounded border px-3 py-2 text-sm" value={r.calificacion} onChange={(e) => updateRowAt(idx, { calificacion: e.target.value })}>
                       <option value=""></option>
-                      {calificaciones.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+                      {buildCalificacionOptions(r.nivel).map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                     </select>
                   </div>
                   {!modoFinal && (
@@ -748,7 +754,7 @@ export default function CargarNotasRapidas() {
                   <td className="px-3 py-2">
                     <select className="w-full rounded border px-2 py-1" value={r.calificacion} onChange={(e) => updateRowAt(idx, { calificacion: e.target.value })}>
                       <option value=""></option>
-                      {calificaciones.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+                      {buildCalificacionOptions(r.nivel).map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                     </select>
                   </td>
                   {!modoFinal && (

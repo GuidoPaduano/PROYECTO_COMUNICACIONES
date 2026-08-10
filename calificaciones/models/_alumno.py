@@ -15,6 +15,10 @@ class Alumno(models.Model):
         ('5ECO', '5ECO'), ('5NAT', '5NAT'),
         ('6ECO', '6ECO'), ('6NAT', '6NAT'),
     ]
+    NIVEL_CHOICES = [
+        ('secundaria', 'Secundaria'),
+        ('primaria', 'Primaria'),
+    ]
 
     nombre = models.CharField(max_length=100)
     apellido = models.CharField(max_length=100, default="", blank=True)
@@ -22,6 +26,7 @@ class Alumno(models.Model):
     school = models.ForeignKey(School, on_delete=models.PROTECT, related_name="alumnos")
     school_course = models.ForeignKey(SchoolCourse, on_delete=models.PROTECT, related_name="alumnos")
     curso = models.CharField(max_length=20, choices=CURSOS, db_index=True)
+    nivel = models.CharField(max_length=20, choices=NIVEL_CHOICES, default='secundaria', db_index=True)
     padre = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="alumnos_como_padre")
     usuario = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="perfil_alumno")
 
