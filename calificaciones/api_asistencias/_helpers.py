@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Sum, Case, When, FloatField, Value
 from django.http import QueryDict
 
 from rest_framework.response import Response
@@ -862,6 +862,22 @@ def _bulk_upsert_asistencias(
 
 def _asistencias_alumno_response(alumno, *, school=None, request=None):
     qs = _asistencia_base_qs(school).filter(alumno=alumno).order_by("-fecha", "-id")
+
+    # Suma ponderada sobre el total (no paginado): Ausente=1, Tarde=0.5, justificada=0
+    agg = qs.aggregate(
+        total_pond=Sum(
+            Case(
+                When(justificada=True, then=Value(0.0)),
+                When(presente=False, tarde=False, then=Value(1.0)),
+                When(presente=False, tarde=True, then=Value(1.0)),
+                When(presente=True, tarde=True, then=Value(0.5)),
+                default=Value(0.0),
+                output_field=FloatField(),
+            )
+        )
+    )
+    total_inasistencias = agg["total_pond"] or 0.0
+
     if request is not None:
         items, pagination = paginate_queryset(qs, request)
     else:
@@ -875,6 +891,7 @@ def _asistencias_alumno_response(alumno, *, school=None, request=None):
         {
             "alumno": _serialize_alumno_brief(alumno, school=school),
             "results": results,
+            "total_inasistencias": total_inasistencias,
             **pagination,
         }
     )

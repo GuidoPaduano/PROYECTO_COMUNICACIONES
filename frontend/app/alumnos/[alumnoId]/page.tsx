@@ -599,8 +599,9 @@ async function getAsistenciasByPkOrCode(pk, code, page = 1) {
         continue
       }
       const hasMore = r.data?.has_next === true
-      if (arr.length > 0) return { items: arr, hasMore }
-      if (fallback === null) fallback = { items: arr, hasMore }
+      const totalInasistencias = r.data?.total_inasistencias ?? null
+      if (arr.length > 0) return { items: arr, hasMore, totalInasistencias }
+      if (fallback === null) fallback = { items: arr, hasMore, totalInasistencias }
     } catch (error) {
       lastError =
         error instanceof Error ? error : new Error("No se pudieron cargar las asistencias.")
@@ -1020,6 +1021,7 @@ function AlumnoPerfilPageInner() {
   const [sancionesPage, setSancionesPage] = useState(1)
   const [asistenciasHasMore, setAsistenciasHasMore] = useState(false)
   const [asistenciasPage, setAsistenciasPage] = useState(1)
+  const [asistenciasTotalBackend, setAsistenciasTotalBackend] = useState<number | null>(null)
   const identifiersReady = Boolean(alumnoDetail && (pk || String(code || "").trim()))
 
   // sección activa (tarjeta clickeada)
@@ -1590,6 +1592,12 @@ function AlumnoPerfilPageInner() {
   }, [asistencias, filAsisTipo])
 
   const totalInasistencias = useMemo(() => {
+    // Si el filtro de tipo está activo, calculamos solo sobre los datos cargados
+    // (el backend devuelve el total sin filtro de tipo).
+    // Si no hay filtro, usamos el total del backend (incluye páginas no cargadas).
+    if (filAsisTipo === "ALL" && asistenciasTotalBackend != null) {
+      return asistenciasTotalBackend
+    }
     const arr = Array.isArray(asistenciasParaTotal) ? asistenciasParaTotal : []
     let sum = 0
     for (const a of arr) {
@@ -1599,7 +1607,7 @@ function AlumnoPerfilPageInner() {
       else if (texto === "Tarde") sum += 0.5
     }
     return sum
-  }, [asistenciasParaTotal])
+  }, [asistenciasParaTotal, asistenciasTotalBackend, filAsisTipo])
 
   const openDetalleModal = (asistencia) => {
     const asistenciaId = getAsistenciaId(asistencia)
@@ -1994,6 +2002,7 @@ function AlumnoPerfilPageInner() {
       setAsistencias(items)
       setAsistenciasHasMore(a?.hasMore ?? false)
       setAsistenciasPage(1)
+      if (a?.totalInasistencias != null) setAsistenciasTotalBackend(a.totalInasistencias)
       setCachedList(ASISTENCIAS_CACHE_PREFIX, alumnoCacheId, items)
       lastLoadedRef.current.asistencias = key
     } catch (error) {
