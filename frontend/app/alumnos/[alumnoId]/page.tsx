@@ -3784,18 +3784,8 @@ function AlumnoPerfilPageInner() {
                 className="shadow-sm border-0 bg-white/80 backdrop-blur-sm"
               >
                 <CardContent className="p-6">
-                  {/* ✅ header con filtros a la derecha */}
+                  {/* filtros mes + tipo */}
                   <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center">
-                        <CalendarDays className="h-6 w-6 text-emerald-700" />
-                      </div>
-                      <div>
-                        <h2 className="tile-title">Asistencias</h2>
-                      </div>
-                    </div>
-
-                    {/* ✅ NUEVO: filtros mes + tipo */}
                     <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
                       {asistencias.length > 0 && (
                         <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:w-auto">
