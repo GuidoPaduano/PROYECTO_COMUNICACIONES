@@ -373,6 +373,10 @@ def _serialize_msg(m):
             ]
             if part
         ).strip()
+        # True si quien envió el mensaje es el propio alumno (no su padre/tutor)
+        sender_id = getattr(sender_obj, "id", None)
+        alumno_usuario_id = getattr(alumno_obj, "usuario_id", None)
+        item["alumno_es_emisor"] = bool(sender_id and sender_id == alumno_usuario_id)
     elif flags["has_alumno"]:
         item["alumno_id"] = getattr(m, "alumno_id", None)
 

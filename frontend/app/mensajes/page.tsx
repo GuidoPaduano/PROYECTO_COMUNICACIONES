@@ -1201,7 +1201,7 @@ export default function MensajesPage() {
                     {msgSel?.emisor || "—"}
                   </span>
 
-                  {msgSel?.alumno_nombre && (
+                  {msgSel?.alumno_nombre && !msgSel?.alumno_es_emisor && (
                     <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-white text-sm text-gray-700">
                       <GraduationCap className="h-4 w-4 text-gray-500" />
                       {msgSel.alumno_nombre}
