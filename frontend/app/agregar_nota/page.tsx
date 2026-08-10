@@ -28,14 +28,21 @@ const notasRapidasResourceCache = new Map()
 const notasRapidasResourcePromises = new Map()
 
 function buildCalificacionOptions() {
-  const values = ["TEA", "TEP", "TED"]
+  const values = ["TEA", "TEP", "TED", "S", "MB", "B", "R"]
   for (let value = 1; value <= 10; value += 1) {
     values.push(String(value))
   }
   values.push("NO ENTREGADO")
+  const labels: Record<string, string> = {
+    "NO ENTREGADO": "No entregado",
+    "S": "S - Sobresaliente",
+    "MB": "MB - Muy Bueno",
+    "B": "B - Bueno",
+    "R": "R - Regular",
+  }
   return values.map((value) => ({
     id: value,
-    label: value === "NO ENTREGADO" ? "No entregado" : value,
+    label: labels[value] ?? value,
   }))
 }
 

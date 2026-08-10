@@ -21,7 +21,7 @@ def validate_calificacion_ext(value):
 
     up = s.upper()
 
-    allowed_text = {"TEA", "TEP", "TED", "NO ENTREGADO"}
+    allowed_text = {"TEA", "TEP", "TED", "NO ENTREGADO", "S", "MB", "B", "R"}
     if up in allowed_text:
         return
 
