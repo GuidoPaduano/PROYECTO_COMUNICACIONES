@@ -361,6 +361,11 @@ def _annotate_estado_notas(qs):
                 When(calificacion_normalizada="TEA", then=Value("TEA")),
                 When(calificacion_normalizada="TEP", then=Value("TEP")),
                 When(calificacion_normalizada="TED", then=Value("TED")),
+                # Notas conceptuales (primaria): S/MB/B → TEA, R → TEP
+                When(calificacion_normalizada="S", then=Value("TEA")),
+                When(calificacion_normalizada="MB", then=Value("TEA")),
+                When(calificacion_normalizada="B", then=Value("TEA")),
+                When(calificacion_normalizada="R", then=Value("TEP")),
                 default=Value(None),
                 output_field=CharField(),
             )

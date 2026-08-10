@@ -8,6 +8,8 @@ from .models import Alumno, Evento, Nota, Sancion, validate_calificacion_ext
 
 
 _ESTADOS = {"TEA", "TEP", "TED"}
+_CONCEPTUALES_TEA = {"S", "MB", "B"}
+_CONCEPTUALES_TEP = {"R"}
 
 
 def _parse_nota_numerica(value):
@@ -162,6 +164,13 @@ class NotaCreateSerializer(serializers.ModelSerializer):
             if calificacion in _ESTADOS and not resultado:
                 attrs["resultado"] = calificacion
                 resultado = calificacion
+            # Notas conceptuales primaria: S/MB/B → TEA, R → TEP
+            elif calificacion in _CONCEPTUALES_TEA and not resultado:
+                attrs["resultado"] = "TEA"
+                resultado = "TEA"
+            elif calificacion in _CONCEPTUALES_TEP and not resultado:
+                attrs["resultado"] = "TEP"
+                resultado = "TEP"
 
             # Si calificacion llega numérica, poblar nota_numerica
             parsed_num = _parse_nota_numerica(calificacion)
