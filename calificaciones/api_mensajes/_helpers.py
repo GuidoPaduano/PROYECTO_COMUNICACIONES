@@ -396,6 +396,16 @@ def _serialize_msg(m):
     if flags["has_leido_en"]:
         item["leido_en"] = getattr(m, "leido_en", None)
 
+    # Tipo de emisor calculado para filtrado en el frontend
+    if item.get("alumno_es_emisor"):
+        item["tipo_emisor"] = "Alumno"
+    elif item.get("alumno_nombre"):
+        item["tipo_emisor"] = "Padre"
+    elif flags["has_tipo_remitente"]:
+        item["tipo_emisor"] = getattr(m, "tipo_remitente", None) or "Profesor"
+    else:
+        item["tipo_emisor"] = _infer_tipo_remitente(sender_obj)
+
     return item
 
 

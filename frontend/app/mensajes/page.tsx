@@ -219,6 +219,7 @@ export default function MensajesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [buscar, setBuscar] = useState("")
+  const [filTipoEmisor, setFilTipoEmisor] = useState("ALL")
   const [mensajes, setMensajes] = useState([])
   const [hijos, setHijos] = useState([])
   const [hijoSel, setHijoSel] = useState("")
@@ -438,13 +439,16 @@ export default function MensajesPage() {
           (m.emisor || "").toLowerCase().includes(q)
       )
     }
+    if (filTipoEmisor !== "ALL") {
+      arr = arr.filter((m) => (m.tipo_emisor || "") === filTipoEmisor)
+    }
     arr.sort((a, b) => {
       const da = new Date(a.fecha || a.fecha_envio || 0).getTime()
       const db = new Date(b.fecha || b.fecha_envio || 0).getTime()
       return db - da
     })
     return arr
-  }, [mensajes, buscar])
+  }, [mensajes, buscar, filTipoEmisor])
 
   async function marcarTodoLeido() {
     try {
@@ -827,6 +831,29 @@ export default function MensajesPage() {
                 </Button>
               </div>
             </div>
+
+            {/* Filtro por tipo de emisor — solo visible para staff */}
+            {!isAlumnoOrPadre && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {(["ALL", "Padre", "Alumno"] as const).map((tipo) => {
+                  const label = tipo === "ALL" ? "Todos" : tipo === "Padre" ? "Padres" : "Alumnos"
+                  const active = filTipoEmisor === tipo
+                  return (
+                    <button
+                      key={tipo}
+                      onClick={() => setFilTipoEmisor(tipo)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        active
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-600 border-gray-300 hover:border-gray-500"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Lista */}
             {loading ? (
