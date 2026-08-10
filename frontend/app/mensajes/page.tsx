@@ -32,6 +32,7 @@ import {
   History,
   Reply,
   Trash2,
+  GraduationCap,
 } from "lucide-react"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -1204,6 +1205,13 @@ export default function MensajesPage() {
                     <CalendarDays className="h-4 w-4 text-gray-500" />
                     {fmtFecha(msgSel?.fecha || msgSel?.fecha_envio)}
                   </span>
+
+                  {msgSel?.alumno_nombre && (
+                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-white text-sm text-gray-700">
+                      <GraduationCap className="h-4 w-4 text-gray-500" />
+                      {msgSel.alumno_nombre}
+                    </span>
+                  )}
 
                   {cursoChip && (
                     <span className="inline-flex items-center px-3 py-1 rounded-full border bg-white text-sm text-gray-700">
