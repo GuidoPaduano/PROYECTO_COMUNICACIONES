@@ -266,8 +266,9 @@ export default function CursoDetallePage({ params }) {
     if (!q) return alumnos
     return alumnos.filter((a) => {
       const nombreA = (a?.nombre || "").toLowerCase()
+      const apellidoA = (a?.apellido || "").toLowerCase()
       const idA = String(a?.id_alumno || "").toLowerCase()
-      return nombreA.includes(q) || idA.includes(q)
+      return nombreA.includes(q) || apellidoA.includes(q) || idA.includes(q)
     })
   }, [alumnos, busqueda])
 
@@ -322,10 +323,12 @@ export default function CursoDetallePage({ params }) {
                           color: "var(--school-accent)",
                         }}
                       >
-                        {getInitials(a?.nombre)}
+                        {getInitials(`${a?.nombre || ""} ${a?.apellido || ""}`)}
                       </div>
                       <div className="flex-1">
-                        <h2 className="font-semibold text-gray-900">{a.nombre}</h2>
+                        <h2 className="font-semibold text-gray-900">
+                          {[a?.apellido, a?.nombre].filter(Boolean).join(", ") || "Alumno"}
+                        </h2>
                         {a.id_alumno ? (
                           <p className="text-sm text-gray-600">Legajo: {a.id_alumno}</p>
                         ) : null}
@@ -345,10 +348,12 @@ export default function CursoDetallePage({ params }) {
                         color: "var(--school-accent)",
                       }}
                     >
-                      {getInitials(a?.nombre)}
+                      {getInitials(`${a?.nombre || ""} ${a?.apellido || ""}`)}
                     </div>
                     <div className="flex-1">
-                      <h2 className="font-semibold text-gray-900">{a?.nombre || "Alumno"}</h2>
+                      <h2 className="font-semibold text-gray-900">
+                        {[a?.apellido, a?.nombre].filter(Boolean).join(", ") || "Alumno"}
+                      </h2>
                       {a?.id_alumno ? (
                         <p className="text-sm text-gray-600">Legajo: {a.id_alumno}</p>
                       ) : null}
