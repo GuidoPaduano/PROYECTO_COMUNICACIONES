@@ -202,7 +202,7 @@ export default function ReportesPage() {
   const [error, setError] = useState("")
 
   const [role, setRole] = useState("SinRol")
-  const [cursos, setCursos] = useState([])
+  const [cursos, setCursos] = useState<any[]>([])
   const [alumnosCurso, setAlumnosCurso] = useState([])
   const [cursoSel, setCursoSel] = useState("")
   const [alumnos, setAlumnos] = useState([])
@@ -224,6 +224,20 @@ export default function ReportesPage() {
     () => (cursoSel ? getCourseSchoolCourseId(cursoSel, cursos) : null),
     [cursoSel, cursos]
   )
+  const isPrimaria = useMemo(() => {
+    // Intenta leer el nivel del curso seleccionado en el catálogo
+    const cursoObj = cursos.find(
+      (c: any) => String(c?.value || c?.id || "") === String(cursoSel)
+    )
+    const nivelCurso = cursoObj?.nivel || cursoObj?.raw?.nivel
+    if (nivelCurso) return nivelCurso === "primaria"
+    // Fallback: nivel del alumno activo en el reporte
+    const nivelReport =
+      (report as any)?.nivel ||
+      (report as any)?.alumno_activo?.nivel ||
+      (report as any)?.curso_nivel
+    return nivelReport === "primaria"
+  }, [cursoSel, cursos, report])
   const reportesScopeKey = useMemo(
     () =>
       `${session?.username || "anon"}:${session?.school?.id || "default"}:${role || "base"}`,
@@ -496,11 +510,12 @@ export default function ReportesPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Cuatrimestre</label>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">{isPrimaria ? "Trimestre" : "Cuatrimestre"}</label>
                 <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={cuatrimestre} onChange={(e) => setCuatrimestre(e.target.value)}>
                   <option value="all">Todos</option>
                   <option value="1">1</option>
                   <option value="2">2</option>
+                  {isPrimaria && <option value="3">3</option>}
                 </select>
               </div>
 
@@ -637,7 +652,7 @@ export default function ReportesPage() {
                         <TableHead className="text-right text-base font-extrabold text-slate-900">%TEA</TableHead>
                         <TableHead className="text-right text-base font-extrabold text-slate-900">%TEP</TableHead>
                         <TableHead className="text-right text-base font-extrabold text-slate-900">%TED</TableHead>
-                        <TableHead className="text-right text-base font-extrabold text-slate-900">Promedio</TableHead>
+                        {!isPrimaria && <TableHead className="text-right text-base font-extrabold text-slate-900">Promedio</TableHead>}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -647,9 +662,11 @@ export default function ReportesPage() {
                           <TableCell className="text-right">{fmtPct(row.TEA_pct)}</TableCell>
                           <TableCell className="text-right">{fmtPct(row.TEP_pct)}</TableCell>
                           <TableCell className="text-right">{fmtPct(row.TED_pct)}</TableCell>
-                          <TableCell className="text-right">
-                            {row.promedio_numerico != null ? Number(row.promedio_numerico).toFixed(2) : "S/D"}
-                          </TableCell>
+                          {!isPrimaria && (
+                            <TableCell className="text-right">
+                              {row.promedio_numerico != null ? Number(row.promedio_numerico).toFixed(2) : "S/D"}
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>

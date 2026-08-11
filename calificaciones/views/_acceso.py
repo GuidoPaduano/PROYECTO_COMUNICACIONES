@@ -475,6 +475,7 @@ def _school_course_options_for_ui(*, school=None, allowed_codes=None):
                 "school_course_id": option.get("school_course_id"),
                 "code": code,
                 "nombre": str(option.get("nombre") or code),
+                "nivel": str(option.get("nivel") or "secundaria"),
             }
         )
     return out
@@ -596,6 +597,7 @@ def _course_option_payload(option: dict) -> dict:
         "code": code,
         "nombre": nombre,
         "school_course_id": option.get("school_course_id"),
+        "nivel": str(option.get("nivel") or "secundaria"),
     }
 
 

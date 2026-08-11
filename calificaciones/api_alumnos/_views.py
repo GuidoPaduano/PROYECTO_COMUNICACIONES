@@ -429,6 +429,14 @@ def admin_importar_alumnos(request):
                             )
                     course_map[code] = school_course
 
+                # Reordenar todos los cursos del colegio alfabéticamente para que
+                # los recién creados queden en su posición correcta, no al final.
+                all_school_courses = list(
+                    SchoolCourse.objects.filter(school=school).order_by("name", "id")
+                )
+                for i, sc in enumerate(all_school_courses, start=1):
+                    SchoolCourse.objects.filter(pk=sc.pk).update(sort_order=i)
+
                 for item in plan:
                     school_course = item["school_course"] or course_map.get(item["curso"])
                     if school_course is None:

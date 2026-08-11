@@ -14,25 +14,10 @@ import { Card, CardContent } from "@/components/ui/card"
 import { BookOpen, RefreshCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
-const CURSOS_VALIDOS = new Set([
-  "1A",
-  "1B",
-  "2A",
-  "2B",
-  "3A",
-  "3B",
-  "4ECO",
-  "4NAT",
-  "5ECO",
-  "5NAT",
-  "6ECO",
-  "6NAT",
-])
-
 function filterCursosValidos(list: any[]) {
   return list.filter((c: any) => {
     const code = String(getCourseCode(c) || getCourseValue(c) || "").trim()
-    return CURSOS_VALIDOS.has(code)
+    return code.length > 0
   })
 }
 

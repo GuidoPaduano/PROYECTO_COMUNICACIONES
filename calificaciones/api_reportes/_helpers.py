@@ -88,6 +88,11 @@ def _mis_estadisticas_cache_key(*, user_id, role, school_id, alumno_param, anio,
 
 def _serialize_alumno(a: Alumno) -> dict:
     school_course = getattr(a, "school_course", None)
+    nivel = (
+        getattr(school_course, "nivel", None)
+        or getattr(a, "nivel", "secundaria")
+        or "secundaria"
+    )
     return {
         "id": a.id,
         "id_alumno": getattr(a, "id_alumno", None),
@@ -96,6 +101,7 @@ def _serialize_alumno(a: Alumno) -> dict:
         "school_course_name": getattr(school_course, "name", None)
         or getattr(school_course, "code", None)
         or getattr(a, "curso", ""),
+        "nivel": nivel,
     }
 
 
@@ -131,6 +137,7 @@ def _course_payload(*, school=None, course_code="", school_course=None) -> dict:
         "curso": resolved_code,
         "school_course_id": getattr(resolved_school_course, "id", None),
         "school_course_name": course_name,
+        "nivel": str(getattr(resolved_school_course, "nivel", None) or "secundaria"),
     }
 
 

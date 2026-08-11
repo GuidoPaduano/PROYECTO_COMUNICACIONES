@@ -260,8 +260,9 @@ def get_school_course_dicts(
                     "id": str(code),
                     "nombre": str(name),
                     "school_course_id": int(course_id),
+                    "nivel": str(nivel or "secundaria"),
                 }
-                for course_id, code, name in qs.values_list("id", "code", "name")
+                for course_id, code, name, nivel in qs.values_list("id", "code", "name", "nivel")
             ]
     except Exception:
         rows = []

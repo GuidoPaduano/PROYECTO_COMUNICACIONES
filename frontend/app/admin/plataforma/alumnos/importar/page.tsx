@@ -312,7 +312,7 @@ export default function ImportarAlumnosPage() {
             </div>
 
             {result?.summary ? (
-              <div role="status" aria-live="polite" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <div role="status" aria-live="polite" className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
                 {selectedSchool ? `${selectedSchool.name}: ` : ""}
                 {formatSummary(result.summary)}
                 {result.summary.created ? `, ${result.summary.created} creados` : ""}

@@ -79,6 +79,7 @@ export function normalizeCourseOption(raw) {
     courseCode,
     schoolCourseId: parsedSchoolCourseId,
     rawSelectorId: rawSelectorId || courseCode || value,
+    nivel: toCleanString(raw?.nivel) || "secundaria",
     raw,
   }
 }
