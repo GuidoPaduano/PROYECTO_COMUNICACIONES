@@ -305,6 +305,7 @@ export default function CargarNotasRapidas() {
           .map((a) => ({
             id: pickId(a),
             nombre: String(a?.nombre || "Alumno"),
+            nivel: String(a?.nivel || "secundaria"),
             materia: "",
             tipo: "",
             calificacion: "",
@@ -334,6 +335,13 @@ export default function CargarNotasRapidas() {
   const seleccionadas = useMemo(() => rows.filter((r) => r.incluir), [rows])
   const allSelected = rows.length > 0 && rows.every((r) => r.incluir)
   const someSelected = rows.some((r) => r.incluir)
+  const isPrimariaCurso = useMemo(() => rows.some((r) => r.nivel === "primaria"), [rows])
+  const efectiveCuatris = useMemo(() => (isPrimariaCurso ? [1, 2, 3] : [1, 2]), [isPrimariaCurso])
+  const labelPeriodo = isPrimariaCurso ? "Trimestre" : "Cuatrimestre"
+  const efectivaCalificaciones = useMemo(
+    () => buildCalificacionOptions(isPrimariaCurso ? "primaria" : "secundaria"),
+    [isPrimariaCurso]
+  )
 
   useEffect(() => {
     if (!selectAllRef.current) return
@@ -568,13 +576,13 @@ export default function CargarNotasRapidas() {
                 <input type="text" placeholder="Tipo" className="rounded border px-3 py-2 text-sm" value={fill.tipo} onChange={(e) => setFill((f) => ({ ...f, tipo: e.target.value }))} />
                 <select className="rounded border px-3 py-2 text-sm" value={fill.calificacion} onChange={(e) => setFill((f) => ({ ...f, calificacion: e.target.value }))}>
                   <option value="">Calificación</option>
-                  {calificaciones.map((r) => (
+                  {efectivaCalificaciones.map((r) => (
                     <option key={r.id} value={r.id}>{r.label}</option>
                   ))}
                 </select>
                 <select className="rounded border px-3 py-2 text-sm" value={fill.cuatrimestre} onChange={(e) => setFill((f) => ({ ...f, cuatrimestre: e.target.value }))}>
-                  <option value="">Cuatrimestre</option>
-                  {cuatris.map((c) => (
+                  <option value="">{labelPeriodo}</option>
+                  {efectiveCuatris.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
@@ -608,14 +616,14 @@ export default function CargarNotasRapidas() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">Cuatrimestre</label>
+                <label className="mb-1 block text-sm font-medium">{labelPeriodo}</label>
                 <select
                   className="w-full rounded border px-3 py-2 text-sm"
                   value={finalCuatri}
                   onChange={(e) => setFinalCuatri(e.target.value)}
                 >
-                  <option value="">Seleccioná el cuatrimestre</option>
-                  {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="">Seleccioná el {labelPeriodo.toLowerCase()}</option>
+                  {efectiveCuatris.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
             </div>
@@ -684,10 +692,10 @@ export default function CargarNotasRapidas() {
                   {!modoFinal && (
                     <>
                       <div>
-                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cuatrimestre</label>
+                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{labelPeriodo}</label>
                         <select className="w-full rounded border px-3 py-2 text-sm" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
                           <option value=""></option>
-                          {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
+                          {efectiveCuatris.map((c) => <option key={c} value={c}>{c}</option>)}
                         </select>
                       </div>
                       <div className="sm:col-span-2">
@@ -723,7 +731,7 @@ export default function CargarNotasRapidas() {
                 {!modoFinal && <th className="border-b px-3 py-2">Materia</th>}
                 {!modoFinal && <th className="border-b px-3 py-2">Tipo</th>}
                 <th className="border-b px-3 py-2">Calificación</th>
-                {!modoFinal && <th className="border-b px-3 py-2">Cuatr.</th>}
+                {!modoFinal && <th className="border-b px-3 py-2">{isPrimariaCurso ? "Trim." : "Cuatr."}</th>}
                 {!modoFinal && <th className="border-b px-3 py-2">Fecha</th>}
               </tr>
             </thead>
@@ -761,7 +769,7 @@ export default function CargarNotasRapidas() {
                     <td className="px-3 py-2">
                       <select className="w-full rounded border px-2 py-1" value={r.cuatrimestre} onChange={(e) => updateRowAt(idx, { cuatrimestre: Number(e.target.value) })}>
                         <option value=""></option>
-                        {cuatris.map((c) => <option key={c} value={c}>{c}</option>)}
+                        {efectiveCuatris.map((c) => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </td>
                   )}

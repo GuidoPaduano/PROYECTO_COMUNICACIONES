@@ -102,6 +102,7 @@ const NOTA_RESULTADOS = [
   { value: "TEP", label: "TEP" },
   { value: "TED", label: "TED" },
 ]
+const CONCEPTUALES_PRIMARIA = new Set(["S", "MB", "B", "R"])
 
 function safeGetLS(key) {
   try {
@@ -1679,13 +1680,16 @@ function AlumnoPerfilPageInner() {
   }
 
   const openNotaModal = (nota) => {
+    const cal = String(nota?.calificacion || "").trim().toUpperCase()
+    const res = String(nota?.resultado || "").trim().toUpperCase()
+    const resultadoPreFill = isPrimaria && CONCEPTUALES_PRIMARIA.has(cal) ? cal : res
     setNotaModal({
       open: true,
       notaId: nota?.id ?? null,
       version: Number(nota?.version || 1),
       materia: String(nota?.materia || ""),
       tipo: String(nota?.tipo || ""),
-      resultado: String(nota?.resultado || ""),
+      resultado: resultadoPreFill,
       nota_numerica: String(nota?.nota_numerica ?? ""),
       cuatrimestre: String(notaCuatr(nota) || "1"),
       fecha: String(nota?.fecha || ""),
@@ -1731,11 +1735,12 @@ function AlumnoPerfilPageInner() {
 
     setNotaModal((prev) => ({ ...prev, saving: true, error: "" }))
     const targetNotaId = draft.notaId
+    const esPrimariaCal = isPrimaria && CONCEPTUALES_PRIMARIA.has((draft.resultado || "").toUpperCase())
     const payload = {
       version: Number(draft.version || 1),
       materia: draft.materia,
       tipo: draft.tipo,
-      resultado: draft.resultado || null,
+      resultado: esPrimariaCal ? null : (draft.resultado || null),
       nota_numerica: notaNumerica || null,
       calificacion: draft.resultado || notaNumerica || "",
       cuatrimestre: Number(draft.cuatrimestre),
@@ -2780,7 +2785,7 @@ function AlumnoPerfilPageInner() {
                   <tr className="text-left text-gray-600 border-b">
                     <th className="py-2 pr-4">Fecha</th>
                     <th className="py-2 pr-4">Materia</th>
-                    <th className="py-2 pr-4">Cuatrimestre</th>
+                    <th className="py-2 pr-4">{isPrimaria ? "Trimestre" : "Cuatrimestre"}</th>
                     <th className="py-2 pr-4">Tipo</th>
                     <th className="py-2 pr-4">Calificación</th>
                     <th className="py-2 pr-4">Comentarios</th>
@@ -3352,7 +3357,7 @@ function AlumnoPerfilPageInner() {
                           <tr className="text-left text-gray-600 border-b">
                             <th className="py-2 pr-4">Fecha</th>
                             <th className="py-2 pr-4">Materia</th>
-                            <th className="py-2 pr-4">Cuatrimestre</th>
+                            <th className="py-2 pr-4">{isPrimaria ? "Trimestre" : "Cuatrimestre"}</th>
                             <th className="py-2 pr-4">Tipo</th>
                             <th className="py-2 pr-4">Calificación</th>
                             <th className="py-2 pr-4">Comentarios</th>
@@ -4497,29 +4502,40 @@ function AlumnoPerfilPageInner() {
                 onChange={(e) => setNotaModal((prev) => ({ ...prev, resultado: e.target.value }))}
               >
                 <option value="">Sin entregar</option>
-                {NOTA_RESULTADOS.map((resultado) => (
-                  <option key={resultado.value} value={resultado.value}>
-                    {resultado.label}
-                  </option>
-                ))}
+                {isPrimaria
+                  ? [
+                      { value: "S", label: "S - Sobresaliente" },
+                      { value: "MB", label: "MB - Muy Bueno" },
+                      { value: "B", label: "B - Bueno" },
+                      { value: "R", label: "R - Regular" },
+                    ].map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))
+                  : NOTA_RESULTADOS.map((resultado) => (
+                      <option key={resultado.value} value={resultado.value}>
+                        {resultado.label}
+                      </option>
+                    ))}
               </select>
             </div>
+            {!isPrimaria && (
+              <div>
+                <Label>Nota numérica</Label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  max="10"
+                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                  value={notaModal.nota_numerica}
+                  onChange={(e) =>
+                    setNotaModal((prev) => ({ ...prev, nota_numerica: e.target.value }))
+                  }
+                />
+              </div>
+            )}
             <div>
-              <Label>Nota numérica</Label>
-              <input
-                type="number"
-                step="0.01"
-                min="1"
-                max="10"
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                value={notaModal.nota_numerica}
-                onChange={(e) =>
-                  setNotaModal((prev) => ({ ...prev, nota_numerica: e.target.value }))
-                }
-              />
-            </div>
-            <div>
-              <Label>Cuatrimestre</Label>
+              <Label>{isPrimaria ? "Trimestre" : "Cuatrimestre"}</Label>
               <select
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
                 value={notaModal.cuatrimestre}
@@ -4529,6 +4545,7 @@ function AlumnoPerfilPageInner() {
               >
                 <option value="1">1</option>
                 <option value="2">2</option>
+                {isPrimaria && <option value="3">3</option>}
               </select>
             </div>
             <div>

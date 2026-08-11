@@ -143,9 +143,9 @@ class NotaCreateSerializer(serializers.ModelSerializer):
         try:
             iv = int(value)
         except Exception:
-            raise serializers.ValidationError("El cuatrimestre debe ser 1 o 2.")
-        if iv not in (1, 2):
-            raise serializers.ValidationError("El cuatrimestre debe ser 1 o 2.")
+            raise serializers.ValidationError("El cuatrimestre debe ser 1, 2 o 3.")
+        if iv not in (1, 2, 3):
+            raise serializers.ValidationError("El cuatrimestre debe ser 1, 2 o 3.")
         return iv
 
     def validate(self, attrs):
