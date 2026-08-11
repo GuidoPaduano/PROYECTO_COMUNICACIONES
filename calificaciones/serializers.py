@@ -55,6 +55,7 @@ class AlumnoSerializer(serializers.ModelSerializer):
 
     school_course_id = serializers.SerializerMethodField()
     school_course_name = serializers.SerializerMethodField()
+    nivel = serializers.SerializerMethodField()
 
     class Meta:
         model = Alumno
@@ -65,6 +66,11 @@ class AlumnoSerializer(serializers.ModelSerializer):
 
     def get_school_course_name(self, obj):
         return _get_course_name(obj)
+
+    def get_nivel(self, obj):
+        # Preferir el nivel del curso (siempre actualizado) sobre el del alumno
+        sc = getattr(obj, "school_course", None)
+        return getattr(sc, "nivel", None) or getattr(obj, "nivel", "secundaria") or "secundaria"
 
 
 class NotaCreateSerializer(serializers.ModelSerializer):

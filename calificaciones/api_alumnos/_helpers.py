@@ -46,7 +46,7 @@ def _alumno_to_dict(a: Alumno) -> dict:
         "school_course_name": getattr(getattr(a, "school_course", None), "name", None)
         or getattr(getattr(a, "school_course", None), "code", None)
         or getattr(a, "curso", None),
-        "nivel": getattr(a, "nivel", "secundaria"),
+        "nivel": getattr(getattr(a, "school_course", None), "nivel", None) or getattr(a, "nivel", "secundaria") or "secundaria",
         "padre": getattr(a, "padre_id", None),
         # Si existe el campo usuario (OneToOne/FK), lo exponemos como id (si no existe, queda None)
         "usuario": getattr(a, "usuario_id", None) if hasattr(a, "usuario_id") else None,
