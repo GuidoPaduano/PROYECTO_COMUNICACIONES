@@ -169,6 +169,7 @@ def _admin_course_to_dict(course: SchoolCourse) -> dict:
         "school_id": course.school_id,
         "code": str(getattr(course, "code", "") or "").strip(),
         "name": str(getattr(course, "name", "") or "").strip(),
+        "nivel": str(getattr(course, "nivel", "secundaria") or "secundaria"),
         "is_active": bool(getattr(course, "is_active", True)),
         "sort_order": int(getattr(course, "sort_order", 0) or 0),
         "students_count": int(getattr(course, "students_count", 0) or 0),
@@ -250,13 +251,13 @@ def _course_payload_from_request(request, *, instance: SchoolCourse | None = Non
         raw = dict(raw or {})
 
     payload = {}
-    for field in ("code", "name", "sort_order", "is_active"):
+    for field in ("code", "name", "sort_order", "is_active", "nivel"):
         if field in raw:
             payload[field] = raw.get(field)
 
     if instance is not None:
-        for field in ("code", "name", "sort_order", "is_active"):
-            payload.setdefault(field, getattr(instance, field))
+        for field in ("code", "name", "sort_order", "is_active", "nivel"):
+            payload.setdefault(field, getattr(instance, field, "secundaria" if field == "nivel" else None))
 
     payload["code"] = str(payload.get("code") or "").strip().upper()[:20]
     payload["name"] = str(payload.get("name") or "").strip()[:120]
@@ -273,6 +274,8 @@ def _course_payload_from_request(request, *, instance: SchoolCourse | None = Non
         payload["is_active"] = value.strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
     else:
         payload["is_active"] = bool(value)
+    nivel = str(payload.get("nivel") or "secundaria").strip().lower()
+    payload["nivel"] = "primaria" if nivel == "primaria" else "secundaria"
     return payload
 
 

@@ -78,6 +78,11 @@ class SchoolDeletionJob(models.Model):
 
 
 class SchoolCourse(models.Model):
+    NIVEL_CHOICES = [
+        ("secundaria", "Secundaria"),
+        ("primaria", "Primaria"),
+    ]
+
     school = models.ForeignKey(
         School,
         on_delete=models.PROTECT,
@@ -85,6 +90,7 @@ class SchoolCourse(models.Model):
     )
     code = models.CharField(max_length=20)
     name = models.CharField(max_length=120)
+    nivel = models.CharField(max_length=20, choices=NIVEL_CHOICES, default="secundaria", db_index=True)
     is_active = models.BooleanField(default=True, db_index=True)
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

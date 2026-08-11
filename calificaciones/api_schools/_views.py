@@ -457,7 +457,7 @@ def admin_update_school_course(request, course_id: int):
 
     for field, value in payload.items():
         setattr(course, field, value)
-    course.save(update_fields=["code", "name", "sort_order", "is_active", "updated_at"])
+    course.save(update_fields=["code", "name", "nivel", "sort_order", "is_active", "updated_at"])
     clear_school_course_cache(course.school)
     course.students_count = course.alumnos.count()
     return Response(

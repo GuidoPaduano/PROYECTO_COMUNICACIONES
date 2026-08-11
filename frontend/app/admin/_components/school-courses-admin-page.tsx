@@ -91,6 +91,7 @@ function courseToForm(course) {
   return {
     id: course?.id ?? "",
     name: course?.name ?? "",
+    nivel: course?.nivel ?? "secundaria",
     is_active: course?.is_active !== false,
   }
 }
@@ -293,6 +294,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
         }),
         body: JSON.stringify({
           name: form.name,
+          nivel: form.nivel ?? "secundaria",
           is_active: !!form.is_active,
         }),
       })
@@ -501,9 +503,10 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[58%]">Nombre</TableHead>
-                      <TableHead className="w-[12%]">Activo</TableHead>
-                      <TableHead className="w-[12%]">Alumnos</TableHead>
+                      <TableHead className="w-[44%]">Nombre</TableHead>
+                      <TableHead className="w-[18%]">Nivel</TableHead>
+                      <TableHead className="w-[10%]">Activo</TableHead>
+                      <TableHead className="w-[10%]">Alumnos</TableHead>
                       <TableHead className="text-right">Acción</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -518,6 +521,16 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                               onChange={(event) => updateCourseField(course.id, "name", event.target.value)}
                               className="h-8 min-w-0"
                             />
+                          </TableCell>
+                          <TableCell className="py-2.5">
+                            <select
+                              value={form.nivel ?? "secundaria"}
+                              onChange={(e) => updateCourseField(course.id, "nivel", e.target.value)}
+                              className="h-8 w-full border rounded-md px-2 text-sm bg-white"
+                            >
+                              <option value="secundaria">Secundaria</option>
+                              <option value="primaria">Primaria</option>
+                            </select>
                           </TableCell>
                           <TableCell className="py-2.5">
                             <Checkbox
@@ -543,7 +556,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                     })}
                     {!selectedCourses.length ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="py-8 text-center text-sm text-slate-500">
+                        <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
                           Este colegio todavía no tiene cursos.
                         </TableCell>
                       </TableRow>

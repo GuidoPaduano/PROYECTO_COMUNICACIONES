@@ -963,6 +963,8 @@ function AlumnoPerfilPageInner() {
   const [filMateria, setFilMateria] = useState("ALL")
   const [filCuatr, setFilCuatr] = useState("ALL")
   const [filTipo, setFilTipo] = useState("ALL")
+
+  const isPrimaria = (alumnoDetail as any)?.nivel === "primaria"
   const [buscar, setBuscar] = useState("")
 
   const [filSancionMes, setFilSancionMes] = useState("ALL")
@@ -1418,8 +1420,10 @@ function AlumnoPerfilPageInner() {
         (n) => (n.materia || "").toLowerCase() === filMateria.toLowerCase()
       )
     }
-    if (filCuatr !== "ALL") {
-      arr = arr.filter((n) => notaCuatr(n) === filCuatr)
+    if (filCuatr === "FINAL") {
+      arr = arr.filter((n) => Boolean(n.es_final))
+    } else if (filCuatr !== "ALL") {
+      arr = arr.filter((n) => String(notaCuatr(n) ?? n?.cuatrimestre ?? "") === filCuatr)
     }
     if (filTipo !== "ALL") {
       arr = arr.filter((n) => (n.tipo || "").toLowerCase() === filTipo.toLowerCase())
@@ -2717,7 +2721,7 @@ function AlumnoPerfilPageInner() {
 
             <div>
               <Label htmlFor={cuatrId} className="text-xs text-gray-600">
-                Cuatrimestre
+                {isPrimaria ? "Trimestre" : "Cuatrimestre"}
               </Label>
               <select
                 id={cuatrId}
@@ -2728,6 +2732,8 @@ function AlumnoPerfilPageInner() {
                 <option value="ALL">Todos</option>
                 <option value="1">1</option>
                 <option value="2">2</option>
+                {isPrimaria && <option value="3">3</option>}
+                <option value="FINAL">Final</option>
               </select>
             </div>
 
@@ -3129,7 +3135,7 @@ function AlumnoPerfilPageInner() {
 
                     <div>
                       <Label htmlFor="filCuatr" className="text-xs text-gray-600">
-                        Cuatrimestre
+                        {isPrimaria ? "Trimestre" : "Cuatrimestre"}
                       </Label>
                       <select
                         id="filCuatr"
@@ -3140,6 +3146,8 @@ function AlumnoPerfilPageInner() {
                         <option value="ALL">Todos</option>
                         <option value="1">1</option>
                         <option value="2">2</option>
+                        {isPrimaria && <option value="3">3</option>}
+                        <option value="FINAL">Final</option>
                       </select>
                     </div>
 
@@ -3784,9 +3792,9 @@ function AlumnoPerfilPageInner() {
                 className="shadow-sm border-0 bg-white/80 backdrop-blur-sm"
               >
                 <CardContent className="p-6">
-                  {/* filtros mes + tipo */}
-                  <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex w-full flex-wrap items-end gap-3 lg:w-auto">
+                  {/* filtros mes + tipo + botón PDF */}
+                  <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+                    <div className="flex flex-wrap items-end gap-3">
                       {asistencias.length > 0 && (
                         <>
                           <div className="w-full sm:w-auto lg:min-w-[180px]">
@@ -3820,33 +3828,33 @@ function AlumnoPerfilPageInner() {
                           </div>
                         </>
                       )}
+                    </div>
 
-                      <div className="flex gap-2">
-                        {canSignByPadre ? (
-                          <Button
-                            type="button"
-                            onClick={() => setConfirmFirmarAsistenciasOpen(true)}
-                            disabled={
-                              signingAllAsistencias ||
-                              asistenciasPendientesFirma.length === 0
-                            }
-                            className="h-9 justify-center gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {signingAllAsistencias ? "Firmando..." : "Firmar todo"}
-                          </Button>
-                        ) : null}
+                    <div className="flex gap-2">
+                      {canSignByPadre ? (
                         <Button
                           type="button"
-                          onClick={handleDownloadAsistenciasPdf}
-                          disabled={downloadingAsistenciasPdf}
-                          className="h-9 justify-center gap-2 primary-button"
+                          onClick={() => setConfirmFirmarAsistenciasOpen(true)}
+                          disabled={
+                            signingAllAsistencias ||
+                            asistenciasPendientesFirma.length === 0
+                          }
+                          className="h-9 justify-center gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          <Download className="h-4 w-4" />
-                          {downloadingAsistenciasPdf
-                            ? "Generando..."
-                            : "Descargar en PDF"}
+                          {signingAllAsistencias ? "Firmando..." : "Firmar todo"}
                         </Button>
-                      </div>
+                      ) : null}
+                      <Button
+                        type="button"
+                        onClick={handleDownloadAsistenciasPdf}
+                        disabled={downloadingAsistenciasPdf}
+                        className="h-9 justify-center gap-2 primary-button"
+                      >
+                        <Download className="h-4 w-4" />
+                        {downloadingAsistenciasPdf
+                          ? "Generando..."
+                          : "Descargar en PDF"}
+                      </Button>
                     </div>
                   </div>
 
