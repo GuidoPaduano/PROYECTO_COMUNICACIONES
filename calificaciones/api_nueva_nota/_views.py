@@ -581,10 +581,10 @@ class CrearNotasMasivo(APIView):
 
             try:
                 cuatri = int(cuatri_raw)
-                if cuatri not in (1, 2):
+                if cuatri not in (1, 2, 3):
                     raise ValueError()
             except Exception:
-                row_err.setdefault('cuatrimestre', []).append('El cuatrimestre debe ser 1 o 2.')
+                row_err.setdefault('cuatrimestre', []).append('El cuatrimestre debe ser 1, 2 o 3.')
                 cuatri = None
 
             fecha = None

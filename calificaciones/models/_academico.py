@@ -42,7 +42,7 @@ class Nota(models.Model):
         max_digits=4, decimal_places=2, null=True, blank=True,
         validators=[MinValueValidator(1), MaxValueValidator(10)],
     )
-    cuatrimestre = models.IntegerField(choices=[(1, "1"), (2, "2")])
+    cuatrimestre = models.IntegerField(choices=[(1, "1"), (2, "2"), (3, "3")])
     fecha = models.DateField(default=timezone.now)
     observaciones = models.TextField(blank=True, null=True)
     es_final = models.BooleanField(default=False, db_index=True)

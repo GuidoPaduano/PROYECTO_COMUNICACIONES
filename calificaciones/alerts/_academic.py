@@ -157,7 +157,7 @@ def _build_notas_ventana(*, alumno, materia: str, cuatrimestre, hoy):
         fecha__gte=desde,
         fecha__lte=hoy,
     )
-    if cuatrimestre in (1, 2):
+    if cuatrimestre in (1, 2, 3):
         qs = qs.filter(cuatrimestre=cuatrimestre)
     return list(qs.order_by("-fecha", "-id")), desde
 
@@ -226,7 +226,7 @@ def _build_notas_ventana_lookup(*, keys, hoy):
     lookup = {}
     for alumno_id, materia, cuatrimestre in keys:
         pair_key = (int(alumno_id), str(materia or ""))
-        if cuatrimestre in (1, 2):
+        if cuatrimestre in (1, 2, 3):
             lookup[(int(alumno_id), str(materia or ""), cuatrimestre)] = list(
                 notas_por_triple.get(pair_key + (cuatrimestre,), [])
             )

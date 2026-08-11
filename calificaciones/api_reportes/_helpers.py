@@ -209,7 +209,7 @@ def _normalize_cuatrimestre(raw: str) -> Optional[int]:
         val = int(txt)
     except Exception:
         return None
-    if val not in (1, 2):
+    if val not in (1, 2, 3):
         return None
     return val
 
@@ -525,7 +525,7 @@ def _build_historial_anual_payload(base_qs):
 
 
 def _apply_cuatrimestre_filter(notas_qs, cuatrimestre: Optional[int]):
-    if cuatrimestre in (1, 2):
+    if cuatrimestre in (1, 2, 3):
         return notas_qs.filter(cuatrimestre=cuatrimestre)
     return notas_qs
 

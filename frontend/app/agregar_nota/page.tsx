@@ -22,6 +22,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import SuccessMessage from "@/components/ui/success-message"
 
 const ESTADOS_CALIFICACION = new Set(["TEA", "TEP", "TED"])
+const CONCEPTUALES_PRIMARIA_SET = new Set(["S", "MB", "B", "R"])
 const NOTAS_RAPIDAS_RESOURCE_MAX_AGE_MS = 15000
 
 const notasRapidasResourceCache = new Map()
@@ -375,7 +376,11 @@ export default function CargarNotasRapidas() {
       if (!r.id || !r.materia || !r.tipo || !r.cuatrimestre) return true
       const calificacion = normalizeCalificacionValue(r.calificacion)
       if (!calificacion) return true
-      if (!ESTADOS_CALIFICACION.has(calificacion) && parseNotaNumerica(calificacion) == null) return true
+      if (
+        !ESTADOS_CALIFICACION.has(calificacion) &&
+        !CONCEPTUALES_PRIMARIA_SET.has(calificacion) &&
+        parseNotaNumerica(calificacion) == null
+      ) return true
       return false
     })
 
@@ -389,16 +394,16 @@ export default function CargarNotasRapidas() {
       const notas = seleccionadas.map((r) => {
         const calificacion = normalizeCalificacionValue(r.calificacion)
         const isEstado = ESTADOS_CALIFICACION.has(calificacion)
-        const num = isEstado ? null : parseNotaNumerica(calificacion)
-        const resultado = isEstado ? calificacion : ""
-        const calificacionLegacy = resultado || (num != null ? String(num) : "")
+        const isConceptual = CONCEPTUALES_PRIMARIA_SET.has(calificacion)
+        const num = (isEstado || isConceptual) ? null : parseNotaNumerica(calificacion)
+        const resultado = isEstado ? calificacion : null
         return {
           alumno_id: r.id,
           materia: String(r.materia).trim(),
           tipo: String(r.tipo).trim(),
-          resultado: resultado || null,
+          resultado,
           nota_numerica: num,
-          calificacion: calificacionLegacy,
+          calificacion,
           cuatrimestre: Number(r.cuatrimestre),
           fecha: r.fecha || hoyISO(),
         }
