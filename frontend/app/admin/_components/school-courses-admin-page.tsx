@@ -591,10 +591,10 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                               <Button
                                 type="button"
                                 size="sm"
-                                variant="outline"
+                                variant="destructive"
                                 onClick={() => deleteCourse(course)}
                                 disabled={savingId === String(course.id) || deletingId === String(course.id)}
-                                className="h-8 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                className="h-8 px-3"
                               >
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 {deletingId === String(course.id) ? "Eliminando..." : "Eliminar"}
