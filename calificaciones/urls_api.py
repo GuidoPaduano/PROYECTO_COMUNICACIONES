@@ -101,6 +101,7 @@ from .api_password_reset import (
 from .api_schools import (
     admin_create_school_course,
     admin_create_school,
+    admin_delete_school_course,
     admin_school_courses,
     admin_school_admins,
     admin_school_deletion_job,
@@ -246,6 +247,8 @@ urlpatterns = [
     path("admin/school-courses/<int:school_id>", admin_create_school_course, name="admin_create_school_course_noslash"),
     path("admin/school-courses/course/<int:course_id>/", admin_update_school_course, name="admin_update_school_course"),
     path("admin/school-courses/course/<int:course_id>", admin_update_school_course, name="admin_update_school_course_noslash"),
+    path("admin/school-courses/course/<int:course_id>/delete/", admin_delete_school_course, name="admin_delete_school_course"),
+    path("admin/school-courses/course/<int:course_id>/delete", admin_delete_school_course, name="admin_delete_school_course_noslash"),
     path("admin/staff/", admin_staff_overview, name="admin_staff_overview"),
     path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
     path("admin/school-users/", admin_school_user_directory, name="admin_school_user_directory"),

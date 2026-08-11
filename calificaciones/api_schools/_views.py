@@ -2,6 +2,8 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
+from django.db import IntegrityError
+from django.db.models.deletion import ProtectedError
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.utils.text import get_valid_filename, slugify
@@ -469,3 +471,29 @@ def admin_update_school_course(request, course_id: int):
         },
         status=200,
     )
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def admin_delete_school_course(request, course_id: int):
+    active_school, denied = _resolve_course_admin_scope(request)
+    if denied is not None:
+        return denied
+
+    course = SchoolCourse.objects.select_related("school").filter(pk=course_id).first()
+    if course is None:
+        return Response({"detail": "Curso no encontrado."}, status=404)
+    if not getattr(request.user, "is_superuser", False) and getattr(active_school, "id", None) != getattr(course.school, "id", None):
+        return Response({"detail": "Solo podés eliminar cursos del colegio activo."}, status=403)
+
+    school = course.school
+    try:
+        course.delete()
+    except ProtectedError:
+        return Response(
+            {"detail": "El curso tiene alumnos u otros datos asociados y no puede eliminarse."},
+            status=409,
+        )
+
+    clear_school_course_cache(school)
+    return Response({"school": _school_courses_to_dict(school)}, status=200)

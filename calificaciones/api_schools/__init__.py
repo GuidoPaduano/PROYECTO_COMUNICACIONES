@@ -1,6 +1,7 @@
 from ._views import (
     admin_create_school_course,
     admin_create_school,
+    admin_delete_school_course,
     admin_school_courses,
     admin_school_admins,
     admin_school_deletion_job,
@@ -19,6 +20,7 @@ from ._helpers import (  # noqa: F401 — usado por tests
 __all__ = [
     "admin_create_school_course",
     "admin_create_school",
+    "admin_delete_school_course",
     "admin_school_courses",
     "admin_school_admins",
     "admin_school_deletion_job",

@@ -3,7 +3,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, Building2, Layers3, Plus, RefreshCw, Save, Search } from "lucide-react"
+import { ArrowLeft, Building2, Layers3, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react"
 
 import {
   DEFAULT_SCHOOL_PRIMARY_COLOR,
@@ -162,6 +162,7 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
   const [newCourse, setNewCourse] = useState(EMPTY_COURSE)
   const [loading, setLoading] = useState(false)
   const [savingId, setSavingId] = useState("")
+  const [deletingId, setDeletingId] = useState("")
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
@@ -314,6 +315,42 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
       setError("No se pudo conectar con el servidor.")
     } finally {
       setSavingId("")
+    }
+  }
+
+  const deleteCourse = async (course) => {
+    const courseLabel = course.name || course.code || `#${course.id}`
+    const confirmed = window.confirm(
+      `¿Estás seguro de que querés eliminar el curso "${courseLabel}"?\n\nEsta acción no se puede deshacer. Si el curso tiene alumnos u otros datos, no podrá eliminarse.`
+    )
+    if (!confirmed) return
+    setDeletingId(String(course.id))
+    setError("")
+    setSuccess("")
+    try {
+      const res = await authFetch(`/admin/school-courses/course/${course.id}/delete`, {
+        method: "DELETE",
+        headers: buildSchoolScopeHeaders({
+          isPlatformMode,
+          schoolRef: sessionSchoolRefs[0],
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data?.detail || "No se pudo eliminar el curso.")
+        return
+      }
+      const updated = data?.school
+      setSchools((current) => {
+        const next = current.map((school) => (String(school.id) === String(updated?.id) ? updated : school))
+        writeCoursesCache(mode, sessionSchoolRefs[0] || "", { schools: next })
+        return next
+      })
+      setSuccess(`Curso "${courseLabel}" eliminado.`)
+    } catch {
+      setError("No se pudo conectar con el servidor.")
+    } finally {
+      setDeletingId("")
     }
   }
 
@@ -540,16 +577,29 @@ export function SchoolCoursesAdminPage({ mode = "platform" }) {
                           </TableCell>
                           <TableCell className="py-2.5 text-sm text-slate-600">{course.students_count || 0}</TableCell>
                           <TableCell className="py-2.5 text-right">
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => saveCourse(course.id)}
-                              disabled={savingId === String(course.id)}
-                              className="h-8 px-3"
-                            >
-                              <Save className="mr-2 h-4 w-4" />
-                              {savingId === String(course.id) ? "Guardando" : "Guardar"}
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => saveCourse(course.id)}
+                                disabled={savingId === String(course.id) || deletingId === String(course.id)}
+                                className="h-8 px-3"
+                              >
+                                <Save className="mr-2 h-4 w-4" />
+                                {savingId === String(course.id) ? "Guardando" : "Guardar"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => deleteCourse(course)}
+                                disabled={savingId === String(course.id) || deletingId === String(course.id)}
+                                className="h-8 px-3 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                {deletingId === String(course.id) ? "Eliminando..." : "Eliminar"}
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )
