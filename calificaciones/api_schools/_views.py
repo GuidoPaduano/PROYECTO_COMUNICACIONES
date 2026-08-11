@@ -11,7 +11,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from ..forms import SchoolAdminForm
-from ..models import School, SchoolCourse, SchoolDeletionJob
+from ..models import Alumno, School, SchoolCourse, SchoolDeletionJob
 from ..models_preceptores import SchoolAdmin
 from ..schools import (
     get_available_school_dicts_for_user,
@@ -458,6 +458,8 @@ def admin_update_school_course(request, course_id: int):
     for field, value in payload.items():
         setattr(course, field, value)
     course.save(update_fields=["code", "name", "nivel", "sort_order", "is_active", "updated_at"])
+    # Propagar nivel a todos los alumnos del curso
+    Alumno.objects.filter(school_course=course).update(nivel=course.nivel)
     clear_school_course_cache(course.school)
     course.students_count = course.alumnos.count()
     return Response(
