@@ -3786,10 +3786,10 @@ function AlumnoPerfilPageInner() {
                 <CardContent className="p-6">
                   {/* filtros mes + tipo */}
                   <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex w-full flex-col gap-3 lg:w-auto lg:items-end">
+                    <div className="flex w-full flex-wrap items-end gap-3 lg:w-auto">
                       {asistencias.length > 0 && (
-                        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:w-auto">
-                          <div className="w-full lg:min-w-[180px]">
+                        <>
+                          <div className="w-full sm:w-auto lg:min-w-[180px]">
                             <Label className="text-xs text-gray-600">Mes</Label>
                             <select
                               className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
@@ -3805,7 +3805,7 @@ function AlumnoPerfilPageInner() {
                             </select>
                           </div>
 
-                          <div className="w-full lg:min-w-[200px]">
+                          <div className="w-full sm:w-auto lg:min-w-[200px]">
                             <Label className="text-xs text-gray-600">Asistencia</Label>
                             <select
                               className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
@@ -3818,10 +3818,10 @@ function AlumnoPerfilPageInner() {
                               <option value="catequesis">Catequesis</option>
                             </select>
                           </div>
-                        </div>
+                        </>
                       )}
 
-                      <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+                      <div className="flex gap-2">
                         {canSignByPadre ? (
                           <Button
                             type="button"
@@ -3830,7 +3830,7 @@ function AlumnoPerfilPageInner() {
                               signingAllAsistencias ||
                               asistenciasPendientesFirma.length === 0
                             }
-                            className="h-9 w-full justify-center gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
+                            className="h-9 justify-center gap-2 primary-button disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {signingAllAsistencias ? "Firmando..." : "Firmar todo"}
                           </Button>
@@ -3839,7 +3839,7 @@ function AlumnoPerfilPageInner() {
                           type="button"
                           onClick={handleDownloadAsistenciasPdf}
                           disabled={downloadingAsistenciasPdf}
-                          className="h-9 w-full justify-center gap-2 primary-button sm:w-auto"
+                          className="h-9 justify-center gap-2 primary-button"
                         >
                           <Download className="h-4 w-4" />
                           {downloadingAsistenciasPdf
