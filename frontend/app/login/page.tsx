@@ -65,6 +65,7 @@ export default function LoginPage() {
     event.preventDefault()
     setLoading(true)
     setError("")
+    let navigated = false
 
     try {
       const requestedSchool = getRequestedSchoolIdentifierFromWindow()
@@ -114,11 +115,13 @@ export default function LoginPage() {
 
           if (isAdminLogin && !canAccessAdminPath(me)) {
             syncSessionContext(me)
+            navigated = true
             router.replace("/dashboard")
             return
           }
 
           syncSessionContext(me)
+          navigated = true
           router.replace(nextPath || (me?.is_superuser || isSchoolAdminUser(me) ? "/admin/colegio" : "/dashboard"))
         } catch {
           clearTokens()
@@ -128,7 +131,7 @@ export default function LoginPage() {
     } catch {
       setError("No se pudo conectar con el servidor")
     } finally {
-      setLoading(false)
+      if (!navigated) setLoading(false)
     }
   }
 
