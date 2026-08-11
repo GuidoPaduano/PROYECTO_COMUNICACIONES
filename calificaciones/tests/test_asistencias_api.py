@@ -128,7 +128,8 @@ class AsistenciasApiTests(TestCase):
             Notificacion.objects.filter(destinatario=padre, tipo="inasistencia").exists()
         )
 
-    def test_dos_ausencias_consecutivas_crea_alerta_inasistencia(self):
+    @override_settings(ALERTAS_INASISTENCIAS_CONSECUTIVAS=3)
+    def test_tres_ausencias_consecutivas_crea_alerta_inasistencia(self):
         staff = _make_staff_user("staff_alerta_inas")
         alumno = _make_alumno("Lia", "Suarez", "LEG301", curso="1A")
         self.client.force_authenticate(user=staff)
@@ -145,6 +146,12 @@ class AsistenciasApiTests(TestCase):
             "tipo_asistencia": "clases",
             "asistencias": {str(alumno.id): "ausente"},
         }
+        p3 = {
+            "school_course_id": alumno.school_course_id,
+            "fecha": "2026-03-03",
+            "tipo_asistencia": "clases",
+            "asistencias": {str(alumno.id): "ausente"},
+        }
 
         r1 = self.client.post("/api/asistencias/registrar/", p1, format="json")
         self.assertEqual(r1.status_code, 200)
@@ -152,6 +159,10 @@ class AsistenciasApiTests(TestCase):
 
         r2 = self.client.post("/api/asistencias/registrar/", p2, format="json")
         self.assertEqual(r2.status_code, 200)
+        self.assertEqual(AlertaInasistencia.objects.count(), 0)
+
+        r3 = self.client.post("/api/asistencias/registrar/", p3, format="json")
+        self.assertEqual(r3.status_code, 200)
         self.assertEqual(AlertaInasistencia.objects.count(), 1)
 
         alerta = AlertaInasistencia.objects.first()

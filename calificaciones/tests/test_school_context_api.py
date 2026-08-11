@@ -39,6 +39,7 @@ class SchoolContextApiTests(TestCase):
             logo_url="/imagenes/Logo%20Color.png",
             primary_color="#123456",
             accent_color="#abcdef",
+            is_public=True,
         )
         self.school_b = School.objects.create(
             name="Colegio Contexto Sur",
@@ -47,6 +48,7 @@ class SchoolContextApiTests(TestCase):
             logo_url="/imagenes/tecnova(1).png",
             primary_color="#654321",
             accent_color="#fedcba",
+            is_public=True,
         )
         self.course_a = SchoolCourse.objects.create(school=self.school_a, code="1A", name="1A Norte", sort_order=1)
         self.course_b = SchoolCourse.objects.create(school=self.school_b, code="1A", name="1A Sur", sort_order=1)

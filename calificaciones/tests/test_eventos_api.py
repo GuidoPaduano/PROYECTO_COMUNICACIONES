@@ -286,7 +286,7 @@ class EventosSchoolScopingTests(TestCase):
         self.assertEqual(notif.meta["school_course_id"], self.school_course_a.id)
         self.assertEqual(notif.meta["school_course_name"], "1A Norte")
         self.assertNotIn("curso", notif.meta)
-        self.assertIn("1A Norte", notif.descripcion)
+        self.assertIn("1A Norte", notif.titulo)
         dest_ids = set(Notificacion.objects.filter(tipo="evento").values_list("destinatario_id", flat=True))
         self.assertIn(self.padre_a.id, dest_ids)
         self.assertNotIn(self.padre_b.id, dest_ids)

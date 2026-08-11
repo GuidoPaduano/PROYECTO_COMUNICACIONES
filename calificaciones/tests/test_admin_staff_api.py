@@ -223,7 +223,7 @@ class AdminStaffApiTests(TestCase):
         self.assertTrue(SchoolMembership.objects.filter(school=self.school, user=usuario).exists())
         self.assertFalse(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
 
-    def test_post_permite_crear_usuario_con_contrasena_corta(self):
+    def test_post_rechaza_contrasena_debil(self):
         response = self.client.post(
             "/api/admin/users/create/",
             {
@@ -238,11 +238,8 @@ class AdminStaffApiTests(TestCase):
             format="json",
             HTTP_X_SCHOOL=self.school.slug,
         )
-        self.assertEqual(response.status_code, 201)
-
-        usuario = get_user_model().objects.get(username="ana_corta")
-        self.assertTrue(usuario.check_password("1"))
-        self.assertTrue(usuario.groups.filter(name="Administradores").exists())
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(get_user_model().objects.filter(username="ana_corta").exists())
         self.assertTrue(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
 
     def test_post_rechaza_usuario_sin_nombre(self):
