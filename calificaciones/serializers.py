@@ -350,16 +350,21 @@ class EventoSerializer(serializers.ModelSerializer):
 class AlumnoFullSerializer(serializers.ModelSerializer):
     school_course_id = serializers.SerializerMethodField()
     school_course_name = serializers.SerializerMethodField()
+    nivel = serializers.SerializerMethodField()
 
     class Meta:
         model = Alumno
-        fields = ["id", "id_alumno", "nombre", "apellido", "school_course_id", "school_course_name"]
+        fields = ["id", "id_alumno", "nombre", "apellido", "school_course_id", "school_course_name", "nivel"]
 
     def get_school_course_id(self, obj):
         return _get_school_course_id(obj)
 
     def get_school_course_name(self, obj):
         return _get_course_name(obj)
+
+    def get_nivel(self, obj):
+        sc = getattr(obj, "school_course", None)
+        return getattr(sc, "nivel", None) or getattr(obj, "nivel", "secundaria") or "secundaria"
 
 
 class NotaPublicSerializer(serializers.ModelSerializer):
