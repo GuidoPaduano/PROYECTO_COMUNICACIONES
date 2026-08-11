@@ -237,7 +237,7 @@ export default function CargarNotasRapidas() {
         const mapped = alumnos
           .map((a) => ({
             id: pickId(a),
-            nombre: String(a?.nombre || "Alumno"),
+            nombre: [a?.apellido, a?.nombre].filter(Boolean).join(", ") || "Alumno",
             nivel: String(a?.nivel || "secundaria"),
             materia: "",
             tipo: "",
@@ -304,7 +304,7 @@ export default function CargarNotasRapidas() {
         const mapped = alumnos
           .map((a) => ({
             id: pickId(a),
-            nombre: String(a?.nombre || "Alumno"),
+            nombre: [a?.apellido, a?.nombre].filter(Boolean).join(", ") || "Alumno",
             nivel: String(a?.nivel || "secundaria"),
             materia: "",
             tipo: "",
