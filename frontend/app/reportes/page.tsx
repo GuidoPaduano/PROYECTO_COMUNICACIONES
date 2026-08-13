@@ -75,14 +75,14 @@ function KpiCard({ icon, title, value, helper, accentClass = "bg-slate-100 text-
   )
 }
 
-function DistribucionEstados({ conteos }) {
+function DistribucionEstados({ conteos, isPrimaria = false }) {
   const total = Math.max(
     Number(conteos?.TEA || 0) + Number(conteos?.TEP || 0) + Number(conteos?.TED || 0),
     1
   )
   const rows = [
-    { key: "TEA", label: "TEA", color: "bg-emerald-500", value: Number(conteos?.TEA || 0) },
-    { key: "TEP", label: "TEP", color: "bg-yellow-400", value: Number(conteos?.TEP || 0) },
+    { key: "TEA", label: isPrimaria ? "S / MB / B" : "TEA", color: "bg-emerald-500", value: Number(conteos?.TEA || 0) },
+    { key: "TEP", label: isPrimaria ? "R" : "TEP", color: "bg-yellow-400", value: Number(conteos?.TEP || 0) },
     { key: "TED", label: "TED", color: "bg-rose-500", value: Number(conteos?.TED || 0) },
   ]
 
@@ -90,7 +90,7 @@ function DistribucionEstados({ conteos }) {
     <Card>
       <CardHeader>
         <CardTitle as="h2" className="text-base">Distribucion general</CardTitle>
-        <CardDescription>Conteo por estado TEA/TEP/TED</CardDescription>
+        <CardDescription>{isPrimaria ? "Conteo por calificación conceptual" : "Conteo por estado TEA/TEP/TED"}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {rows.map((row) => (
@@ -109,12 +109,12 @@ function DistribucionEstados({ conteos }) {
   )
 }
 
-function EvolucionMensual({ rows }) {
+function EvolucionMensual({ rows, isPrimaria = false }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle as="h2" className="text-base">Evolucion mensual</CardTitle>
-        <CardDescription>Barras apiladas por TEA / TEP / TED</CardDescription>
+        <CardDescription>{isPrimaria ? "Barras apiladas por S/MB/B · R · TED" : "Barras apiladas por TEA / TEP / TED"}</CardDescription>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -577,13 +577,13 @@ export default function ReportesPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             <KpiCard
               icon={<CheckCircle2 className="h-4 w-4" />}
-              title="TEA"
+              title={isPrimaria ? "S / MB / B" : "TEA"}
               value={fmtPct(resumen?.porcentajes_por_estado?.TEA)}
               accentClass="bg-emerald-100 text-emerald-700"
             />
             <KpiCard
               icon={<XCircle className="h-4 w-4" />}
-              title="TEP"
+              title={isPrimaria ? "R" : "TEP"}
               value={fmtPct(resumen?.porcentajes_por_estado?.TEP)}
               accentClass="bg-yellow-100 text-yellow-700"
             />
@@ -596,14 +596,14 @@ export default function ReportesPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <EvolucionMensual rows={evolucionNotas} />
-            <DistribucionEstados conteos={resumen?.conteos_por_estado} />
+            <EvolucionMensual rows={evolucionNotas} isPrimaria={isPrimaria} />
+            <DistribucionEstados conteos={resumen?.conteos_por_estado} isPrimaria={isPrimaria} />
           </div>
 
           <Card>
             <CardHeader>
               <CardTitle as="h2" className="text-base">Por materia</CardTitle>
-              <CardDescription>Resumen TEA/TEP/TED por materia</CardDescription>
+              <CardDescription>{isPrimaria ? "Resumen por calificación conceptual por materia" : "Resumen TEA/TEP/TED por materia"}</CardDescription>
             </CardHeader>
             <CardContent>
               {porMateria.length === 0 ? (
@@ -613,10 +613,10 @@ export default function ReportesPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-base font-extrabold text-slate-900">Materia</TableHead>
-                      <TableHead className="text-right text-base font-extrabold text-slate-900">TEA</TableHead>
-                      <TableHead className="text-right text-base font-extrabold text-slate-900">TEP</TableHead>
+                      <TableHead className="text-right text-base font-extrabold text-slate-900">{isPrimaria ? "S/MB/B" : "TEA"}</TableHead>
+                      <TableHead className="text-right text-base font-extrabold text-slate-900">{isPrimaria ? "R" : "TEP"}</TableHead>
                       <TableHead className="text-right text-base font-extrabold text-slate-900">TED</TableHead>
-                      <TableHead className="text-right text-base font-extrabold text-slate-900">%TEA</TableHead>
+                      <TableHead className="text-right text-base font-extrabold text-slate-900">{isPrimaria ? "%S/MB/B" : "%TEA"}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -649,8 +649,8 @@ export default function ReportesPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="text-base font-extrabold text-slate-900">Año</TableHead>
-                        <TableHead className="text-right text-base font-extrabold text-slate-900">%TEA</TableHead>
-                        <TableHead className="text-right text-base font-extrabold text-slate-900">%TEP</TableHead>
+                        <TableHead className="text-right text-base font-extrabold text-slate-900">{isPrimaria ? "%S/MB/B" : "%TEA"}</TableHead>
+                        <TableHead className="text-right text-base font-extrabold text-slate-900">{isPrimaria ? "%R" : "%TEP"}</TableHead>
                         <TableHead className="text-right text-base font-extrabold text-slate-900">%TED</TableHead>
                         {!isPrimaria && <TableHead className="text-right text-base font-extrabold text-slate-900">Promedio</TableHead>}
                       </TableRow>
