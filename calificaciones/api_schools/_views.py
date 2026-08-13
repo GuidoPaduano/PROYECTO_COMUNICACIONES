@@ -421,6 +421,9 @@ def admin_create_school_course(request, school_id: int):
         return Response({"detail": "Ya existe un curso con ese codigo en este colegio."}, status=400)
 
     course = SchoolCourse.objects.create(school=school, **payload)
+    # Reordenar todos los cursos alfabéticamente para que el nuevo quede en su posición.
+    for i, sc in enumerate(SchoolCourse.objects.filter(school=school).order_by("name", "id"), start=1):
+        SchoolCourse.objects.filter(pk=sc.pk).update(sort_order=i)
     clear_school_course_cache(school)
     school.courses_count = school.courses.count()
     school.students_count = school.alumnos.count()
