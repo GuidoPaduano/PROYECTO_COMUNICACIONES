@@ -230,7 +230,7 @@ export default function ReportesPage() {
       (c: any) => String(c?.value || c?.id || "") === String(cursoSel)
     )
     const nivelCurso = cursoObj?.nivel || cursoObj?.raw?.nivel
-    if (nivelCurso) return nivelCurso === "primaria"
+    if (nivelCurso === "primaria") return true
     // Fallback: nivel del alumno activo en el reporte
     const nivelReport =
       (report as any)?.nivel ||

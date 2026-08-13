@@ -146,22 +146,24 @@ def preceptor_cursos(request):
     cursos = _cursos_de_usuario(request.user, school=active_school)
 
     # Batch: 1 sola query para todos los SchoolCourse en vez de 1 por curso.
-    sc_by_code: dict[str, int] = {}
+    sc_by_code: dict[str, dict] = {}
     if active_school is not None and cursos:
         codes_upper = [str(c).strip().upper() for c in cursos]
         for sc in SchoolCourse.objects.filter(
             school=active_school, code__in=codes_upper
-        ).values("id", "code"):
-            sc_by_code[sc["code"].upper()] = sc["id"]
+        ).values("id", "code", "nivel"):
+            sc_by_code[sc["code"].upper()] = sc
 
     data = []
     for c in cursos:
+        sc = sc_by_code.get(str(c).strip().upper()) or {}
         data.append(
             {
                 "curso": c,
                 "code": c,
                 "nombre": _curso_label(c, school=active_school),
-                "school_course_id": sc_by_code.get(str(c).strip().upper()),
+                "school_course_id": sc.get("id"),
+                "nivel": str(sc.get("nivel") or "secundaria"),
             }
         )
     return _ok_response({"cursos": data})
