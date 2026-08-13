@@ -320,7 +320,7 @@ export default function ImportarAlumnosPage() {
               </div>
             ) : null}
 
-            {Array.isArray(result?.courses_to_create) && result.courses_to_create.length ? (
+            {Array.isArray(result?.courses_to_create) && result.courses_to_create.length && !result?.summary?.created ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 Se crearán estos cursos al importar: {result.courses_to_create.map((item) => item.code).join(", ")}.
               </div>
