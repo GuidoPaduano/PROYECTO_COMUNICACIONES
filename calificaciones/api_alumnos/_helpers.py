@@ -441,10 +441,15 @@ def _build_import_plan(*, rows: list[dict], school: School):
     courses_by_code = {}
     for course in SchoolCourse.objects.filter(school=school, is_active=True).order_by("sort_order", "code", "id"):
         raw_code = str(course.code or "").strip().upper()
+        course_nivel = str(getattr(course, "nivel", None) or "secundaria")
         if raw_code:
-            courses_by_code[raw_code] = course
+            # Clave (code, nivel) para distinguir "1D primaria" de "1D secundaria"
+            courses_by_code[(raw_code, course_nivel)] = course
+            # Fallback sin nivel para compatibilidad con cursos que no especifican nivel
+            courses_by_code.setdefault(raw_code, course)
         normalized_code = _course_code_for_import(raw_code)
         if normalized_code:
+            courses_by_code.setdefault((normalized_code, course_nivel), course)
             courses_by_code.setdefault(normalized_code, course)
     existing_legajos = {
         str(value or "").strip().upper()
@@ -512,9 +517,13 @@ def _build_import_plan(*, rows: list[dict], school: School):
             if not apellido_padre:
                 row_errors.append("Falta apellido del padre/tutor.")
 
-        school_course = courses_by_code.get(curso)
+        # Buscar curso existente: primero por (code, nivel), luego solo por code
+        school_course = courses_by_code.get((curso, nivel)) or courses_by_code.get(curso)
         if curso and school_course is None:
-            courses_to_create.setdefault(curso, {"code": curso, "name": curso_nombre or curso})
+            courses_to_create.setdefault(
+                (curso, nivel),
+                {"code": curso, "name": curso_nombre or curso, "nivel": nivel},
+            )
 
         if duplicate_row:
             errors.append(

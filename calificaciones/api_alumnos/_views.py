@@ -391,10 +391,12 @@ def admin_importar_alumnos(request):
             with transaction.atomic():
                 padres_creados = {}  # mail → User, para reutilizar en mellizos/hermanos
 
-                course_map = {
-                    str(course.code or "").strip().upper(): course
-                    for course in SchoolCourse.objects.filter(school=school, is_active=True)
-                }
+                course_map = {}
+                for course in SchoolCourse.objects.filter(school=school, is_active=True):
+                    raw_code = str(course.code or "").strip().upper()
+                    course_nivel = str(getattr(course, "nivel", None) or "secundaria")
+                    course_map[(raw_code, course_nivel)] = course
+                    course_map.setdefault(raw_code, course)
                 next_sort_order = (
                     SchoolCourse.objects.filter(school=school)
                     .order_by("-sort_order")
@@ -404,12 +406,14 @@ def admin_importar_alumnos(request):
                 )
                 for course_info in courses_to_create:
                     code = course_info["code"]
-                    school_course = course_map.get(code)
+                    nivel_curso = str(course_info.get("nivel") or "secundaria")
+                    school_course = course_map.get((code, nivel_curso)) or course_map.get(code)
                     if school_course is None:
                         next_sort_order += 1
                         school_course, was_created = SchoolCourse.objects.get_or_create(
                             school=school,
                             code=code,
+                            nivel=nivel_curso,
                             defaults={
                                 "name": course_info["name"],
                                 "is_active": True,
@@ -427,6 +431,7 @@ def admin_importar_alumnos(request):
                                     "name": school_course.name,
                                 }
                             )
+                    course_map[(code, nivel_curso)] = school_course
                     course_map[code] = school_course
 
                 # Reordenar todos los cursos del colegio alfabéticamente para que
@@ -438,7 +443,12 @@ def admin_importar_alumnos(request):
                     SchoolCourse.objects.filter(pk=sc.pk).update(sort_order=i)
 
                 for item in plan:
-                    school_course = item["school_course"] or course_map.get(item["curso"])
+                    item_nivel = str(item.get("nivel") or "secundaria")
+                    school_course = (
+                        item["school_course"]
+                        or course_map.get((item["curso"], item_nivel))
+                        or course_map.get(item["curso"])
+                    )
                     if school_course is None:
                         raise IntegrityError("No se pudo resolver el curso de la fila importada.")
 
