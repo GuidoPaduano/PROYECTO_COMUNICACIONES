@@ -362,14 +362,12 @@ export default function DashboardPage() {
   const [cursoInd, setCursoInd] = useState("")
   const [alumnosInd, setAlumnosInd] = useState([])
   const [alumnoInd, setAlumnoInd] = useState("")
-  const [asuntoInd, setAsuntoInd] = useState("")
   const [cuerpoInd, setCuerpoInd] = useState("")
   const [loadingInd, setLoadingInd] = useState(false)
   const [msgIndErr, setMsgIndErr] = useState("")
   const [msgIndOk, setMsgIndOk] = useState("")
 
   const [cursoGrp, setCursoGrp] = useState("")
-  const [asuntoGrp, setAsuntoGrp] = useState("")
   const [cuerpoGrp, setCuerpoGrp] = useState("")
   const [loadingGrp, setLoadingGrp] = useState(false)
   const [msgGrpErr, setMsgGrpErr] = useState("")
@@ -416,7 +414,6 @@ const [mensajeSan, setMensajeSan] = useState("")
   const [alumnoMsgOk, setAlumnoMsgOk] = useState("")
   const [alumnoDestType, setAlumnoDestType] = useState("profesor")
   const [destSel, setDestSel] = useState("")
-  const [asuntoAlu, setAsuntoAlu] = useState("")
   const [contenidoAlu, setContenidoAlu] = useState("")
   const [destinatariosProf, setDestinatariosProf] = useState([])
   const [destinatariosPrec, setDestinatariosPrec] = useState([])
@@ -611,7 +608,7 @@ const [mensajeSan, setMensajeSan] = useState("")
           body: JSON.stringify({
             ...(alumnoIdNum != null ? { alumno_id: alumnoIdNum } : {}),
             ...(alumnoCode ? { id_alumno: String(alumnoCode) } : {}),
-            asunto: asuntoInd.trim(),
+            asunto: "",
             contenido: cuerpoInd.trim(),
           }),
         })
@@ -623,7 +620,6 @@ const [mensajeSan, setMensajeSan] = useState("")
         setCursoInd("")
         setAlumnoInd("")
         setAlumnosInd([])
-        setAsuntoInd("")
         setCuerpoInd("")
         setMsgIndOk("")
       }, 600)
@@ -648,7 +644,7 @@ const [mensajeSan, setMensajeSan] = useState("")
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           school_course_id: cursoGrpId,
-          asunto: asuntoGrp.trim(),
+          asunto: "",
           contenido: cuerpoGrp.trim(),
         }),
       })
@@ -662,7 +658,6 @@ const [mensajeSan, setMensajeSan] = useState("")
       setTimeout(() => {
         setOpenGrp(false)
         setCursoGrp("")
-        setAsuntoGrp("")
         setCuerpoGrp("")
         setMsgGrpOk("")
       }, 800)
@@ -769,14 +764,13 @@ setMensajeSan("")
 
   async function enviarMensajeAlumno() {
     if (!destSel) return setAlumnoMsgErr("Elegí un destinatario.")
-    if (!asuntoAlu.trim()) return setAlumnoMsgErr("Completá el asunto.")
     if (!contenidoAlu.trim()) return setAlumnoMsgErr("Escribí el mensaje.")
     setAlumnoMsgErr("")
     setAlumnoMsgOk("")
 
     const payload = {
       receptor_id: Number(destSel),
-      asunto: asuntoAlu.trim(),
+      asunto: "",
       contenido: contenidoAlu.trim(),
       ...(cursoSugeridoAlumnoId != null ? { school_course_id: cursoSugeridoAlumnoId } : {}),
     }
@@ -813,7 +807,6 @@ setMensajeSan("")
       setTimeout(() => {
         setOpenAlumnoMsg(false)
         setDestSel("")
-        setAsuntoAlu("")
         setContenidoAlu("")
         setAlumnoMsgOk("")
       }, 700)
@@ -1393,7 +1386,7 @@ setMensajeSan("")
           <DialogHeader>
             <DialogTitle>Enviar mensaje individual</DialogTitle>
             <DialogDescription>
-              Elegí curso y alumno; escribí el asunto y el cuerpo.
+              Elegí curso y alumno; escribí el mensaje.
             </DialogDescription>
           </DialogHeader>
 
@@ -1457,19 +1450,8 @@ setMensajeSan("")
               </select>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="asuntoInd">Asunto</Label>
-                <Input
-                  id="asuntoInd"
-                  value={asuntoInd}
-                  onChange={(e) => setAsuntoInd(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="sm:pt-6 text-xs text-gray-500">
-                El mensaje se enviará al buzón del alumno/padre.
-              </div>
+            <div className="text-xs text-gray-500">
+              El mensaje se enviará al buzón del alumno/padre.
             </div>
 
             <div>
@@ -1520,16 +1502,6 @@ setMensajeSan("")
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <Label htmlFor="asuntoGrp">Asunto</Label>
-              <Input
-                id="asuntoGrp"
-                value={asuntoGrp}
-                onChange={(e) => setAsuntoGrp(e.target.value)}
-                required
-              />
             </div>
 
             <div>
@@ -1688,15 +1660,6 @@ setMensajeSan("")
                 )}
               </div>
             )}
-
-            <div>
-              <Label>Asunto</Label>
-              <Input
-                value={asuntoAlu}
-                onChange={(e) => setAsuntoAlu(e.target.value)}
-                placeholder="Ej: Consulta sobre la tarea"
-              />
-            </div>
 
             <div>
               <Label>Mensaje</Label>

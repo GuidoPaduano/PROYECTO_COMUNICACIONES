@@ -240,7 +240,6 @@ export default function MensajesPage() {
 
   // === Responder ===
   const [replyMode, setReplyMode] = useState(false)
-  const [replyAsunto, setReplyAsunto] = useState("")
   const [replyTexto, setReplyTexto] = useState("")
   const [replyErr, setReplyErr] = useState("")
   const [replyOk, setReplyOk] = useState("")
@@ -255,7 +254,6 @@ export default function MensajesPage() {
   const [alumnoMsgErr, setAlumnoMsgErr] = useState("")
   const [alumnoMsgOk, setAlumnoMsgOk] = useState("")
   const [destSel, setDestSel] = useState("")
-  const [asuntoAlu, setAsuntoAlu] = useState("")
   const [contenidoAlu, setContenidoAlu] = useState("")
   const [destinatariosDoc, setDestinatariosDoc] = useState([])
   const [alumnoDestType, setAlumnoDestType] = useState("")
@@ -531,7 +529,6 @@ export default function MensajesPage() {
     setReplyErr("")
     setReplyOk("")
     setReplyTexto("")
-    setReplyAsunto(m?.asunto ? `Re: ${stripRePrefix(m.asunto)}` : "Re:")
 
     try {
       const hasLeido = Object.prototype.hasOwnProperty.call(m, "leido")
@@ -600,7 +597,7 @@ export default function MensajesPage() {
 
     const payload = {
       mensaje_id: msgSel.id,
-      asunto: replyAsunto?.trim() || `Re: ${stripRePrefix(msgSel.asunto || "")}`.trim(),
+      asunto: "",
       contenido: replyTexto.trim(),
     }
 
@@ -1115,16 +1112,6 @@ export default function MensajesPage() {
             </div>
 
             <div>
-              <Label htmlFor="asuntoAlu">Asunto</Label>
-              <Input
-                id="asuntoAlu"
-                className="mt-1"
-                value={asuntoAlu}
-                onChange={(e) => setAsuntoAlu(e.target.value)}
-              />
-            </div>
-
-            <div>
               <Label htmlFor="contenidoAlu">Mensaje</Label>
               <RichTextEditor
                 value={contenidoAlu}
@@ -1140,14 +1127,13 @@ export default function MensajesPage() {
             <Button
               onClick={async () => {
                 if (!destSel) return setAlumnoMsgErr("Elegí un destinatario.")
-                if (!asuntoAlu.trim()) return setAlumnoMsgErr("Completá el asunto.")
                 if (!contenidoAlu.trim()) return setAlumnoMsgErr("Escribí el mensaje.")
                 setAlumnoMsgErr("")
                 setAlumnoMsgOk("")
 
                 const payload = {
                   receptor_id: Number(destSel),
-                  asunto: asuntoAlu.trim(),
+                  asunto: "",
                   contenido: contenidoAlu.trim(),
                   ...(cursoSugeridoAlumnoId != null
                     ? { school_course_id: cursoSugeridoAlumnoId }
@@ -1186,7 +1172,6 @@ export default function MensajesPage() {
                   setTimeout(() => {
                     setOpenAlumnoMsg(false)
                     setDestSel("")
-                    setAsuntoAlu("")
                     setContenidoAlu("")
                     setAlumnoMsgOk("")
                   }, 700)
@@ -1288,15 +1273,6 @@ export default function MensajesPage() {
                 {replyOk && <SuccessMessage className="mb-3">{replyOk}</SuccessMessage>}
 
                 <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="replyAsunto">Asunto</Label>
-                    <Input
-                      id="replyAsunto"
-                      value={replyAsunto}
-                      onChange={(e) => setReplyAsunto(e.target.value)}
-                    />
-                  </div>
-
                   <div>
                     <Label htmlFor="replyTexto">Mensaje</Label>
                     <RichTextEditor

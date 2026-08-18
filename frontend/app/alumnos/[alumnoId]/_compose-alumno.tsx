@@ -42,7 +42,6 @@ export default function ComposeMensajeAlumno({
   onSent?: (data: unknown) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [asunto, setAsunto] = useState("")
   const [contenido, setContenido] = useState("")
   const [sending, setSending] = useState(false)
   const [error, setError] = useState("")
@@ -56,8 +55,8 @@ export default function ComposeMensajeAlumno({
 
   const canSend = useMemo(() => {
     const hasAlumno = alumnoPk != null || String(alumnoCode || "").trim() !== ""
-    return hasAlumno && String(asunto || "").trim() && String(contenido || "").trim()
-  }, [alumnoPk, alumnoCode, asunto, contenido])
+    return hasAlumno && String(contenido || "").trim()
+  }, [alumnoPk, alumnoCode, contenido])
 
   useEffect(() => {
     if (!open) return
@@ -76,7 +75,7 @@ export default function ComposeMensajeAlumno({
       const payload = {
         // Preferimos PK si está
         ...(alumnoPk != null ? { alumno_id: alumnoPk } : { id_alumno: alumnoCode }),
-        asunto: String(asunto).trim(),
+        asunto: "",
         contenido: String(contenido).trim(),
         tipo: "mensaje",
       }
@@ -95,7 +94,6 @@ export default function ComposeMensajeAlumno({
       }
 
       setOkMsg("Mensaje enviado ✅")
-      setAsunto("")
       setContenido("")
 
       try {
@@ -142,16 +140,6 @@ export default function ComposeMensajeAlumno({
                   Falta identificar el alumno. Probá recargar el perfil.
                 </p>
               )}
-            </div>
-
-            <div>
-              <Label className="text-sm">Asunto</Label>
-              <Input
-                className="mt-1"
-                value={asunto}
-                onChange={(e) => setAsunto(e.target.value)}
-                placeholder="Ej: Consulta sobre la tarea"
-              />
             </div>
 
             <div>

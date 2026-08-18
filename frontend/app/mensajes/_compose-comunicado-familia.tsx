@@ -107,7 +107,6 @@ export default function ComposeComunicadoFamilia({
   const [alumnoSel, setAlumnoSel] = useState("") // id alumno
 
   // Form
-  const [asunto, setAsunto] = useState("")
   const [mensaje, setMensaje] = useState("")
 
   // Loading / estados
@@ -143,7 +142,6 @@ export default function ComposeComunicadoFamilia({
       setModo("familia")
       setPadreSel("")
       setAlumnoSel("")
-      setAsunto("")
       setMensaje("")
       setDestinatarios([])
       setAlumnos([])
@@ -344,14 +342,13 @@ export default function ComposeComunicadoFamilia({
   }
 
   const canSend = useMemo(() => {
-    // asunto y mensaje siempre requeridos
-    if (!asunto.trim() || !mensaje.trim()) return false
+    if (!mensaje.trim()) return false
     if (!cursoSel) return false
     if (modo === "familia") return !!(padreSel && alumnoSel)
     if (modo === "alumno") return !!alumnoSel
     if (modo === "curso_alumnos") return true
     return false
-  }, [modo, asunto, mensaje, cursoSel, padreSel, alumnoSel])
+  }, [modo, mensaje, cursoSel, padreSel, alumnoSel])
 
   async function enviar() {
     setErrMsg(""); setOkMsg(""); setSending(true)
@@ -361,7 +358,7 @@ export default function ComposeComunicadoFamilia({
         const body = {
           receptor_id: Number(padreSel),
           alumno_id: Number(alumnoSel), // por trazabilidad en backend
-          asunto,
+          asunto: "",
           contenido: mensaje,
           tipo: "comunicado",
         }
@@ -508,17 +505,6 @@ export default function ComposeComunicadoFamilia({
           </div>
         )}
 
-        {/* Asunto + Mensaje */}
-        <div className="grid gap-1.5">
-          <Label htmlFor="asunto">Asunto</Label>
-          <Input
-            id="asunto"
-            value={asunto}
-            onChange={(e) => setAsunto(e.target.value)}
-            disabled={sending}
-            maxLength={100}
-          />
-        </div>
         <div className="grid gap-1.5">
           <Label htmlFor="msg">Mensaje</Label>
           <RichTextEditor
