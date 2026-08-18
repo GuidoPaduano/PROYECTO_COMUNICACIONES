@@ -8,6 +8,11 @@ from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..models import Alumno, Documento, FirmaDocumento, SchoolCourse
 from ..schools import get_request_school
 
+try:
+    from ..models_preceptores import PreceptorCurso
+except ImportError:
+    PreceptorCurso = None
+
 
 def _has_role(request, *roles):
     groups = set(request.user.groups.values_list("name", flat=True))
@@ -28,19 +33,33 @@ def _get_client_ip(request):
     return request.META.get("REMOTE_ADDR")
 
 
+def _preceptor_course_ids(user, school):
+    """IDs de school_course asignados al preceptor en esta escuela."""
+    if PreceptorCurso is None:
+        return None
+    qs = PreceptorCurso.objects.filter(preceptor=user, school=school).values_list("school_course_id", flat=True)
+    ids = set(qs)
+    return ids if ids else set()
+
+
 def _curso_ids_for_user(user, school):
     """
-    Devuelve los school_course_id accesibles para el usuario:
+    Devuelve los school_course_id visibles para el usuario:
+    - Superuser / Directivos: todos (None)
+    - Preceptores: solo sus cursos asignados
     - Padres: cursos de sus hijos
     - Alumnos: su propio curso
-    - Staff/superuser: todos
     Retorna None si el usuario ve todos los cursos.
     """
     if getattr(user, "is_superuser", False):
         return None
     groups = set(user.groups.values_list("name", flat=True))
-    if groups & {"Directivos", "Preceptores", "Profesores"}:
+
+    if groups & {"Directivos"}:
         return None
+
+    if "Preceptores" in groups:
+        return _preceptor_course_ids(user, school)
 
     ids = set()
     if "Padres" in groups:
