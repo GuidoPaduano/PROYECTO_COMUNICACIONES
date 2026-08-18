@@ -1653,10 +1653,11 @@ setMensajeSan("")
 
             <div>
               <Label>Mensaje</Label>
-              <Textarea
-                rows={6}
+              <RichTextEditor
                 value={contenidoAlu}
-                onChange={(e) => setContenidoAlu(e.target.value)}
+                onChange={setContenidoAlu}
+                minHeight="140px"
+                className="mt-1"
               />
             </div>
 
