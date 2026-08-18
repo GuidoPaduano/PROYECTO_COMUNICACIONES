@@ -1,10 +1,11 @@
+from django.db.models import Q
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
-from ..models import Documento, FirmaDocumento
+from ..models import Alumno, Documento, FirmaDocumento, SchoolCourse
 from ..schools import get_request_school
 
 
@@ -27,10 +28,41 @@ def _get_client_ip(request):
     return request.META.get("REMOTE_ADDR")
 
 
+def _curso_ids_for_user(user, school):
+    """
+    Devuelve los school_course_id accesibles para el usuario:
+    - Padres: cursos de sus hijos
+    - Alumnos: su propio curso
+    - Staff/superuser: todos
+    Retorna None si el usuario ve todos los cursos.
+    """
+    if getattr(user, "is_superuser", False):
+        return None
+    groups = set(user.groups.values_list("name", flat=True))
+    if groups & {"Directivos", "Preceptores", "Profesores"}:
+        return None
+
+    ids = set()
+    if "Padres" in groups:
+        for a in Alumno.objects.filter(padre=user, school=school).select_related("school_course"):
+            if a.school_course_id:
+                ids.add(a.school_course_id)
+    elif "Alumnos" in groups:
+        try:
+            a = Alumno.objects.filter(usuario=user, school=school).select_related("school_course").first()
+            if a and a.school_course_id:
+                ids.add(a.school_course_id)
+        except Exception:
+            pass
+    return ids
+
+
 def _documento_to_dict(doc, user=None):
     firmado = False
     if user and user.is_authenticated:
         firmado = FirmaDocumento.objects.filter(documento=doc, usuario=user).exists()
+
+    course = doc.school_course
     return {
         "id": doc.id,
         "titulo": doc.titulo,
@@ -46,6 +78,8 @@ def _documento_to_dict(doc, user=None):
         ),
         "firmado": firmado,
         "total_firmas": doc.firmas.count(),
+        "school_course_id": course.id if course else None,
+        "school_course_name": (getattr(course, "name", None) or getattr(course, "code", None)) if course else None,
     }
 
 
@@ -55,16 +89,20 @@ def _documento_to_dict(doc, user=None):
 @permission_classes([IsAuthenticated])
 def documentos_list(request):
     """
-    GET  /api/documentos/       → lista documentos de la escuela
-    POST /api/documentos/       → sube un nuevo documento (admin/preceptor)
+    GET  /api/documentos/  → lista documentos visibles para el usuario
+    POST /api/documentos/  → sube un nuevo documento (admin/preceptor)
     """
     school = get_request_school(request)
     if not school:
         return Response({"detail": "No se pudo determinar la escuela."}, status=400)
 
     if request.method == "GET":
-        docs = Documento.objects.filter(school=school)
-        return Response({"documentos": [_documento_to_dict(d, request.user) for d in docs]})
+        curso_ids = _curso_ids_for_user(request.user, school)
+        qs = Documento.objects.filter(school=school).select_related("school_course", "subido_por")
+        if curso_ids is not None:
+            # Ve documentos sin curso asignado (toda la institución) + los de sus cursos
+            qs = qs.filter(Q(school_course__isnull=True) | Q(school_course_id__in=curso_ids))
+        return Response({"documentos": [_documento_to_dict(d, request.user) for d in qs]})
 
     # POST — solo admin/preceptores
     if not _can_upload(request):
@@ -81,8 +119,17 @@ def documentos_list(request):
     if not archivo.name.lower().endswith(".pdf"):
         return Response({"detail": "Solo se permiten archivos PDF."}, status=400)
 
+    school_course = None
+    school_course_id = request.data.get("school_course_id")
+    if school_course_id:
+        try:
+            school_course = SchoolCourse.objects.get(id=int(school_course_id), school=school)
+        except (SchoolCourse.DoesNotExist, ValueError):
+            return Response({"detail": "Curso no encontrado."}, status=400)
+
     doc = Documento.objects.create(
         school=school,
+        school_course=school_course,
         titulo=titulo,
         descripcion=(request.data.get("descripcion") or "").strip(),
         tipo=request.data.get("tipo") or "otro",
@@ -98,10 +145,6 @@ def documentos_list(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def documento_detail(request, doc_id):
-    """
-    GET    /api/documentos/<id>/  → detalle del documento
-    DELETE /api/documentos/<id>/  → elimina documento (admin/preceptor)
-    """
     school = get_request_school(request)
     try:
         doc = Documento.objects.get(id=doc_id, school=school)
@@ -111,7 +154,6 @@ def documento_detail(request, doc_id):
     if request.method == "GET":
         return Response(_documento_to_dict(doc, request.user))
 
-    # DELETE
     if not _can_upload(request):
         return Response({"detail": "No tenés permiso para eliminar documentos."}, status=403)
 
@@ -125,9 +167,6 @@ def documento_detail(request, doc_id):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def documento_firmar(request, doc_id):
-    """
-    POST /api/documentos/<id>/firmar/  → el usuario firma el documento
-    """
     school = get_request_school(request)
     try:
         doc = Documento.objects.get(id=doc_id, school=school)
@@ -154,9 +193,6 @@ def documento_firmar(request, doc_id):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def documento_firmas(request, doc_id):
-    """
-    GET /api/documentos/<id>/firmas/  → lista quiénes firmaron (admin/preceptor)
-    """
     if not _can_upload(request):
         return Response({"detail": "No tenés permiso para ver las firmas."}, status=403)
 

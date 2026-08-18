@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from django.db import models
 
-from ._school import School
+from ._school import School, SchoolCourse
 
 
 def _documento_upload_path(instance, filename):
@@ -17,6 +17,9 @@ class Documento(models.Model):
     ]
 
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="documentos")
+    school_course = models.ForeignKey(
+        SchoolCourse, on_delete=models.SET_NULL, null=True, blank=True, related_name="documentos"
+    )
     titulo = models.CharField(max_length=255)
     descripcion = models.TextField(blank=True, default="")
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, default="otro")

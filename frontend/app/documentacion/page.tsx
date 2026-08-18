@@ -29,22 +29,35 @@ const TIPO_COLORS = {
   otro: "#6b7280",
 }
 
-function Badge({ tipo }) {
+function TipoBadge({ tipo }) {
   return (
-    <span
-      style={{
-        display: "inline-block",
-        fontSize: "11px",
-        fontWeight: 600,
-        padding: "2px 8px",
-        borderRadius: "9999px",
-        background: TIPO_COLORS[tipo] + "18",
-        color: TIPO_COLORS[tipo],
-        border: `1px solid ${TIPO_COLORS[tipo]}40`,
-      }}
-    >
+    <span style={{
+      display: "inline-block", fontSize: "11px", fontWeight: 600,
+      padding: "2px 8px", borderRadius: "9999px",
+      background: TIPO_COLORS[tipo] + "18", color: TIPO_COLORS[tipo],
+      border: `1px solid ${TIPO_COLORS[tipo]}40`,
+    }}>
       {TIPO_LABELS[tipo] || tipo}
     </span>
+  )
+}
+
+function CursoBadge({ name }) {
+  if (!name) return (
+    <span style={{
+      display: "inline-block", fontSize: "11px", fontWeight: 500,
+      padding: "2px 8px", borderRadius: "9999px",
+      background: "#f1f5f9", color: "#64748b",
+      border: "1px solid #e2e8f0",
+    }}>Toda la institución</span>
+  )
+  return (
+    <span style={{
+      display: "inline-block", fontSize: "11px", fontWeight: 600,
+      padding: "2px 8px", borderRadius: "9999px",
+      background: "#ede9fe", color: "#7c3aed",
+      border: "1px solid #c4b5fd",
+    }}>{name}</span>
   )
 }
 
@@ -59,14 +72,20 @@ export default function DocumentacionPage() {
   // Visor PDF
   const [pdfDoc, setPdfDoc] = useState(null)
 
+  // Cursos disponibles (para el selector al subir)
+  const [cursos, setCursos] = useState([])
+
   // Subir documento
   const [openUpload, setOpenUpload] = useState(false)
-  const [uploadForm, setUploadForm] = useState({ titulo: "", descripcion: "", tipo: "otro", requiere_firma: true })
+  const [uploadForm, setUploadForm] = useState({
+    titulo: "", descripcion: "", tipo: "otro",
+    requiere_firma: true, school_course_id: "",
+  })
   const [uploadFile, setUploadFile] = useState(null)
   const [uploadErr, setUploadErr] = useState("")
   const [uploading, setUploading] = useState(false)
 
-  // Firmas (vista admin)
+  // Firmas
   const [firmasDoc, setFirmasDoc] = useState(null)
   const [firmas, setFirmas] = useState(null)
   const [loadingFirmas, setLoadingFirmas] = useState(false)
@@ -94,9 +113,19 @@ export default function DocumentacionPage() {
     }
   }
 
+  async function loadCursos() {
+    try {
+      const r = await authFetch("/api/alumnos/cursos/")
+      const j = await r.json().catch(() => ({}))
+      const lista = Array.isArray(j?.cursos) ? j.cursos : Array.isArray(j) ? j : []
+      setCursos(lista)
+    } catch {}
+  }
+
   useEffect(() => {
     loadDocs()
-  }, [])
+    if (canUpload) loadCursos()
+  }, [canUpload])
 
   async function handleFirmar(doc) {
     setSigning(doc.id)
@@ -150,6 +179,7 @@ export default function DocumentacionPage() {
       fd.append("descripcion", uploadForm.descripcion.trim())
       fd.append("tipo", uploadForm.tipo)
       fd.append("requiere_firma", uploadForm.requiere_firma ? "true" : "false")
+      if (uploadForm.school_course_id) fd.append("school_course_id", uploadForm.school_course_id)
       fd.append("archivo", uploadFile)
 
       const r = await authFetch("/api/documentos/", { method: "POST", body: fd })
@@ -157,13 +187,21 @@ export default function DocumentacionPage() {
       if (!r.ok) throw new Error(j?.detail || "Error al subir el documento.")
       setDocs((prev) => [j, ...prev])
       setOpenUpload(false)
-      setUploadForm({ titulo: "", descripcion: "", tipo: "otro", requiere_firma: true })
+      setUploadForm({ titulo: "", descripcion: "", tipo: "otro", requiere_firma: true, school_course_id: "" })
       setUploadFile(null)
     } catch (e) {
       setUploadErr(e?.message || "Error al subir el documento.")
     } finally {
       setUploading(false)
     }
+  }
+
+  // Helper para obtener el nombre del curso de la lista
+  function getCursoNombre(c) {
+    return c?.name || c?.nombre || c?.code || c?.codigo || String(c?.id || "")
+  }
+  function getCursoId(c) {
+    return c?.id ?? c?.school_course_id ?? ""
   }
 
   return (
@@ -206,26 +244,20 @@ export default function DocumentacionPage() {
           <div
             key={doc.id}
             style={{
-              background: "white",
-              border: "1px solid #e2e8f0",
-              borderRadius: 10,
-              padding: "16px 20px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 16,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+              background: "white", border: "1px solid #e2e8f0", borderRadius: 10,
+              padding: "16px 20px", display: "flex", alignItems: "flex-start",
+              gap: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
             }}
           >
-            {/* Ícono */}
             <div style={{ flexShrink: 0, width: 40, height: 40, background: "#f1f5f9", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <FileText style={{ width: 20, height: 20, color: "#475569" }} />
             </div>
 
-            {/* Info */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 600, color: "#0f172a", fontSize: "0.9375rem" }}>{doc.titulo}</span>
-                <Badge tipo={doc.tipo} />
+                <TipoBadge tipo={doc.tipo} />
+                <CursoBadge name={doc.school_course_name} />
                 {doc.requiere_firma && (
                   doc.firmado
                     ? <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#16a34a", fontWeight: 500 }}><CheckCircle style={{ width: 14, height: 14 }} />Firmado</span>
@@ -241,43 +273,24 @@ export default function DocumentacionPage() {
               </p>
             </div>
 
-            {/* Acciones */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              <Button
-                size="sm"
-                onClick={() => setPdfDoc(doc)}
-                className="gap-1"
-                style={{ fontSize: 13 }}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                Ver
+              <Button size="sm" onClick={() => setPdfDoc(doc)} className="gap-1" style={{ fontSize: 13 }}>
+                <Eye className="w-3.5 h-3.5" />Ver
               </Button>
-
               {doc.requiere_firma && !doc.firmado && (
-                <Button
-                  size="sm"
-                  onClick={() => handleFirmar(doc)}
-                  disabled={signing === doc.id}
-                  style={{ fontSize: 13, background: "#16a34a", color: "white" }}
-                >
+                <Button size="sm" onClick={() => handleFirmar(doc)} disabled={signing === doc.id}
+                  style={{ fontSize: 13, background: "#16a34a", color: "white" }}>
                   {signing === doc.id ? "Firmando…" : "Firmar"}
                 </Button>
               )}
-
               {canUpload && (
                 <>
-                  <Button
-                    size="sm"
-                    onClick={() => handleVerFirmas(doc)}
-                    style={{ fontSize: 13, background: "transparent", border: "1px solid #cbd5e1", color: "#475569" }}
-                  >
+                  <Button size="sm" onClick={() => handleVerFirmas(doc)}
+                    style={{ fontSize: 13, background: "transparent", border: "1px solid #cbd5e1", color: "#475569" }}>
                     Firmas
                   </Button>
-                  <button
-                    onClick={() => handleEliminar(doc)}
-                    title="Eliminar"
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", padding: 6, borderRadius: 6, display: "flex", alignItems: "center" }}
-                  >
+                  <button onClick={() => handleEliminar(doc)} title="Eliminar"
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", padding: 6, borderRadius: 6, display: "flex", alignItems: "center" }}>
                     <Trash2 style={{ width: 16, height: 16 }} />
                   </button>
                 </>
@@ -289,21 +302,15 @@ export default function DocumentacionPage() {
 
       {/* ── Visor PDF ── */}
       {pdfDoc && (
-        <div
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", flexDirection: "column" }}
-          onClick={(e) => { if (e.target === e.currentTarget) setPdfDoc(null) }}
-        >
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", flexDirection: "column" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPdfDoc(null) }}>
           <div style={{ background: "#1e293b", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ color: "white", fontWeight: 600, fontSize: "0.9375rem" }}>{pdfDoc.titulo}</span>
             <button onClick={() => setPdfDoc(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "white", display: "flex", alignItems: "center" }}>
               <X style={{ width: 20, height: 20 }} />
             </button>
           </div>
-          <iframe
-            src={pdfDoc.archivo_url}
-            title={pdfDoc.titulo}
-            style={{ flex: 1, border: "none", width: "100%" }}
-          />
+          <iframe src={pdfDoc.archivo_url} title={pdfDoc.titulo} style={{ flex: 1, border: "none", width: "100%" }} />
         </div>
       )}
 
@@ -322,70 +329,60 @@ export default function DocumentacionPage() {
 
             <div>
               <Label htmlFor="titulo">Título</Label>
-              <Input
-                id="titulo"
-                className="mt-1"
-                value={uploadForm.titulo}
-                onChange={(e) => setUploadForm((f) => ({ ...f, titulo: e.target.value }))}
-                required
-              />
+              <Input id="titulo" className="mt-1" value={uploadForm.titulo}
+                onChange={(e) => setUploadForm((f) => ({ ...f, titulo: e.target.value }))} required />
             </div>
 
             <div>
               <Label htmlFor="descripcion">Descripción (opcional)</Label>
-              <Input
-                id="descripcion"
-                className="mt-1"
-                value={uploadForm.descripcion}
-                onChange={(e) => setUploadForm((f) => ({ ...f, descripcion: e.target.value }))}
-              />
+              <Input id="descripcion" className="mt-1" value={uploadForm.descripcion}
+                onChange={(e) => setUploadForm((f) => ({ ...f, descripcion: e.target.value }))} />
             </div>
 
-            <div>
-              <Label htmlFor="tipo">Tipo</Label>
-              <select
-                id="tipo"
-                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
-                value={uploadForm.tipo}
-                onChange={(e) => setUploadForm((f) => ({ ...f, tipo: e.target.value }))}
-              >
-                <option value="autorizacion">Autorización</option>
-                <option value="normas">Normas de convivencia</option>
-                <option value="circular">Circular</option>
-                <option value="otro">Otro</option>
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="tipo">Tipo</Label>
+                <select id="tipo" className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                  value={uploadForm.tipo} onChange={(e) => setUploadForm((f) => ({ ...f, tipo: e.target.value }))}>
+                  <option value="autorizacion">Autorización</option>
+                  <option value="normas">Normas de convivencia</option>
+                  <option value="circular">Circular</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="curso">Curso</Label>
+                <select id="curso" className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                  value={uploadForm.school_course_id}
+                  onChange={(e) => setUploadForm((f) => ({ ...f, school_course_id: e.target.value }))}>
+                  <option value="">Toda la institución</option>
+                  {cursos.map((c) => (
+                    <option key={getCursoId(c)} value={getCursoId(c)}>
+                      {getCursoNombre(c)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                id="requiere_firma"
-                checked={uploadForm.requiere_firma}
+              <input type="checkbox" id="requiere_firma" checked={uploadForm.requiere_firma}
                 onChange={(e) => setUploadForm((f) => ({ ...f, requiere_firma: e.target.checked }))}
-                style={{ width: 16, height: 16, cursor: "pointer" }}
-              />
+                style={{ width: 16, height: 16, cursor: "pointer" }} />
               <Label htmlFor="requiere_firma" style={{ cursor: "pointer", margin: 0 }}>Requiere firma digital</Label>
             </div>
 
             <div>
               <Label htmlFor="archivo">Archivo PDF</Label>
-              <input
-                id="archivo"
-                type="file"
-                accept=".pdf"
+              <input id="archivo" type="file" accept=".pdf"
                 className="mt-1 block w-full text-sm text-gray-600 file:mr-4 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer"
-                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                required
-              />
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)} required />
             </div>
 
             <DialogFooter>
-              <Button type="button" onClick={() => setOpenUpload(false)} disabled={uploading}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={uploading}>
-                {uploading ? "Subiendo…" : "Subir"}
-              </Button>
+              <Button type="button" onClick={() => setOpenUpload(false)} disabled={uploading}>Cancelar</Button>
+              <Button type="submit" disabled={uploading}>{uploading ? "Subiendo…" : "Subir"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -426,6 +423,7 @@ export default function DocumentacionPage() {
           )}
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }
