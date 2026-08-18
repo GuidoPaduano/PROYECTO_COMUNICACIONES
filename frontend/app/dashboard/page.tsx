@@ -1426,24 +1426,15 @@ setMensajeSan("")
                   {cursoInd ? "Seleccioná un alumno…" : "Elegí curso primero"}
                 </option>
                   {alumnosInd.map((a) => {
-                    const key =
-                      a?.id ?? a?.pk ?? a?.id_alumno ?? a?.codigo ?? a?.legajo
+                    const key = a?.id ?? a?.pk ?? a?.id_alumno ?? a?.codigo ?? a?.legajo
                     const label =
-                      a?.nombre ??
-                      [a?.apellido, a?.nombre].filter(Boolean).join(" ") ??
-                      a?.full_name ??
-                      a?.nombre_completo ??
+                      [a?.apellido, a?.nombre].filter(Boolean).join(", ") ||
+                      a?.nombre_completo ||
+                      a?.full_name ||
                       String(key ?? "")
-                    const sub =
-                      a?.id_alumno ??
-                      a?.codigo ??
-                      a?.legajo ??
-                      getCourseDisplayName(a) ??
-                      ""
                     return (
                       <option key={String(key)} value={String(key)}>
                         {label}
-                        {sub ? ` (${sub})` : ""}
                       </option>
                     )
                   })}
