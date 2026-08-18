@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react"
 import { FileText, Upload, CheckCircle, Clock, Trash2, Eye, X } from "lucide-react"
-import { useAuthGuard, authFetch } from "../_lib/auth"
+import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -51,7 +51,7 @@ function Badge({ tipo }) {
 export default function DocumentacionPage() {
   useAuthGuard()
 
-  const [me, setMe] = useState(null)
+  const sessionContext = useSessionContext()
   const [docs, setDocs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -74,9 +74,9 @@ export default function DocumentacionPage() {
   // Signing
   const [signing, setSigning] = useState(null)
 
-  const groups = me?.groups || []
+  const groups = Array.isArray(sessionContext?.groups) ? sessionContext.groups : []
   const canUpload =
-    me?.is_superuser ||
+    !!sessionContext?.isSuperuser ||
     groups.some((g) => ["Directivos", "Preceptores", "Administradores"].includes(g))
 
   async function loadDocs() {
@@ -95,9 +95,6 @@ export default function DocumentacionPage() {
   }
 
   useEffect(() => {
-    authFetch("/api/me/").then(async (r) => {
-      if (r.ok) setMe(await r.json())
-    })
     loadDocs()
   }, [])
 
