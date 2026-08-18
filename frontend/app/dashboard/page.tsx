@@ -1562,8 +1562,7 @@ setMensajeSan("")
                 </option>
                 {alumnosSan.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.nombre}
-                    {a.apellido ? ` ${a.apellido}` : ""} — {a.id_alumno}
+                    {[a.apellido, a.nombre].filter(Boolean).join(", ")}
                   </option>
                 ))}
               </select>

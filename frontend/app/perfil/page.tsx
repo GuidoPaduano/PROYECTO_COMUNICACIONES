@@ -924,10 +924,10 @@ export default function Profile() {
                                   className="font-medium text-[var(--school-primary,#0b1b3f)] underline-offset-2 hover:underline"
                                   title="Ver notas, sanciones e inasistencias"
                                 >
-                                  {a.nombre}
+                                  {[a.apellido, a.nombre].filter(Boolean).join(", ")}
                                 </Link>
                               ) : (
-                                <span className="font-medium">{a.nombre}</span>
+                                <span className="font-medium">{[a.apellido, a.nombre].filter(Boolean).join(", ")}</span>
                               )}{" "}
                               — {getCourseDisplayName(a) || "Curso s/d"} (ID: {a.id_alumno})
                             </li>

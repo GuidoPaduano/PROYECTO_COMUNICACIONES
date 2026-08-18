@@ -535,7 +535,7 @@ export default function ReportesPage() {
                 <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={alumnoSel} onChange={(e) => setAlumnoSel(e.target.value)}>
                   {alumnos.map((a) => (
                     <option key={a.id || a.id_alumno} value={a.id || a.id_alumno}>
-                      {a.nombre} ({getCourseDisplayName(a) || "Curso s/d"})
+                      {[a.apellido, a.nombre].filter(Boolean).join(", ")} ({getCourseDisplayName(a) || "Curso s/d"})
                     </option>
                   ))}
                 </select>
@@ -546,7 +546,7 @@ export default function ReportesPage() {
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hijo</label>
                 <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {alumnos[0]?.nombre} ({getCourseDisplayName(alumnos[0]) || "Curso s/d"})
+                  {[alumnos[0]?.apellido, alumnos[0]?.nombre].filter(Boolean).join(", ")} ({getCourseDisplayName(alumnos[0]) || "Curso s/d"})
                 </div>
               </div>
             ) : null}
