@@ -9,6 +9,7 @@ import {
   Building2,
   CalendarDays,
   ClipboardList,
+  FileText,
   Gavel,
   GraduationCap,
   Home,
@@ -150,6 +151,7 @@ const NAV_ITEMS = [
     show: ({ isSuper }) => isSuper,
   },
   { href: "/mensajes", label: "Mensajes", icon: MessageSquare, public: true },
+  { href: "/documentacion", label: "Documentación", icon: FileText, public: true },
   { href: "/perfil", label: "Perfil", icon: User, public: true },
 ]
 

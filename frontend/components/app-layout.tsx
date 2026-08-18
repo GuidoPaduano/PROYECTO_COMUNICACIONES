@@ -11,6 +11,7 @@ import {
   CheckSquare,
   ChevronLeft,
   ClipboardList,
+  FileText,
   Gavel,
   Plus,
   GraduationCap,
@@ -132,6 +133,12 @@ const ROUTE_META = [
     title: () => "Mensajes",
     subtitle: "Bandeja de entrada y enviados.",
     icon: <MessageSquare className="w-5 h-5" />,
+  },
+  {
+    match: (p) => p.startsWith("/documentacion"),
+    title: () => "Documentación",
+    subtitle: "Autorizaciones, normas y documentos del colegio.",
+    icon: <FileText className="w-5 h-5" />,
   },
   {
     match: (p) => p.startsWith("/perfil"),
