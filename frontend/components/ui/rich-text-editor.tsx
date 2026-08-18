@@ -4,7 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Link from "@tiptap/extension-link"
 import Placeholder from "@tiptap/extension-placeholder"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   Bold,
   Italic,
@@ -47,11 +47,18 @@ function ToolbarButton({
       }}
       disabled={disabled}
       title={title}
-      className={`rounded p-1.5 transition-colors ${
-        active
-          ? "bg-slate-200 text-slate-900"
-          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-      } disabled:opacity-40`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "4px",
+        borderRadius: "4px",
+        border: "none",
+        cursor: "pointer",
+        background: active ? "#e2e8f0" : "transparent",
+        color: active ? "#0f172a" : "#64748b",
+        opacity: disabled ? 0.4 : 1,
+      }}
     >
       {children}
     </button>
@@ -66,7 +73,14 @@ export function RichTextEditor({
   minHeight = "120px",
   disabled = false,
 }: RichTextEditorProps) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         heading: false,
@@ -87,7 +101,6 @@ export function RichTextEditor({
     },
   })
 
-  // Sincronizar valor externo (ej: al limpiar el form)
   useEffect(() => {
     if (!editor) return
     const current = editor.isEmpty ? "" : editor.getHTML()
@@ -111,84 +124,106 @@ export function RichTextEditor({
     editor?.chain().focus().setLink({ href: url }).run()
   }
 
-  if (!editor) return null
+  // Placeholder mientras carga en el cliente
+  if (!mounted || !editor) {
+    return (
+      <div
+        className={`rounded-md border border-slate-300 bg-white ${className}`}
+        style={{ minHeight }}
+      />
+    )
+  }
 
   return (
-    <div className={`rounded-md border border-slate-300 bg-white focus-within:border-slate-400 focus-within:ring-1 focus-within:ring-slate-300 ${className}`}>
+    <div
+      className={`rounded-md border border-slate-300 bg-white ${className}`}
+      style={{ outline: "none" }}
+    >
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-200 px-2 py-1">
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "2px",
+          borderBottom: "1px solid #e2e8f0",
+          padding: "4px 8px",
+          background: "#f8fafc",
+          borderRadius: "6px 6px 0 0",
+        }}
+      >
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
           active={editor.isActive("bold")}
           title="Negrita (Ctrl+B)"
         >
-          <Bold className="h-4 w-4" />
+          <Bold style={{ width: 16, height: 16 }} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleItalic().run()}
           active={editor.isActive("italic")}
           title="Cursiva (Ctrl+I)"
         >
-          <Italic className="h-4 w-4" />
+          <Italic style={{ width: 16, height: 16 }} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleStrike().run()}
           active={editor.isActive("strike")}
           title="Tachado"
         >
-          <Strikethrough className="h-4 w-4" />
+          <Strikethrough style={{ width: 16, height: 16 }} />
         </ToolbarButton>
 
-        <div className="mx-1 h-4 w-px bg-slate-200" />
+        <div style={{ width: 1, height: 16, background: "#cbd5e1", margin: "0 4px" }} />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBulletList().run()}
           active={editor.isActive("bulletList")}
           title="Lista con viñetas"
         >
-          <List className="h-4 w-4" />
+          <List style={{ width: 16, height: 16 }} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
           active={editor.isActive("orderedList")}
           title="Lista numerada"
         >
-          <ListOrdered className="h-4 w-4" />
+          <ListOrdered style={{ width: 16, height: 16 }} />
         </ToolbarButton>
 
-        <div className="mx-1 h-4 w-px bg-slate-200" />
+        <div style={{ width: 1, height: 16, background: "#cbd5e1", margin: "0 4px" }} />
 
         <ToolbarButton
           onClick={setLink}
           active={editor.isActive("link")}
           title="Insertar enlace"
         >
-          <LinkIcon className="h-4 w-4" />
+          <LinkIcon style={{ width: 16, height: 16 }} />
         </ToolbarButton>
 
-        <div className="mx-1 h-4 w-px bg-slate-200" />
+        <div style={{ width: 1, height: 16, background: "#cbd5e1", margin: "0 4px" }} />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().undo().run()}
           disabled={!editor.can().undo()}
           title="Deshacer (Ctrl+Z)"
         >
-          <Undo className="h-4 w-4" />
+          <Undo style={{ width: 16, height: 16 }} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().redo().run()}
           disabled={!editor.can().redo()}
           title="Rehacer (Ctrl+Y)"
         >
-          <Redo className="h-4 w-4" />
+          <Redo style={{ width: 16, height: 16 }} />
         </ToolbarButton>
       </div>
 
       {/* Área de texto */}
       <EditorContent
         editor={editor}
-        className="rich-html px-3 py-2 text-sm text-slate-900 focus:outline-none [&_.ProseMirror]:min-h-[var(--editor-min-h)] [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-slate-400 [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]"
-        style={{ "--editor-min-h": minHeight } as React.CSSProperties}
+        className="rich-html px-3 py-2 text-sm text-slate-900 focus:outline-none [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-slate-400 [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]"
+        style={{ "--editor-min-h": minHeight, minHeight } as React.CSSProperties}
       />
     </div>
   )
