@@ -201,7 +201,7 @@ export default function DocumentacionPage() {
     return c?.name || c?.nombre || c?.code || c?.codigo || String(c?.id || "")
   }
   function getCursoId(c) {
-    return c?.id ?? c?.school_course_id ?? ""
+    return c?.school_course_id ?? c?.id ?? ""
   }
 
   return (
