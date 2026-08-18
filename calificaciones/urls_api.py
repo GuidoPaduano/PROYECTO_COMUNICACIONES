@@ -163,6 +163,12 @@ from .api_alumnos import (
 )
 from .api_notas_historicas import notas_historicas
 from .api_contacto import contacto_landing
+from .api_documentos._views import (
+    documentos_list,
+    documento_detail,
+    documento_firmar,
+    documento_firmas,
+)
 
 router = DefaultRouter()
 
@@ -527,6 +533,15 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("sanciones/<int:pk>/", sancion_detalle, name="sancion_detalle"),
     path("sanciones/<int:pk>/firmar/", firmar_sancion, name="sanciones_firmar"),
     path("sanciones/<int:pk>/firmar", firmar_sancion, name="sanciones_firmar_noslash"),
+
+    # ===== Documentación =====
+    path("documentos/", documentos_list, name="documentos_list"),
+    path("documentos", documentos_list, name="documentos_list_noslash"),
+    path("documentos/<int:doc_id>/", documento_detail, name="documento_detail"),
+    path("documentos/<int:doc_id>/firmar/", documento_firmar, name="documento_firmar"),
+    path("documentos/<int:doc_id>/firmar", documento_firmar, name="documento_firmar_noslash"),
+    path("documentos/<int:doc_id>/firmas/", documento_firmas, name="documento_firmas"),
+    path("documentos/<int:doc_id>/firmas", documento_firmas, name="documento_firmas_noslash"),
 
     # ===== Contacto público (landing) =====
     path("contacto/", contacto_landing, name="contacto_landing"),
