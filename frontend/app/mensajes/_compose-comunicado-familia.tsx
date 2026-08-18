@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { Label } from "@/components/ui/label"
 import SuccessMessage from "@/components/ui/success-message"
 import {
@@ -520,11 +521,10 @@ export default function ComposeComunicadoFamilia({
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="msg">Mensaje</Label>
-          <Textarea
-            id="msg"
-            rows={6}
+          <RichTextEditor
             value={mensaje}
-            onChange={(e) => setMensaje(e.target.value)}
+            onChange={setMensaje}
+            minHeight="150px"
             disabled={sending}
           />
         </div>

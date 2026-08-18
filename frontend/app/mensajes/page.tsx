@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import SuccessMessage from "@/components/ui/success-message"
 import {
   DropdownMenu,
@@ -1125,11 +1126,11 @@ export default function MensajesPage() {
 
             <div>
               <Label htmlFor="contenidoAlu">Mensaje</Label>
-              <Textarea
-                id="contenidoAlu"
-                className="mt-1 min-h-[140px]"
+              <RichTextEditor
                 value={contenidoAlu}
-                onChange={(e) => setContenidoAlu(e.target.value)}
+                onChange={setContenidoAlu}
+                minHeight="140px"
+                className="mt-1"
               />
             </div>
           </div>
@@ -1259,9 +1260,7 @@ export default function MensajesPage() {
 
           <div className="px-6 py-5">
             <Label className="text-xs text-gray-600">Mensaje</Label>
-            <div className="mt-2 rounded-lg border bg-gray-50 p-4 text-gray-900 whitespace-pre-wrap break-words max-h-[42vh] overflow-auto">
-              {msgSel?.contenido || msgSel?.body || "—"}
-            </div>
+            <div className="mt-2 rounded-lg border bg-gray-50 p-4 text-gray-900 break-words max-h-[42vh] overflow-auto rich-html" dangerouslySetInnerHTML={{ __html: msgSel?.contenido || msgSel?.body || "—" }} />
 
             {!replyMode && msgSel?.id && (
               <div className="mt-3 text-xs text-gray-500">
@@ -1300,12 +1299,10 @@ export default function MensajesPage() {
 
                   <div>
                     <Label htmlFor="replyTexto">Mensaje</Label>
-                    <Textarea
-                      id="replyTexto"
+                    <RichTextEditor
                       value={replyTexto}
-                      onChange={(e) => setReplyTexto(e.target.value)}
-                      rows={6}
-                      className="whitespace-pre-wrap"
+                      onChange={setReplyTexto}
+                      minHeight="150px"
                     />
                   </div>
                 </div>

@@ -616,3 +616,15 @@ a, button, [role="button"] { cursor: pointer; }
 .app-main .bg-blue-600.text-white.px-6.py-4 { display: none; }
 .app-main .max-w-6xl,
 .app-main .max-w-7xl { max-width: 100%; margin-left: 0; margin-right: 0; }
+
+/* Estilos para contenido HTML rico (mensajes con formato) */
+.rich-html p { margin: 0 0 0.5em; }
+.rich-html p:last-child { margin-bottom: 0; }
+.rich-html strong { font-weight: 600; }
+.rich-html em { font-style: italic; }
+.rich-html s { text-decoration: line-through; }
+.rich-html ul { list-style-type: disc; padding-left: 1.5em; margin: 0.25em 0; }
+.rich-html ol { list-style-type: decimal; padding-left: 1.5em; margin: 0.25em 0; }
+.rich-html li { margin: 0.1em 0; }
+.rich-html a { color: #2563eb; text-decoration: underline; }
+.rich-html a:hover { color: #1d4ed8; }

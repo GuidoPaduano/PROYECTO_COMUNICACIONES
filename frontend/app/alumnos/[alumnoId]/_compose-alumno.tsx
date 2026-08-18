@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { Label } from "@/components/ui/label"
 import SuccessMessage from "@/components/ui/success-message"
 
@@ -155,11 +156,12 @@ export default function ComposeMensajeAlumno({
 
             <div>
               <Label className="text-sm">Mensaje</Label>
-              <Textarea
-                className="mt-1 min-h-[140px]"
+              <RichTextEditor
                 value={contenido}
-                onChange={(e) => setContenido(e.target.value)}
+                onChange={setContenido}
                 placeholder="Escribí el mensaje…"
+                minHeight="140px"
+                className="mt-1"
               />
             </div>
 

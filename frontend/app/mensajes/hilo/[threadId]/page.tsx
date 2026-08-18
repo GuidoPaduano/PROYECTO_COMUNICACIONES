@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import SuccessMessage from "@/components/ui/success-message"
 import { createClientRequestId } from "../../../_lib/idempotency"
 
@@ -387,7 +388,7 @@ export default function HiloMensajesPage() {
                           <span className="truncate">{`Enviado el ${fmtFecha(m.fecha || m.fecha_envio)}`}</span>
                         </div>
                         <div className="font-medium break-words">{collapseRePrefix(m.asunto) || "Sin asunto"}</div>
-                        <div className="mt-1 whitespace-pre-wrap break-words">{m.contenido || m.body || ""}</div>
+                        <div className="mt-1 break-words rich-html" dangerouslySetInnerHTML={{ __html: m.contenido || m.body || "" }} />
 
                         {readReceipt ? (
                           <div className={"mt-2 text-[12px] " + (mine ? "text-white/80" : "text-gray-600")}>
@@ -433,17 +434,10 @@ export default function HiloMensajesPage() {
             </div>
             <div>
               <Label htmlFor="mensaje">Mensaje</Label>
-              <Textarea
-                id="mensaje"
+              <RichTextEditor
                 value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                rows={5}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault()
-                    enviarRespuesta()
-                  }
-                }}
+                onChange={setReplyText}
+                minHeight="120px"
               />
               <div className="text-[11px] text-gray-500 mt-1">Tip: Ctrl/⌘ + Enter para enviar</div>
             </div>

@@ -44,6 +44,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
 
 const ComposeComunicadoFamilia = dynamic(() => import("../mensajes/_compose-comunicado-familia"), {
   loading: () => null,
@@ -1473,12 +1474,10 @@ setMensajeSan("")
 
             <div>
               <Label htmlFor="cuerpoInd">Mensaje</Label>
-              <Textarea
-                id="cuerpoInd"
+              <RichTextEditor
                 value={cuerpoInd}
-                onChange={(e) => setCuerpoInd(e.target.value)}
-                rows={5}
-                required
+                onChange={setCuerpoInd}
+                minHeight="120px"
               />
             </div>
 
@@ -1535,12 +1534,10 @@ setMensajeSan("")
 
             <div>
               <Label htmlFor="cuerpoGrp">Mensaje</Label>
-              <Textarea
-                id="cuerpoGrp"
+              <RichTextEditor
                 value={cuerpoGrp}
-                onChange={(e) => setCuerpoGrp(e.target.value)}
-                rows={5}
-                required
+                onChange={setCuerpoGrp}
+                minHeight="120px"
               />
             </div>
 
