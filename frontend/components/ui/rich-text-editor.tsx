@@ -1,10 +1,6 @@
 "use client"
 
-import { useEditor, EditorContent } from "@tiptap/react"
-import StarterKit from "@tiptap/starter-kit"
-import Link from "@tiptap/extension-link"
-import Placeholder from "@tiptap/extension-placeholder"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   Bold,
   Italic,
@@ -54,15 +50,21 @@ function ToolbarButton({
         padding: "4px",
         borderRadius: "4px",
         border: "none",
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
         background: active ? "#e2e8f0" : "transparent",
-        color: active ? "#0f172a" : "#64748b",
+        color: active ? "#0f172a" : "#475569",
         opacity: disabled ? 0.4 : 1,
+        lineHeight: 1,
       }}
     >
       {children}
     </button>
   )
+}
+
+// Llama a document.execCommand de forma segura (deprecated pero universal)
+function exec(cmd: string, value?: string) {
+  document.execCommand(cmd, false, value)
 }
 
 export function RichTextEditor({
@@ -73,71 +75,90 @@ export function RichTextEditor({
   minHeight = "120px",
   disabled = false,
 }: RichTextEditorProps) {
-  const [mounted, setMounted] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const [, forceUpdate] = useState(0)
+  const isComposing = useRef(false)
+  const lastValue = useRef(value)
 
+  // Inicializar contenido
   useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({
-        heading: false,
-        codeBlock: false,
-        horizontalRule: false,
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: { class: "text-blue-600 underline" },
-      }),
-      Placeholder.configure({ placeholder }),
-    ],
-    content: value,
-    editable: !disabled,
-    onUpdate({ editor }) {
-      const html = editor.isEmpty ? "" : editor.getHTML()
-      onChange(html)
-    },
-  })
-
-  useEffect(() => {
-    if (!editor) return
-    const current = editor.isEmpty ? "" : editor.getHTML()
-    if (value !== current) {
-      editor.commands.setContent(value || "", { emitUpdate: false })
+    if (!ref.current) return
+    if (ref.current.innerHTML !== (value || "")) {
+      ref.current.innerHTML = value || ""
     }
-  }, [value, editor])
+  }, []) // Solo al montar
+
+  // Sincronizar valor externo (ej: al limpiar form)
+  useEffect(() => {
+    if (!ref.current) return
+    if (value !== lastValue.current && value !== ref.current.innerHTML) {
+      ref.current.innerHTML = value || ""
+      lastValue.current = value
+    }
+  }, [value])
 
   useEffect(() => {
-    editor?.setEditable(!disabled)
-  }, [disabled, editor])
+    if (ref.current) {
+      ref.current.contentEditable = disabled ? "false" : "true"
+    }
+  }, [disabled])
 
-  const setLink = () => {
-    const prev = editor?.getAttributes("link").href || ""
-    const url = window.prompt("URL del enlace:", prev)
+  const handleInput = () => {
+    if (!ref.current || isComposing.current) return
+    const html = ref.current.innerHTML === "<br>" ? "" : ref.current.innerHTML
+    lastValue.current = html
+    onChange(html)
+    forceUpdate((n) => n + 1)
+  }
+
+  const queryState = (cmd: string) => {
+    if (typeof document === "undefined") return false
+    try { return document.queryCommandState(cmd) } catch { return false }
+  }
+
+  const queryEnabled = (cmd: string) => {
+    if (typeof document === "undefined") return false
+    try { return document.queryCommandEnabled(cmd) } catch { return false }
+  }
+
+  const handleLink = () => {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    const existingLink = (() => {
+      let node: Node | null = selection.anchorNode
+      while (node && node !== ref.current) {
+        if ((node as Element).tagName === "A") return (node as HTMLAnchorElement).href
+        node = node.parentNode
+      }
+      return null
+    })()
+    const url = window.prompt("URL del enlace:", existingLink || "https://")
     if (url === null) return
     if (url === "") {
-      editor?.chain().focus().unsetLink().run()
-      return
+      exec("unlink")
+    } else {
+      exec("createLink", url)
     }
-    editor?.chain().focus().setLink({ href: url }).run()
+    handleInput()
   }
 
-  // Placeholder mientras carga en el cliente
-  if (!mounted || !editor) {
-    return (
-      <div
-        className={`rounded-md border border-slate-300 bg-white ${className}`}
-        style={{ minHeight }}
-      />
-    )
+  const isActive = (cmd: string) => {
+    if (typeof document === "undefined") return false
+    try { return document.queryCommandState(cmd) } catch { return false }
   }
+
+  const insertList = (type: "insertUnorderedList" | "insertOrderedList") => {
+    ref.current?.focus()
+    exec(type)
+    handleInput()
+  }
+
+  const showPlaceholder = !value && ref.current?.innerHTML === ""
 
   return (
     <div
-      className={`rounded-md border border-slate-300 bg-white ${className}`}
-      style={{ outline: "none" }}
+      className={`rounded-md bg-white ${className}`}
+      style={{ border: "1px solid #cbd5e1" }}
     >
       {/* Toolbar */}
       <div
@@ -146,85 +167,85 @@ export function RichTextEditor({
           flexWrap: "wrap",
           alignItems: "center",
           gap: "2px",
+          padding: "4px 6px",
           borderBottom: "1px solid #e2e8f0",
-          padding: "4px 8px",
-          background: "#f8fafc",
+          backgroundColor: "#f8fafc",
           borderRadius: "6px 6px 0 0",
         }}
       >
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBold().run()}
-          active={editor.isActive("bold")}
-          title="Negrita (Ctrl+B)"
-        >
-          <Bold style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={() => { ref.current?.focus(); exec("bold"); forceUpdate(n => n+1) }} active={isActive("bold")} title="Negrita (Ctrl+B)">
+          <Bold style={{ width: 15, height: 15 }} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          active={editor.isActive("italic")}
-          title="Cursiva (Ctrl+I)"
-        >
-          <Italic style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={() => { ref.current?.focus(); exec("italic"); forceUpdate(n => n+1) }} active={isActive("italic")} title="Cursiva (Ctrl+I)">
+          <Italic style={{ width: 15, height: 15 }} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleStrike().run()}
-          active={editor.isActive("strike")}
-          title="Tachado"
-        >
-          <Strikethrough style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={() => { ref.current?.focus(); exec("strikeThrough"); forceUpdate(n => n+1) }} active={isActive("strikeThrough")} title="Tachado">
+          <Strikethrough style={{ width: 15, height: 15 }} />
         </ToolbarButton>
 
-        <div style={{ width: 1, height: 16, background: "#cbd5e1", margin: "0 4px" }} />
+        <div style={{ width: 1, height: 14, background: "#cbd5e1", margin: "0 2px" }} />
 
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          active={editor.isActive("bulletList")}
-          title="Lista con viñetas"
-        >
-          <List style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={() => insertList("insertUnorderedList")} active={isActive("insertUnorderedList")} title="Lista con viñetas">
+          <List style={{ width: 15, height: 15 }} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          active={editor.isActive("orderedList")}
-          title="Lista numerada"
-        >
-          <ListOrdered style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={() => insertList("insertOrderedList")} active={isActive("insertOrderedList")} title="Lista numerada">
+          <ListOrdered style={{ width: 15, height: 15 }} />
         </ToolbarButton>
 
-        <div style={{ width: 1, height: 16, background: "#cbd5e1", margin: "0 4px" }} />
+        <div style={{ width: 1, height: 14, background: "#cbd5e1", margin: "0 2px" }} />
 
-        <ToolbarButton
-          onClick={setLink}
-          active={editor.isActive("link")}
-          title="Insertar enlace"
-        >
-          <LinkIcon style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={handleLink} title="Insertar enlace">
+          <LinkIcon style={{ width: 15, height: 15 }} />
         </ToolbarButton>
 
-        <div style={{ width: 1, height: 16, background: "#cbd5e1", margin: "0 4px" }} />
+        <div style={{ width: 1, height: 14, background: "#cbd5e1", margin: "0 2px" }} />
 
-        <ToolbarButton
-          onClick={() => editor.chain().focus().undo().run()}
-          disabled={!editor.can().undo()}
-          title="Deshacer (Ctrl+Z)"
-        >
-          <Undo style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={() => { ref.current?.focus(); exec("undo"); forceUpdate(n => n+1) }} disabled={!queryEnabled("undo")} title="Deshacer (Ctrl+Z)">
+          <Undo style={{ width: 15, height: 15 }} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().redo().run()}
-          disabled={!editor.can().redo()}
-          title="Rehacer (Ctrl+Y)"
-        >
-          <Redo style={{ width: 16, height: 16 }} />
+        <ToolbarButton onClick={() => { ref.current?.focus(); exec("redo"); forceUpdate(n => n+1) }} disabled={!queryEnabled("redo")} title="Rehacer (Ctrl+Y)">
+          <Redo style={{ width: 15, height: 15 }} />
         </ToolbarButton>
       </div>
 
-      {/* Área de texto */}
-      <EditorContent
-        editor={editor}
-        className="rich-html px-3 py-2 text-sm text-slate-900 focus:outline-none [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-slate-400 [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]"
-        style={{ "--editor-min-h": minHeight, minHeight } as React.CSSProperties}
-      />
+      {/* Área editable */}
+      <div style={{ position: "relative" }}>
+        <div
+          ref={ref}
+          contentEditable={!disabled}
+          suppressContentEditableWarning
+          onInput={handleInput}
+          onKeyUp={() => forceUpdate((n) => n + 1)}
+          onMouseUp={() => forceUpdate((n) => n + 1)}
+          onCompositionStart={() => { isComposing.current = true }}
+          onCompositionEnd={() => { isComposing.current = false; handleInput() }}
+          className="rich-html"
+          style={{
+            minHeight,
+            padding: "8px 12px",
+            fontSize: "0.875rem",
+            color: "#0f172a",
+            outline: "none",
+            overflowY: "auto",
+          }}
+        />
+        {!value && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              padding: "8px 12px",
+              fontSize: "0.875rem",
+              color: "#94a3b8",
+              pointerEvents: "none",
+              userSelect: "none",
+            }}
+          >
+            {placeholder}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
