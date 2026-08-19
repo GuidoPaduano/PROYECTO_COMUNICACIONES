@@ -181,7 +181,12 @@ def documento_detail(request, doc_id):
         doc.archivo.delete(save=False)
     except Exception:
         pass  # Si falla borrar el archivo en R2, igual eliminamos el registro
-    doc.delete()
+
+    try:
+        doc.delete()
+    except Exception as e:
+        return Response({"detail": f"Error al eliminar el registro: {e}"}, status=500)
+
     return Response({"detail": "Documento eliminado."})
 
 
