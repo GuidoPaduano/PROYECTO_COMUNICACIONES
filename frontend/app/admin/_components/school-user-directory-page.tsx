@@ -200,7 +200,7 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
   )
 }
 
-function StudentsSection({ course }) {
+function StudentsSection({ course, onToggleActive }) {
   if (!course) return null
 
   return (
@@ -211,18 +211,25 @@ function StudentsSection({ course }) {
       <CardContent className="pt-0">
         <div className="space-y-3 md:hidden">
           {course.students.map((student) => (
-            <div key={student.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={student.id} className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm${student.linked_user?.is_active === false ? " opacity-60 bg-slate-50" : ""}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-900">{student.full_name || "-"}</p>
                   <p className="mt-1 text-xs text-slate-500">Legajo {student.id_alumno}</p>
                 </div>
+                {student.linked_user && (
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => onToggleActive?.(student.linked_user)}
+                    style={student.linked_user.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                    {student.linked_user.is_active === false ? "Reactivar" : "Desactivar"}
+                  </Button>
+                )}
               </div>
               <div className="mt-3 space-y-2 text-sm text-slate-700">
                 <div>
                   <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Usuario vinculado</span>
                   {student.linked_user?.username ? (
-                    <span>{student.linked_user.username}</span>
+                    <span>{student.linked_user.username}<ActiveBadge isActive={student.linked_user.is_active !== false} /></span>
                   ) : (
                     <span className="text-amber-700">Sin usuario</span>
                   )}
@@ -253,16 +260,17 @@ function StudentsSection({ course }) {
                 <TableHead>Usuario vinculado</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Padre vinculado</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {course.students.map((student) => (
-                <TableRow key={student.id}>
+                <TableRow key={student.id} className={student.linked_user?.is_active === false ? "opacity-60 bg-slate-50" : ""}>
                   <TableCell className="font-medium text-slate-900">{student.id_alumno}</TableCell>
                   <TableCell>{student.full_name || "-"}</TableCell>
                   <TableCell>
                     {student.linked_user?.username ? (
-                      <span className="text-sm text-slate-700">{student.linked_user.username}</span>
+                      <span className="text-sm text-slate-700">{student.linked_user.username}<ActiveBadge isActive={student.linked_user.is_active !== false} /></span>
                     ) : (
                       <span className="text-sm text-amber-700">Sin usuario</span>
                     )}
@@ -275,6 +283,15 @@ function StudentsSection({ course }) {
                       </span>
                     ) : (
                       <span className="text-sm text-amber-700">Sin padre vinculado</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {student.linked_user && (
+                      <Button type="button" size="sm" variant="outline"
+                        onClick={() => onToggleActive?.(student.linked_user)}
+                        style={student.linked_user.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                        {student.linked_user.is_active === false ? "Reactivar" : "Desactivar"}
+                      </Button>
                     )}
                   </TableCell>
                 </TableRow>
@@ -949,7 +966,7 @@ export default function SchoolUserDirectoryPage() {
           <CardContent className="space-y-4 pt-0">
             {alumnosPorCurso.length ? (
               <>
-                <StudentsSection course={selectedCourse} />
+                <StudentsSection course={selectedCourse} onToggleActive={handleToggleActive} />
               </>
             ) : (
               <div className="rounded-lg border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
