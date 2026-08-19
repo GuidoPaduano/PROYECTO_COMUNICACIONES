@@ -278,7 +278,7 @@ export default function DocumentacionPage() {
               <Button size="sm" onClick={() => setPdfDoc({ ...doc, proxy_url: `/api/documentos/${doc.id}/archivo/` })} className="gap-1" style={{ fontSize: 13 }}>
                 <Eye className="w-3.5 h-3.5" />Ver
               </Button>
-              {doc.requiere_firma && !doc.firmado && (
+              {doc.requiere_firma && !doc.firmado && !doc.es_propio && (
                 <Button size="sm" onClick={() => handleFirmar(doc)} disabled={signing === doc.id}
                   style={{ fontSize: 13, background: "#16a34a", color: "white" }}>
                   {signing === doc.id ? "Firmando…" : "Firmar"}

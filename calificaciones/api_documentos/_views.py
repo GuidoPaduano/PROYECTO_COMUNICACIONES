@@ -79,8 +79,10 @@ def _curso_ids_for_user(user, school):
 
 def _documento_to_dict(doc, user=None):
     firmado = False
+    es_propio = False
     if user and user.is_authenticated:
         firmado = FirmaDocumento.objects.filter(documento=doc, usuario=user).exists()
+        es_propio = doc.subido_por_id == user.id
 
     course = doc.school_course
     return {
@@ -97,6 +99,7 @@ def _documento_to_dict(doc, user=None):
             if doc.subido_por else None
         ),
         "firmado": firmado,
+        "es_propio": es_propio,
         "total_firmas": doc.firmas.count(),
         "school_course_id": course.id if course else None,
         "school_course_name": (getattr(course, "name", None) or getattr(course, "code", None)) if course else None,
@@ -196,6 +199,9 @@ def documento_firmar(request, doc_id):
 
     if not doc.requiere_firma:
         return Response({"detail": "Este documento no requiere firma."}, status=400)
+
+    if doc.subido_por == request.user:
+        return Response({"detail": "No podés firmar un documento que vos mismo subiste."}, status=403)
 
     _, created = FirmaDocumento.objects.get_or_create(
         documento=doc,
