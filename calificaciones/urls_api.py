@@ -539,6 +539,7 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("documentos/", documentos_list, name="documentos_list"),
     path("documentos", documentos_list, name="documentos_list_noslash"),
     path("documentos/<int:doc_id>/", documento_detail, name="documento_detail"),
+    path("documentos/<int:doc_id>", documento_detail, name="documento_detail_noslash"),
     path("documentos/<int:doc_id>/firmar/", documento_firmar, name="documento_firmar"),
     path("documentos/<int:doc_id>/firmar", documento_firmar, name="documento_firmar_noslash"),
     path("documentos/<int:doc_id>/firmas/", documento_firmas, name="documento_firmas"),
