@@ -145,7 +145,8 @@ export default function DocumentacionPage() {
     if (!confirm(`¿Eliminar "${doc.titulo}"?`)) return
     try {
       const r = await authFetch(`/api/documentos/${doc.id}/`, { method: "DELETE" })
-      if (!r.ok) throw new Error("No se pudo eliminar.")
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j?.detail || `Error ${r.status}: No se pudo eliminar.`)
       setDocs((prev) => prev.filter((d) => d.id !== doc.id))
     } catch (e) {
       alert(e?.message || "Error al eliminar.")
