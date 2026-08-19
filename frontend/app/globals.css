@@ -164,7 +164,7 @@
   .sidebar-brand { @apply flex items-center gap-3 no-underline; }
   .sidebar-bell { @apply flex items-center; }
   .sidebar-logo { @apply h-12 w-12 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center overflow-hidden; }
-  .sidebar-nav { @apply flex-1 space-y-1; }
+  .sidebar-nav { @apply flex-1 space-y-1 overflow-y-auto min-h-0; }
   .sidebar-link {
     @apply flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-200 transition-all duration-200 border border-transparent;
   }
@@ -321,7 +321,7 @@ a, button, [role="button"] { cursor: pointer; }
   justify-content: center;
   overflow: hidden;
 }
-.sidebar-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; overflow-y: auto; }
 .sidebar-link {
   display: flex;
   align-items: center;
