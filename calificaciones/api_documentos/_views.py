@@ -177,7 +177,10 @@ def documento_detail(request, doc_id):
     if not _can_upload(request):
         return Response({"detail": "No tenés permiso para eliminar documentos."}, status=403)
 
-    doc.archivo.delete(save=False)
+    try:
+        doc.archivo.delete(save=False)
+    except Exception:
+        pass  # Si falla borrar el archivo en R2, igual eliminamos el registro
     doc.delete()
     return Response({"detail": "Documento eliminado."})
 
