@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
-from ..models import Alumno, Documento, FirmaDocumento, SchoolCourse
+from ..models import Alumno, Documento, FirmaDocumento, Notificacion, SchoolCourse
 from ..schools import get_request_school
 
 try:
@@ -75,6 +75,52 @@ def _curso_ids_for_user(user, school):
         except Exception:
             pass
     return ids
+
+
+def _notify_documento(doc, school):
+    """Crea notificaciones para los destinatarios del documento recién subido."""
+    try:
+        from ..ws_notify import push_unread_update_for_notification
+
+        # Obtener alumnos según el curso
+        qs_alumnos = Alumno.objects.filter(school=school).select_related("padre", "usuario")
+        if doc.school_course_id:
+            qs_alumnos = qs_alumnos.filter(school_course_id=doc.school_course_id)
+
+        titulo = f"Nuevo documento: {doc.titulo}"
+        descripcion = doc.descripcion or None
+
+        destinatarios = set()
+        for alumno in qs_alumnos:
+            if doc.destinatario in ("todos", "padres") and alumno.padre_id:
+                destinatarios.add(alumno.padre)
+            if doc.destinatario in ("todos", "alumnos") and alumno.usuario_id:
+                destinatarios.add(alumno.usuario)
+
+        notifs = []
+        for user in destinatarios:
+            notifs.append(Notificacion(
+                school=school,
+                destinatario=user,
+                tipo="otro",
+                titulo=titulo,
+                descripcion=descripcion,
+                url="/documentacion",
+                leida=False,
+            ))
+
+        Notificacion.objects.bulk_create(notifs, ignore_conflicts=True)
+
+        # Push WebSocket en tiempo real
+        for notif in Notificacion.objects.filter(
+            school=school,
+            destinatario__in=list(destinatarios),
+            leida=False,
+        ).select_related("destinatario"):
+            push_unread_update_for_notification(notif)
+
+    except Exception:
+        pass  # Las notificaciones no deben bloquear la subida del documento
 
 
 def _documento_to_dict(doc, user=None):
@@ -173,6 +219,7 @@ def documentos_list(request):
         subido_por=request.user,
         requiere_firma=str(request.data.get("requiere_firma", "true")).lower() != "false",
     )
+    _notify_documento(doc, school)
     return Response(_documento_to_dict(doc, request.user), status=201)
 
 
