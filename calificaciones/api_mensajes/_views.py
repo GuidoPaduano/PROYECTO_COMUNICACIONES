@@ -88,8 +88,8 @@ def enviar_mensaje(request):
     alumno_id = data.get("alumno_id") or data.get("id_alumno")
     receptor_id = data.get("receptor_id")
 
-    if not asunto or not contenido:
-        return Response({"detail": "asunto y contenido son requeridos."}, status=400)
+    if not contenido:
+        return Response({"detail": "El contenido es requerido."}, status=400)
     if course_error:
         return Response({"detail": course_error}, status=400)
 
@@ -214,15 +214,15 @@ def enviar_mensaje_grupal(request):
     contenido = (data.get("contenido") or "").strip()
     tipo = (data.get("tipo") or "").strip().lower() or "mensaje"
 
-    if not asunto or not contenido:
-        return Response({"detail": "asunto y contenido son requeridos."}, status=400)
+    if not contenido:
+        return Response({"detail": "El contenido es requerido."}, status=400)
     if course_error:
         return Response({"detail": course_error}, status=400)
     if active_school is not None and school_course_ref is None:
         return Response({"detail": "No existe ese curso en el colegio activo."}, status=400)
     course_code = _course_code_for_storage(school_course=school_course_ref, curso=curso)
     if not course_code:
-        return Response({"detail": "school_course_id o curso, asunto y contenido son requeridos."}, status=400)
+        return Response({"detail": "school_course_id o curso y contenido son requeridos."}, status=400)
     if not _authorize_staff_for_course(
         request.user,
         school=active_school,

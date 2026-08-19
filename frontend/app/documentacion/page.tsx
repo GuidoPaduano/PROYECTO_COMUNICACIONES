@@ -302,15 +302,43 @@ export default function DocumentacionPage() {
 
       {/* ── Visor PDF ── */}
       {pdfDoc && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", flexDirection: "column" }}
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 50, display: "flex", flexDirection: "column" }}
           onClick={(e) => { if (e.target === e.currentTarget) setPdfDoc(null) }}>
-          <div style={{ background: "#1e293b", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ color: "white", fontWeight: 600, fontSize: "0.9375rem" }}>{pdfDoc.titulo}</span>
-            <button onClick={() => setPdfDoc(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "white", display: "flex", alignItems: "center" }}>
+          <div style={{ background: "#1e293b", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
+            <span style={{ color: "white", fontWeight: 600, fontSize: "0.9375rem", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pdfDoc.titulo}</span>
+            <a
+              href={pdfDoc.archivo_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#94a3b8", textDecoration: "none", whiteSpace: "nowrap", padding: "4px 10px", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, background: "rgba(255,255,255,0.06)" }}
+            >
+              <Eye style={{ width: 14, height: 14 }} />
+              Abrir en nueva pestaña
+            </a>
+            <button onClick={() => setPdfDoc(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "white", display: "flex", alignItems: "center", padding: 4 }}>
               <X style={{ width: 20, height: 20 }} />
             </button>
           </div>
-          <iframe src={pdfDoc.archivo_url} title={pdfDoc.titulo} style={{ flex: 1, border: "none", width: "100%" }} />
+          <div style={{ flex: 1, position: "relative", background: "#0f172a" }}>
+            <embed
+              src={pdfDoc.archivo_url + "#toolbar=1&navpanes=0"}
+              type="application/pdf"
+              style={{ width: "100%", height: "100%", border: "none" }}
+            />
+            {/* Fallback visible si embed no carga */}
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: "#64748b", zIndex: -1 }}>
+              <FileText style={{ width: 48, height: 48, opacity: 0.3 }} />
+              <p style={{ margin: 0, fontSize: 14 }}>El PDF no se puede mostrar en el navegador.</p>
+              <a
+                href={pdfDoc.archivo_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 14, color: "#3b82f6", textDecoration: "underline" }}
+              >
+                Hacé clic aquí para abrirlo
+              </a>
+            </div>
+          </div>
         </div>
       )}
 

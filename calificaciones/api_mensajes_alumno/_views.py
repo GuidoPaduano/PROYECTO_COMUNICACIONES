@@ -125,9 +125,9 @@ def alumno_enviar(request):
         required=False,
     )
 
-    if not receptor_id or not asunto or not contenido:
+    if not receptor_id or not contenido:
         return Response(
-            {"detail": "Faltan datos: receptor_id, asunto y contenido son obligatorios."},
+            {"detail": "Faltan datos: receptor_id y contenido son obligatorios."},
             status=400,
         )
     if course_error:
