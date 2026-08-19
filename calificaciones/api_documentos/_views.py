@@ -1,4 +1,5 @@
 from django.db.models import Q
+from django.http import FileResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -235,3 +236,33 @@ def documento_firmas(request, doc_id):
             for f in firmas
         ],
     })
+
+
+@csrf_exempt
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def documento_archivo(request, doc_id):
+    """
+    GET /api/documentos/<id>/archivo/
+    Sirve el PDF como proxy para evitar problemas de autenticación con R2/S3.
+    """
+    school = get_request_school(request)
+    try:
+        doc = Documento.objects.get(id=doc_id, school=school)
+    except Documento.DoesNotExist:
+        return Response({"detail": "Documento no encontrado."}, status=404)
+
+    if not doc.archivo:
+        return Response({"detail": "El documento no tiene archivo."}, status=404)
+
+    try:
+        f = doc.archivo.open("rb")
+        import os
+        filename = os.path.basename(doc.archivo.name)
+        response = FileResponse(f, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        response["X-Frame-Options"] = "SAMEORIGIN"
+        return response
+    except Exception as e:
+        return HttpResponse(f"Error al leer el archivo: {e}", status=500, content_type="text/plain")

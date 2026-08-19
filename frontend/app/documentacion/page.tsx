@@ -274,7 +274,7 @@ export default function DocumentacionPage() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              <Button size="sm" onClick={() => setPdfDoc(doc)} className="gap-1" style={{ fontSize: 13 }}>
+              <Button size="sm" onClick={() => setPdfDoc({ ...doc, proxy_url: `/api/documentos/${doc.id}/archivo/` })} className="gap-1" style={{ fontSize: 13 }}>
                 <Eye className="w-3.5 h-3.5" />Ver
               </Button>
               {doc.requiere_firma && !doc.firmado && (
@@ -307,7 +307,7 @@ export default function DocumentacionPage() {
           <div style={{ background: "#1e293b", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
             <span style={{ color: "white", fontWeight: 600, fontSize: "0.9375rem", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pdfDoc.titulo}</span>
             <a
-              href={pdfDoc.archivo_url}
+              href={pdfDoc.proxy_url || pdfDoc.archivo_url}
               target="_blank"
               rel="noopener noreferrer"
               style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#94a3b8", textDecoration: "none", whiteSpace: "nowrap", padding: "4px 10px", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, background: "rgba(255,255,255,0.06)" }}
@@ -321,7 +321,7 @@ export default function DocumentacionPage() {
           </div>
           <div style={{ flex: 1, position: "relative", background: "#0f172a" }}>
             <embed
-              src={pdfDoc.archivo_url + "#toolbar=1&navpanes=0"}
+              src={(pdfDoc.proxy_url || pdfDoc.archivo_url) + "#toolbar=1&navpanes=0"}
               type="application/pdf"
               style={{ width: "100%", height: "100%", border: "none" }}
             />
@@ -330,7 +330,7 @@ export default function DocumentacionPage() {
               <FileText style={{ width: 48, height: 48, opacity: 0.3 }} />
               <p style={{ margin: 0, fontSize: 14 }}>El PDF no se puede mostrar en el navegador.</p>
               <a
-                href={pdfDoc.archivo_url}
+                href={pdfDoc.proxy_url || pdfDoc.archivo_url}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ fontSize: 14, color: "#3b82f6", textDecoration: "underline" }}

@@ -168,6 +168,7 @@ from .api_documentos._views import (
     documento_detail,
     documento_firmar,
     documento_firmas,
+    documento_archivo,
 )
 
 router = DefaultRouter()
@@ -542,6 +543,8 @@ path("mensajes/conversacion/<int:mensaje_id>/", mensajes_conversacion_por_mensaj
     path("documentos/<int:doc_id>/firmar", documento_firmar, name="documento_firmar_noslash"),
     path("documentos/<int:doc_id>/firmas/", documento_firmas, name="documento_firmas"),
     path("documentos/<int:doc_id>/firmas", documento_firmas, name="documento_firmas_noslash"),
+    path("documentos/<int:doc_id>/archivo/", documento_archivo, name="documento_archivo"),
+    path("documentos/<int:doc_id>/archivo", documento_archivo, name="documento_archivo_noslash"),
 
     # ===== Contacto público (landing) =====
     path("contacto/", contacto_landing, name="contacto_landing"),
