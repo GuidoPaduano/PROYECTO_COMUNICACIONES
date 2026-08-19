@@ -100,6 +100,7 @@ def _documento_to_dict(doc, user=None):
         ),
         "firmado": firmado,
         "es_propio": es_propio,
+        "destinatario": doc.destinatario,
         "total_firmas": doc.firmas.count(),
         "school_course_id": course.id if course else None,
         "school_course_name": (getattr(course, "name", None) or getattr(course, "code", None)) if course else None,
@@ -123,8 +124,15 @@ def documentos_list(request):
         curso_ids = _curso_ids_for_user(request.user, school)
         qs = Documento.objects.filter(school=school).select_related("school_course", "subido_por")
         if curso_ids is not None:
-            # Ve documentos sin curso asignado (toda la institución) + los de sus cursos
             qs = qs.filter(Q(school_course__isnull=True) | Q(school_course_id__in=curso_ids))
+
+        # Filtrar por destinatario según el rol
+        groups = set(request.user.groups.values_list("name", flat=True))
+        if "Padres" in groups and "Alumnos" not in groups:
+            qs = qs.filter(destinatario__in=["todos", "padres"])
+        elif "Alumnos" in groups and "Padres" not in groups:
+            qs = qs.filter(destinatario__in=["todos", "alumnos"])
+
         return Response({"documentos": [_documento_to_dict(d, request.user) for d in qs]})
 
     # POST — solo admin/preceptores
@@ -150,12 +158,17 @@ def documentos_list(request):
         except (SchoolCourse.DoesNotExist, ValueError):
             return Response({"detail": "Curso no encontrado."}, status=400)
 
+    destinatario = request.data.get("destinatario") or "todos"
+    if destinatario not in ("todos", "padres", "alumnos"):
+        destinatario = "todos"
+
     doc = Documento.objects.create(
         school=school,
         school_course=school_course,
         titulo=titulo,
         descripcion=(request.data.get("descripcion") or "").strip(),
         tipo=request.data.get("tipo") or "otro",
+        destinatario=destinatario,
         archivo=archivo,
         subido_por=request.user,
         requiere_firma=str(request.data.get("requiere_firma", "true")).lower() != "false",

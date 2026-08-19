@@ -79,7 +79,7 @@ export default function DocumentacionPage() {
   const [openUpload, setOpenUpload] = useState(false)
   const [uploadForm, setUploadForm] = useState({
     titulo: "", descripcion: "", tipo: "otro",
-    requiere_firma: true, school_course_id: "",
+    requiere_firma: true, school_course_id: "", destinatario: "todos",
   })
   const [uploadFile, setUploadFile] = useState(null)
   const [uploadErr, setUploadErr] = useState("")
@@ -179,6 +179,7 @@ export default function DocumentacionPage() {
       fd.append("titulo", uploadForm.titulo.trim())
       fd.append("descripcion", uploadForm.descripcion.trim())
       fd.append("tipo", uploadForm.tipo)
+      fd.append("destinatario", uploadForm.destinatario)
       fd.append("requiere_firma", uploadForm.requiere_firma ? "true" : "false")
       if (uploadForm.school_course_id) fd.append("school_course_id", uploadForm.school_course_id)
       fd.append("archivo", uploadFile)
@@ -188,7 +189,7 @@ export default function DocumentacionPage() {
       if (!r.ok) throw new Error(j?.detail || "Error al subir el documento.")
       setDocs((prev) => [j, ...prev])
       setOpenUpload(false)
-      setUploadForm({ titulo: "", descripcion: "", tipo: "otro", requiere_firma: true, school_course_id: "" })
+      setUploadForm({ titulo: "", descripcion: "", tipo: "otro", requiere_firma: true, school_course_id: "", destinatario: "todos" })
       setUploadFile(null)
     } catch (e) {
       setUploadErr(e?.message || "Error al subir el documento.")
@@ -393,6 +394,17 @@ export default function DocumentacionPage() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div>
+              <Label htmlFor="destinatario">Destinatarios</Label>
+              <select id="destinatario" className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                value={uploadForm.destinatario}
+                onChange={(e) => setUploadForm((f) => ({ ...f, destinatario: e.target.value }))}>
+                <option value="todos">Padres y alumnos</option>
+                <option value="padres">Solo padres</option>
+                <option value="alumnos">Solo alumnos</option>
+              </select>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

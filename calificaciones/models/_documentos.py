@@ -16,6 +16,12 @@ class Documento(models.Model):
         ("otro", "Otro"),
     ]
 
+    DESTINATARIO_CHOICES = [
+        ("todos", "Padres y alumnos"),
+        ("padres", "Solo padres"),
+        ("alumnos", "Solo alumnos"),
+    ]
+
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="documentos")
     school_course = models.ForeignKey(
         SchoolCourse, on_delete=models.SET_NULL, null=True, blank=True, related_name="documentos"
@@ -23,6 +29,7 @@ class Documento(models.Model):
     titulo = models.CharField(max_length=255)
     descripcion = models.TextField(blank=True, default="")
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, default="otro")
+    destinatario = models.CharField(max_length=20, choices=DESTINATARIO_CHOICES, default="todos")
     archivo = models.FileField(upload_to=_documento_upload_path)
     subido_por = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="documentos_subidos")
     creado_en = models.DateTimeField(auto_now_add=True)
