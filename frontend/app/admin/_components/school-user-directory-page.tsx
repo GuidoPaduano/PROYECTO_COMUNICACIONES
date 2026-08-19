@@ -3,7 +3,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, GraduationCap, Pencil, RefreshCw, Search, ShieldCheck, Users } from "lucide-react"
+import { ArrowLeft, GraduationCap, Pencil, RefreshCw, Search, ShieldCheck, UserX, Users } from "lucide-react"
 
 import { authFetch, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { Button } from "@/components/ui/button"
@@ -88,7 +88,16 @@ function SummaryCard({ title, value, icon, active = false, onClick, interactive 
   )
 }
 
-function StaffSection({ title, rows, emptyLabel, onEdit }) {
+function ActiveBadge({ isActive }) {
+  if (isActive) return null
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 9999, background: "#fee2e2", color: "#dc2626", border: "1px solid #fecaca", marginLeft: 6 }}>
+      Inactivo
+    </span>
+  )
+}
+
+function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
   return (
     <Card>
       <CardHeader className="pb-4">
@@ -98,10 +107,10 @@ function StaffSection({ title, rows, emptyLabel, onEdit }) {
       <CardContent className="pt-0">
         <div className="space-y-3 md:hidden">
           {rows.map((row) => (
-            <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={row.id} className={`rounded-2xl border p-4 shadow-sm ${row.is_active === false ? "bg-slate-50 border-slate-200 opacity-70" : "bg-white border-slate-200"}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{row.full_name || row.username}</p>
+                  <p className="truncate text-sm font-semibold text-slate-900">{row.full_name || row.username}<ActiveBadge isActive={row.is_active !== false} /></p>
                   <p className="mt-1 text-xs text-slate-500">@{row.username}</p>
                 </div>
               </div>
@@ -118,10 +127,18 @@ function StaffSection({ title, rows, emptyLabel, onEdit }) {
                       : "-"}
                   </span>
                 </div>
-                <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Editar datos
-                </Button>
+                <div className="flex gap-2 flex-wrap">
+                  <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Editar datos
+                  </Button>
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => onToggleActive?.(row)}
+                    style={row.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                    <UserX className="mr-2 h-4 w-4" />
+                    {row.is_active === false ? "Reactivar" : "Desactivar"}
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
@@ -145,8 +162,8 @@ function StaffSection({ title, rows, emptyLabel, onEdit }) {
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium text-slate-900">{row.username}</TableCell>
+                <TableRow key={row.id} className={row.is_active === false ? "opacity-60 bg-slate-50" : ""}>
+                  <TableCell className="font-medium text-slate-900">{row.username}<ActiveBadge isActive={row.is_active !== false} /></TableCell>
                   <TableCell>{row.full_name || "-"}</TableCell>
                   <TableCell>{row.email || "-"}</TableCell>
                   <TableCell className="text-sm text-slate-600">
@@ -155,9 +172,16 @@ function StaffSection({ title, rows, emptyLabel, onEdit }) {
                       : "-"}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
-                      Editar datos
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
+                        Editar datos
+                      </Button>
+                      <Button type="button" size="sm" variant="outline"
+                        onClick={() => onToggleActive?.(row)}
+                        style={row.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                        {row.is_active === false ? "Reactivar" : "Desactivar"}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -263,7 +287,7 @@ function StudentsSection({ course }) {
   )
 }
 
-function ParentsSection({ rows, availableStudents, onLinked, onEdit, allCourses }) {
+function ParentsSection({ rows, availableStudents, onLinked, onEdit, onToggleActive, allCourses }) {
   const emptyLabel = "No hay padres registrados en el colegio activo."
   const [courseFilter, setCourseFilter] = useState("")
   const [selectedParent, setSelectedParent] = useState(null)
@@ -387,9 +411,9 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit, allCourses 
       <CardContent className="pt-0">
         <div className="space-y-3 md:hidden">
           {filteredRows.map((row) => (
-            <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={row.id} className={`rounded-2xl border p-4 shadow-sm ${row.is_active === false ? "bg-slate-50 border-slate-200 opacity-70" : "bg-white border-slate-200"}`}>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">{row.full_name || row.username}</p>
+                <p className="truncate text-sm font-semibold text-slate-900">{row.full_name || row.username}<ActiveBadge isActive={row.is_active !== false} /></p>
                 <p className="mt-1 text-xs text-slate-500">@{row.username}</p>
               </div>
               <div className="mt-3 space-y-2 text-sm text-slate-700">
@@ -413,18 +437,19 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit, allCourses 
                       : "-"}
                   </span>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => openLinkDialog(row)}
-                  disabled={!studentOptions.length}
-                >
-                  Vincular alumno
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
-                  Editar datos
-                </Button>
+                <div className="flex gap-2 flex-wrap">
+                  <Button type="button" size="sm" variant="outline" onClick={() => openLinkDialog(row)} disabled={!studentOptions.length}>
+                    Vincular alumno
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
+                    Editar datos
+                  </Button>
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => onToggleActive?.(row)}
+                    style={row.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                    {row.is_active === false ? "Reactivar" : "Desactivar"}
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
@@ -453,8 +478,8 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit, allCourses 
                   ? row.children.map((c) => c.course_code).filter(Boolean).join(", ")
                   : ""
                 return (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium text-slate-900">{row.username}</TableCell>
+                <TableRow key={row.id} className={row.is_active === false ? "opacity-60 bg-slate-50" : ""}>
+                  <TableCell className="font-medium text-slate-900">{row.username}<ActiveBadge isActive={row.is_active !== false} /></TableCell>
                   <TableCell>{row.full_name || "-"}</TableCell>
                   <TableCell>{row.email || "-"}</TableCell>
                   <TableCell className="text-sm text-slate-600">
@@ -467,22 +492,12 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit, allCourses 
                   <TableCell className="text-sm text-slate-600">{courses || "-"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => onEdit?.(row)}
-                      >
-                        Editar datos
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openLinkDialog(row)}
-                        disabled={!studentOptions.length}
-                      >
-                        Vincular alumno
+                      <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>Editar datos</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => openLinkDialog(row)} disabled={!studentOptions.length}>Vincular alumno</Button>
+                      <Button type="button" size="sm" variant="outline"
+                        onClick={() => onToggleActive?.(row)}
+                        style={row.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                        {row.is_active === false ? "Reactivar" : "Desactivar"}
                       </Button>
                     </div>
                   </TableCell>
@@ -729,6 +744,22 @@ export default function SchoolUserDirectoryPage() {
     }
   }
 
+  const handleToggleActive = async (user) => {
+    const action = user.is_active === false ? "Reactivar" : "Desactivar"
+    if (!confirm(`¿${action} la cuenta de ${user.full_name || user.username}?`)) return
+    try {
+      const r = await authFetch(`/admin/school-users/${user.id}/toggle-active/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) { setError(data?.detail || "No se pudo cambiar el estado."); return }
+      if (data?.directory) setPayload(data.directory)
+    } catch {
+      setError("No se pudo conectar con el servidor.")
+    }
+  }
+
   if (loadingSession) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
@@ -842,6 +873,7 @@ export default function SchoolUserDirectoryPage() {
           rows={profesores}
           emptyLabel="No hay profesores asignados en el colegio activo."
           onEdit={openEditDialog}
+          onToggleActive={handleToggleActive}
         />
       ) : null}
 
@@ -851,6 +883,7 @@ export default function SchoolUserDirectoryPage() {
           rows={preceptores}
           emptyLabel="No hay preceptores asignados en el colegio activo."
           onEdit={openEditDialog}
+          onToggleActive={handleToggleActive}
         />
       ) : null}
 
@@ -860,6 +893,7 @@ export default function SchoolUserDirectoryPage() {
           rows={directivos}
           emptyLabel="No hay directivos registrados en el colegio activo."
           onEdit={openEditDialog}
+          onToggleActive={handleToggleActive}
         />
       ) : null}
 
@@ -869,6 +903,7 @@ export default function SchoolUserDirectoryPage() {
           availableStudents={payload?.students_without_parent || []}
           onLinked={setPayload}
           onEdit={openEditDialog}
+          onToggleActive={handleToggleActive}
           allCourses={
             [...new Set(
               (Array.isArray(payload?.padres) ? payload.padres : [])

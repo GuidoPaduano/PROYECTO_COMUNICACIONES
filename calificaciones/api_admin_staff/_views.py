@@ -146,6 +146,33 @@ def admin_school_user_update(request, user_id: int):
 @api_view(["PATCH"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
+def admin_school_user_toggle_active(request, user_id: int):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school, denied = _resolve_requested_admin_school(request)
+    if denied is not None:
+        return denied
+
+    target = User.objects.filter(pk=user_id).exclude(is_superuser=True).first()
+    if target is None or not _user_belongs_to_school(user=target, school=active_school):
+        return Response({"detail": "Usuario no encontrado en el colegio activo."}, status=404)
+
+    target.is_active = not target.is_active
+    target.save(update_fields=["is_active"])
+
+    action = "activado" if target.is_active else "desactivado"
+    return Response({
+        "detail": f"Usuario {action} correctamente.",
+        "is_active": target.is_active,
+        "directory": _build_user_directory_payload(school=active_school),
+    })
+
+
+@api_view(["PATCH"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
 def admin_parent_children_update(request, user_id: int):
     denied = _require_school_admin(request)
     if denied is not None:
