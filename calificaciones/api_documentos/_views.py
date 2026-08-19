@@ -177,7 +177,9 @@ def documento_detail(request, doc_id):
     if not _can_upload(request):
         return Response({"detail": "No tenés permiso para eliminar documentos."}, status=403)
 
-    doc.delete()
+    # Eliminar firmas primero, luego el documento (evita pasar por el Collector de Django)
+    FirmaDocumento.objects.filter(documento_id=doc_id).delete()
+    Documento.objects.filter(id=doc_id).delete()
     return Response({"detail": "Documento eliminado."})
 
 
