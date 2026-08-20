@@ -1,4 +1,6 @@
-from django.db.models import Q
+import os
+
+from django.db.models import Prefetch, Q
 from django.http import FileResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -8,6 +10,9 @@ from rest_framework.response import Response
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..models import Alumno, Documento, FirmaDocumento, Notificacion, SchoolCourse
 from ..schools import get_request_school
+
+_PDF_MAGIC = b"%PDF"
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 try:
     from ..models_preceptores import PreceptorCurso
@@ -146,8 +151,17 @@ def _documento_to_dict(doc, user=None):
     firmado = False
     es_propio = False
     if user and user.is_authenticated:
-        firmado = FirmaDocumento.objects.filter(documento=doc, usuario=user).exists()
+        # Usa el prefetch _user_firmas si está disponible, si no hace la query
+        user_firmas = getattr(doc, "_user_firmas", None)
+        if user_firmas is not None:
+            firmado = len(user_firmas) > 0
+        else:
+            firmado = FirmaDocumento.objects.filter(documento=doc, usuario=user).exists()
         es_propio = doc.subido_por_id == user.id
+
+    # Usa el prefetch de todas las firmas si ya fue cargado
+    firmas_qs = getattr(doc, "_prefetched_objects_cache", {}).get("firmas")
+    total_firmas = len(firmas_qs) if firmas_qs is not None else doc.firmas.count()
 
     course = doc.school_course
     return {
@@ -166,7 +180,7 @@ def _documento_to_dict(doc, user=None):
         "firmado": firmado,
         "es_propio": es_propio,
         "destinatario": doc.destinatario,
-        "total_firmas": doc.firmas.count(),
+        "total_firmas": total_firmas,
         "school_course_id": course.id if course else None,
         "school_course_name": (getattr(course, "name", None) or getattr(course, "code", None)) if course else None,
     }
@@ -187,11 +201,20 @@ def documentos_list(request):
 
     if request.method == "GET":
         curso_ids = _curso_ids_for_user(request.user, school)
-        qs = Documento.objects.filter(school=school).select_related("school_course", "subido_por")
+        user_firma_prefetch = Prefetch(
+            "firmas",
+            queryset=FirmaDocumento.objects.filter(usuario=request.user),
+            to_attr="_user_firmas",
+        )
+        qs = (
+            Documento.objects
+            .filter(school=school)
+            .select_related("school_course", "subido_por")
+            .prefetch_related(user_firma_prefetch, "firmas")
+        )
         if curso_ids is not None:
             qs = qs.filter(Q(school_course__isnull=True) | Q(school_course_id__in=curso_ids))
 
-        # Filtrar por destinatario según el rol
         groups = set(request.user.groups.values_list("name", flat=True))
         if "Padres" in groups and "Alumnos" not in groups:
             qs = qs.filter(destinatario__in=["todos", "padres"])
@@ -214,6 +237,14 @@ def documentos_list(request):
 
     if not archivo.name.lower().endswith(".pdf"):
         return Response({"detail": "Solo se permiten archivos PDF."}, status=400)
+
+    if archivo.size > _MAX_UPLOAD_BYTES:
+        return Response({"detail": "El archivo no puede superar los 20 MB."}, status=400)
+
+    header = archivo.read(4)
+    archivo.seek(0)
+    if header != _PDF_MAGIC:
+        return Response({"detail": "El archivo no es un PDF válido."}, status=400)
 
     school_course = None
     school_course_id = request.data.get("school_course_id")
@@ -258,7 +289,14 @@ def documento_detail(request, doc_id):
     if not _can_upload(request):
         return Response({"detail": "No tenés permiso para eliminar documentos."}, status=403)
 
-    # Eliminar firmas primero, luego el documento (evita pasar por el Collector de Django)
+    # Borrar el archivo del storage antes de eliminar la fila
+    archivo_name = doc.archivo.name if doc.archivo else None
+    if archivo_name:
+        try:
+            doc.archivo.delete(save=False)
+        except Exception:
+            pass  # No bloquear si el storage falla
+
     FirmaDocumento.objects.filter(documento_id=doc_id).delete()
     Documento.objects.filter(id=doc_id).delete()
     return Response({"detail": "Documento eliminado."})
@@ -340,7 +378,6 @@ def documento_archivo(request, doc_id):
 
     try:
         f = doc.archivo.open("rb")
-        import os
         filename = os.path.basename(doc.archivo.name)
         response = FileResponse(f, content_type="application/pdf")
         response["Content-Disposition"] = f'inline; filename="{filename}"'
