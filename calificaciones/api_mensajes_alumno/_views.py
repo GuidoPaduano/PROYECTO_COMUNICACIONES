@@ -15,6 +15,7 @@ from ..models import Mensaje, Notificacion, resolve_school_course_for_value
 from ..schools import get_request_school
 from ..user_groups import get_user_group_names
 from ..utils_cursos import resolve_course_reference
+from ..html_sanitizer import sanitize_html
 
 from ._helpers import (
     PROF_GROUPS,
@@ -116,7 +117,7 @@ def alumno_enviar(request):
 
     receptor_id = data.get("receptor_id")
     asunto = (data.get("asunto") or "").strip()
-    contenido = (data.get("contenido") or "").strip()
+    contenido = sanitize_html((data.get("contenido") or "").strip())
     alumno = _infer_alumno_for_user(user, school=active_school)
     school_course_ref, curso, course_error = resolve_course_reference(
         school=active_school,

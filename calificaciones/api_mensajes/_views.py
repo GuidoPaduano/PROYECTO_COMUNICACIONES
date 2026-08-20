@@ -19,6 +19,7 @@ from django.contrib.auth import get_user_model
 from ..models import Mensaje, Notificacion
 from ..schools import get_request_school, scope_queryset_to_school
 from ..utils_cursos import resolve_course_reference
+from ..html_sanitizer import sanitize_html
 
 from uuid import UUID, uuid4
 import json
@@ -76,7 +77,7 @@ def enviar_mensaje(request):
     active_school = get_request_school(request)
 
     asunto = (data.get("asunto") or "").strip()
-    contenido = (data.get("contenido") or "").strip()
+    contenido = sanitize_html((data.get("contenido") or "").strip())
     tipo = (data.get("tipo") or "").strip().lower() or "mensaje"
     school_course_ref, curso, course_error = resolve_course_reference(
         school=active_school,
@@ -211,7 +212,7 @@ def enviar_mensaje_grupal(request):
         required=True,
     )
     asunto = (data.get("asunto") or "").strip()
-    contenido = (data.get("contenido") or "").strip()
+    contenido = sanitize_html((data.get("contenido") or "").strip())
     tipo = (data.get("tipo") or "").strip().lower() or "mensaje"
 
     if not contenido:
@@ -770,7 +771,7 @@ def responder_mensaje(request):
 
     mensaje_id = data.get("mensaje_id") or data.get("id") or data.get("mensajeId")
     asunto = (data.get("asunto") or "").strip()
-    contenido = (data.get("contenido") or "").strip()
+    contenido = sanitize_html((data.get("contenido") or "").strip())
     raw_client_request_id = data.get("client_request_id") or data.get("clientRequestId")
     client_request_id = None
     if raw_client_request_id:

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { sanitizeHtml } from "../../../_lib/sanitize-html"
 import SuccessMessage from "@/components/ui/success-message"
 import { createClientRequestId } from "../../../_lib/idempotency"
 
@@ -388,7 +389,7 @@ export default function HiloMensajesPage() {
                           <span className="truncate">{`Enviado el ${fmtFecha(m.fecha || m.fecha_envio)}`}</span>
                         </div>
                         <div className="font-medium break-words">{collapseRePrefix(m.asunto) || "Sin asunto"}</div>
-                        <div className="mt-1 break-words rich-html" dangerouslySetInnerHTML={{ __html: m.contenido || m.body || "" }} />
+                        <div className="mt-1 break-words rich-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(m.contenido || m.body || "") }} />
 
                         {readReceipt ? (
                           <div className={"mt-2 text-[12px] " + (mine ? "text-white/80" : "text-gray-600")}>

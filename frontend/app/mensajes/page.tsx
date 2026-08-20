@@ -18,6 +18,7 @@ import { notifyInboxChanged } from "../_lib/inbox" // ⬅️ EVENT bus para badg
 import { NotificationBell } from "@/components/notification-bell"
 import { useUnreadCount } from "../_lib/useUnreadCount"
 import { buildReplyRequestAttempts } from "../_lib/idempotency"
+import { sanitizeHtml } from "../_lib/sanitize-html"
 
 import {
   Mail,
@@ -1245,7 +1246,7 @@ export default function MensajesPage() {
 
           <div className="px-6 py-5">
             <Label className="text-xs text-gray-600">Mensaje</Label>
-            <div className="mt-2 rounded-lg border bg-gray-50 p-4 text-gray-900 break-words max-h-[42vh] overflow-auto rich-html" dangerouslySetInnerHTML={{ __html: msgSel?.contenido || msgSel?.body || "—" }} />
+            <div className="mt-2 rounded-lg border bg-gray-50 p-4 text-gray-900 break-words max-h-[42vh] overflow-auto rich-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msgSel?.contenido || msgSel?.body || "—") }} />
 
             {!replyMode && msgSel?.id && (
               <div className="mt-3 text-xs text-gray-500">

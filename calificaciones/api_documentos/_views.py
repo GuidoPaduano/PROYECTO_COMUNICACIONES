@@ -23,8 +23,27 @@ def _has_role(request, *roles):
 def _can_upload(request):
     return (
         getattr(request.user, "is_superuser", False)
-        or _has_role(request, "Directivos", "Preceptores")
+        or _has_role(request, "Directivos", "Preceptores", "Administradores")
     )
+
+
+def _get_visible_doc(request, doc_id, school):
+    """
+    Devuelve el Documento si el usuario puede verlo, respetando curso y destinatario.
+    Retorna None si no existe o si el usuario no tiene acceso.
+    """
+    curso_ids = _curso_ids_for_user(request.user, school)
+    qs = Documento.objects.filter(id=doc_id, school=school)
+    if curso_ids is not None:
+        qs = qs.filter(Q(school_course__isnull=True) | Q(school_course_id__in=curso_ids))
+
+    groups = set(request.user.groups.values_list("name", flat=True))
+    if "Padres" in groups and "Alumnos" not in groups:
+        qs = qs.filter(destinatario__in=["todos", "padres"])
+    elif "Alumnos" in groups and "Padres" not in groups:
+        qs = qs.filter(destinatario__in=["todos", "alumnos"])
+
+    return qs.first()
 
 
 def _get_client_ip(request):
@@ -229,9 +248,8 @@ def documentos_list(request):
 @permission_classes([IsAuthenticated])
 def documento_detail(request, doc_id):
     school = get_request_school(request)
-    try:
-        doc = Documento.objects.get(id=doc_id, school=school)
-    except Documento.DoesNotExist:
+    doc = _get_visible_doc(request, doc_id, school)
+    if not doc:
         return Response({"detail": "Documento no encontrado."}, status=404)
 
     if request.method == "GET":
@@ -252,9 +270,8 @@ def documento_detail(request, doc_id):
 @permission_classes([IsAuthenticated])
 def documento_firmar(request, doc_id):
     school = get_request_school(request)
-    try:
-        doc = Documento.objects.get(id=doc_id, school=school)
-    except Documento.DoesNotExist:
+    doc = _get_visible_doc(request, doc_id, school)
+    if not doc:
         return Response({"detail": "Documento no encontrado."}, status=404)
 
     if not doc.requiere_firma:
@@ -284,9 +301,8 @@ def documento_firmas(request, doc_id):
         return Response({"detail": "No tenés permiso para ver las firmas."}, status=403)
 
     school = get_request_school(request)
-    try:
-        doc = Documento.objects.get(id=doc_id, school=school)
-    except Documento.DoesNotExist:
+    doc = _get_visible_doc(request, doc_id, school)
+    if not doc:
         return Response({"detail": "Documento no encontrado."}, status=404)
 
     firmas = doc.firmas.select_related("usuario").all()
@@ -315,9 +331,8 @@ def documento_archivo(request, doc_id):
     Sirve el PDF como proxy para evitar problemas de autenticación con R2/S3.
     """
     school = get_request_school(request)
-    try:
-        doc = Documento.objects.get(id=doc_id, school=school)
-    except Documento.DoesNotExist:
+    doc = _get_visible_doc(request, doc_id, school)
+    if not doc:
         return Response({"detail": "Documento no encontrado."}, status=404)
 
     if not doc.archivo:
