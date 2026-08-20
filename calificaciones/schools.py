@@ -521,16 +521,9 @@ def get_available_school_dicts_for_user(user, *, active_school: Optional[School]
     return schools_to_dicts(get_available_schools_for_user(user, active_school=active_school))
 
 
-def get_request_school(request) -> Optional[School]:
-    if request is None:
-        return None
-
-    if getattr(request, "_cached_active_school_resolved", False):
-        return getattr(request, "_cached_active_school", None)
-
+def _resolve_request_school_raw(request) -> Optional[School]:
     user = getattr(request, "user", None)
     host_school = get_request_host_school(request)
-
     raw_value = get_requested_school_identifier(request)
 
     if raw_value:
@@ -538,31 +531,54 @@ def get_request_school(request) -> Optional[School]:
         if school is not None and (
             getattr(user, "is_superuser", False) or user_can_access_school(user, school)
         ):
-            request._cached_active_school = school
-            request._cached_active_school_resolved = True
             return school
 
     try:
         if getattr(user, "is_superuser", False):
-            request._cached_active_school = host_school
-            request._cached_active_school_resolved = True
             return host_school
     except Exception:
         pass
 
     try:
         if user is None or not getattr(user, "is_authenticated", False):
-            school = host_school or get_default_school()
-            request._cached_active_school = school
-            request._cached_active_school_resolved = True
-            return school
+            return host_school or get_default_school()
     except Exception:
-        school = host_school or get_default_school()
-        request._cached_active_school = school
-        request._cached_active_school_resolved = True
-        return school
+        return host_school or get_default_school()
 
-    school = resolve_school_for_user(user)
+    return resolve_school_for_user(user)
+
+
+def _membership_active_for_school(user, school) -> bool:
+    """Returns False if the user has an explicitly deactivated membership for this school."""
+    try:
+        from .models_preceptores import SchoolMembership
+        membership = SchoolMembership.objects.filter(school=school, user=user).first()
+        if membership is None:
+            return True
+        return bool(membership.is_active)
+    except Exception:
+        return True
+
+
+def get_request_school(request) -> Optional[School]:
+    if request is None:
+        return None
+
+    if getattr(request, "_cached_active_school_resolved", False):
+        return getattr(request, "_cached_active_school", None)
+
+    school = _resolve_request_school_raw(request)
+
+    user = getattr(request, "user", None)
+    if (
+        school is not None
+        and user is not None
+        and getattr(user, "is_authenticated", False)
+        and not getattr(user, "is_superuser", False)
+        and not _membership_active_for_school(user, school)
+    ):
+        school = None
+
     request._cached_active_school = school
     request._cached_active_school_resolved = True
     return school

@@ -285,11 +285,13 @@ class CrearNota(APIView):
                 nota.school = school_ref
                 nota.save(update_fields=["school"])
             notificado, notif_dest_id, notif_source, notif_error = _notify_padre_nota(request.user, nota)
+            alerta_queued = False
             try:
                 evaluar_alerta_nota_task.delay(
                     nota_id=nota.pk,
                     actor_id=getattr(request.user, "pk", None),
                 )
+                alerta_queued = True
             except Exception:
                 pass
             resp = {
@@ -298,7 +300,7 @@ class CrearNota(APIView):
                 "notificado": notificado,
                 "notif_destinatario_id": notif_dest_id,
                 "notif_source": notif_source,
-                "alerta_queued": True,
+                "alerta_queued": alerta_queued,
             }
             # Si sos staff/superuser y falló, devolvemos error para debug
             if (not notificado) and notif_error and (

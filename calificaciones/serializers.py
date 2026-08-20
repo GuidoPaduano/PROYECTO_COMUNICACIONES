@@ -188,6 +188,17 @@ class NotaCreateSerializer(serializers.ModelSerializer):
         else:
             attrs["calificacion"] = ""
 
+        # Validaciones de nivel: cuatrimestre 3 y calificaciones conceptuales solo para primaria
+        alumno_obj = attrs.get("alumno") or (getattr(self.instance, "alumno", None) if self.instance else None)
+        if alumno_obj is not None:
+            sc = getattr(alumno_obj, "school_course", None)
+            nivel = (getattr(sc, "nivel", None) or getattr(alumno_obj, "nivel", None) or "secundaria").lower()
+            cuatrimestre_val = attrs.get("cuatrimestre")
+            if cuatrimestre_val == 3 and nivel != "primaria":
+                raise serializers.ValidationError({"cuatrimestre": "El cuatrimestre 3 solo aplica a alumnos de primaria."})
+            if calificacion in (_CONCEPTUALES_TEA | _CONCEPTUALES_TEP) and nivel != "primaria":
+                raise serializers.ValidationError({"calificacion": "Calificaciones conceptuales (S/MB/B/R) solo aplican a alumnos de primaria."})
+
         if resultado is None and nota_numerica is None and not attrs.get("calificacion"):
             raise serializers.ValidationError(
                 "Debés informar resultado, nota_numerica o calificacion."

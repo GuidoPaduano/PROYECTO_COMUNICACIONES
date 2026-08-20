@@ -159,13 +159,39 @@ def admin_school_user_toggle_active(request, user_id: int):
     if target is None or not _user_belongs_to_school(user=target, school=active_school):
         return Response({"detail": "Usuario no encontrado en el colegio activo."}, status=404)
 
-    target.is_active = not target.is_active
-    target.save(update_fields=["is_active"])
+    if target.pk == request.user.pk:
+        return Response({"detail": "No podés desactivar tu propia cuenta."}, status=400)
 
-    action = "activado" if target.is_active else "desactivado"
+    membership = SchoolMembership.objects.filter(school=active_school, user=target).first()
+    if membership is None:
+        return Response({"detail": "El usuario no tiene membresía en este colegio."}, status=404)
+
+    new_active = not membership.is_active
+
+    if not new_active:
+        admin_group_names = {"Administradores", "Directivos"}
+        user_groups = set(target.groups.values_list("name", flat=True))
+        if user_groups & admin_group_names:
+            active_admins_count = (
+                SchoolMembership.objects.filter(
+                    school=active_school,
+                    is_active=True,
+                    user__groups__name__in=list(admin_group_names),
+                )
+                .exclude(user=target)
+                .distinct()
+                .count()
+            )
+            if active_admins_count == 0:
+                return Response({"detail": "No podés desactivar al último administrador activo."}, status=400)
+
+    membership.is_active = new_active
+    membership.save(update_fields=["is_active"])
+
+    action = "activado" if new_active else "desactivado"
     return Response({
         "detail": f"Usuario {action} correctamente.",
-        "is_active": target.is_active,
+        "is_active": new_active,
         "directory": _build_user_directory_payload(school=active_school),
     })
 

@@ -157,6 +157,7 @@ class SchoolMembership(models.Model):
         related_name="school_memberships",
     )
     assigned_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         constraints = [

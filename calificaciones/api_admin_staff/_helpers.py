@@ -150,7 +150,7 @@ def _serialize_student(student) -> dict:
     }
 
 
-def _serialize_staff_user(*, user, school, preceptor_map, profesor_map) -> dict:
+def _serialize_staff_user(*, user, school, preceptor_map, profesor_map, membership_active: dict | None = None) -> dict:
     preceptor_courses = preceptor_map.get(user.id, [])
     profesor_courses = profesor_map.get(user.id, [])
 
@@ -166,12 +166,17 @@ def _serialize_staff_user(*, user, school, preceptor_map, profesor_map) -> dict:
     groups = _get_user_group_names(user)
     staff_role = assignment_role or next((name for name in STAFF_ROLE_NAMES if name in groups), "")
 
+    is_active = (
+        membership_active.get(user.id, bool(getattr(user, "is_active", True)))
+        if membership_active is not None
+        else bool(getattr(user, "is_active", True))
+    )
     return {
         "id": user.id,
         "username": user.username,
         "full_name": _full_name(user),
         "email": str(getattr(user, "email", "") or "").strip(),
-        "is_active": bool(getattr(user, "is_active", True)),
+        "is_active": is_active,
         "groups": groups,
         "staff_role": staff_role,
         "assigned_school_courses": [_serialize_course(course) for course in assigned_courses],
@@ -179,8 +184,13 @@ def _serialize_staff_user(*, user, school, preceptor_map, profesor_map) -> dict:
     }
 
 
-def _serialize_directory_user(*, user, assigned_courses=None) -> dict:
+def _serialize_directory_user(*, user, assigned_courses=None, membership_active: dict | None = None) -> dict:
     courses = assigned_courses or []
+    is_active = (
+        membership_active.get(user.id, bool(getattr(user, "is_active", True)))
+        if membership_active is not None
+        else bool(getattr(user, "is_active", True))
+    )
     return {
         "id": user.id,
         "username": user.username,
@@ -188,16 +198,22 @@ def _serialize_directory_user(*, user, assigned_courses=None) -> dict:
         "first_name": str(getattr(user, "first_name", "") or "").strip(),
         "last_name": str(getattr(user, "last_name", "") or "").strip(),
         "email": str(getattr(user, "email", "") or "").strip(),
-        "is_active": bool(getattr(user, "is_active", True)),
+        "is_active": is_active,
         "groups": _get_user_group_names(user),
         "assigned_school_courses": [_serialize_course(course) for course in courses],
     }
 
 
-def _serialize_directory_student(student) -> dict:
+def _serialize_directory_student(student, membership_active: dict | None = None) -> dict:
     school_course = getattr(student, "school_course", None)
     linked_user = getattr(student, "usuario", None)
     parent_user = getattr(student, "padre", None)
+
+    def _user_is_active(u):
+        if membership_active is not None:
+            return membership_active.get(u.id, bool(getattr(u, "is_active", True)))
+        return bool(getattr(u, "is_active", True))
+
     return {
         "id": student.id,
         "id_alumno": str(getattr(student, "id_alumno", "") or "").strip(),
@@ -216,7 +232,7 @@ def _serialize_directory_student(student) -> dict:
             "username": linked_user.username,
             "full_name": _full_name(linked_user) or linked_user.username,
             "email": str(getattr(linked_user, "email", "") or "").strip(),
-            "is_active": bool(getattr(linked_user, "is_active", True)),
+            "is_active": _user_is_active(linked_user),
         },
         "parent_user": None
         if parent_user is None
@@ -225,17 +241,17 @@ def _serialize_directory_student(student) -> dict:
             "username": parent_user.username,
             "full_name": _full_name(parent_user) or parent_user.username,
             "email": str(getattr(parent_user, "email", "") or "").strip(),
-            "is_active": bool(getattr(parent_user, "is_active", True)),
+            "is_active": _user_is_active(parent_user),
         },
     }
 
 
-def _serialize_directory_parent(*, user, children=None) -> dict:
+def _serialize_directory_parent(*, user, children=None, membership_active: dict | None = None) -> dict:
     linked_children = children or []
     return {
-        **_serialize_directory_user(user=user),
+        **_serialize_directory_user(user=user, membership_active=membership_active),
         "children_count": len(linked_children),
-        "children": [_serialize_directory_student(child) for child in linked_children],
+        "children": [_serialize_directory_student(child, membership_active=membership_active) for child in linked_children],
     }
 
 
@@ -314,6 +330,10 @@ def _resolve_requested_admin_school(request):
 
 
 def _build_user_directory_payload(*, school) -> dict:
+    membership_active: dict[int, bool] = dict(
+        SchoolMembership.objects.filter(school=school).values_list("user_id", "is_active")
+    )
+
     profesor_map = _build_assignment_map(school=school, role="Profesores")
     preceptor_map = _build_assignment_map(school=school, role="Preceptores")
 
@@ -370,29 +390,29 @@ def _build_user_directory_payload(*, school) -> dict:
                 },
                 "students": [],
             }
-        grouped_students[key]["students"].append(_serialize_directory_student(alumno))
+        grouped_students[key]["students"].append(_serialize_directory_student(alumno, membership_active=membership_active))
 
     return {
         "school": school_to_dict(school),
         "profesores": [
-            _serialize_directory_user(user=user, assigned_courses=profesor_map.get(user.id, []))
+            _serialize_directory_user(user=user, assigned_courses=profesor_map.get(user.id, []), membership_active=membership_active)
             for user in profesores
         ],
         "preceptores": [
-            _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []))
+            _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []), membership_active=membership_active)
             for user in preceptores
         ],
         "directivos": [
-            _serialize_directory_user(user=user, assigned_courses=[])
+            _serialize_directory_user(user=user, assigned_courses=[], membership_active=membership_active)
             for user in directivos
         ],
         "padres": [
-            _serialize_directory_parent(user=user, children=children_by_parent.get(user.id, []))
+            _serialize_directory_parent(user=user, children=children_by_parent.get(user.id, []), membership_active=membership_active)
             for user in padres
         ],
         "alumnos_por_curso": list(grouped_students.values()),
         "students_without_parent": [
-            _serialize_directory_student(alumno)
+            _serialize_directory_student(alumno, membership_active=membership_active)
             for alumno in alumnos
             if getattr(alumno, "padre_id", None) is None
         ],

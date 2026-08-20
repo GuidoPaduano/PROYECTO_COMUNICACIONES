@@ -44,6 +44,10 @@ def _resultado_principal(nota: Nota) -> str:
     calif = str(getattr(nota, "calificacion", "") or "").strip().upper()
     if calif in {"TEA", "TEP", "TED", "NO ENTREGADO"}:
         return calif
+    if calif in {"S", "MB", "B"}:
+        return "TEA"
+    if calif == "R":
+        return "TEP"
     return ""
 
 
