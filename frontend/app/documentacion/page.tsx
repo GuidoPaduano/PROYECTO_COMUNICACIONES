@@ -1,7 +1,7 @@
 // @ts-nocheck
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { FileText, Upload, CheckCircle, Clock, Trash2, Eye, X } from "lucide-react"
 import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
 import { Button } from "@/components/ui/button"
@@ -97,6 +97,23 @@ export default function DocumentacionPage() {
   const canUpload =
     !!sessionContext?.isSuperuser ||
     groups.some((g) => ["Directivos", "Preceptores", "Administradores"].includes(g))
+
+  const docsAgrupados = useMemo(() => {
+    const map = new Map()
+    for (const doc of docs) {
+      const key = doc.school_course_id ? String(doc.school_course_id) : "__institucion__"
+      const label = doc.school_course_name || "Toda la institución"
+      if (!map.has(key)) map.set(key, { key, label, docs: [] })
+      map.get(key).docs.push(doc)
+    }
+    // "Toda la institución" primero, luego cursos ordenados
+    const grupos = Array.from(map.values()).sort((a, b) => {
+      if (a.key === "__institucion__") return -1
+      if (b.key === "__institucion__") return 1
+      return a.label.localeCompare(b.label, "es")
+    })
+    return grupos
+  }, [docs])
 
   async function loadDocs() {
     setLoading(true)
@@ -241,8 +258,18 @@ export default function DocumentacionPage() {
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {docs.map((doc) => (
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        {docsAgrupados.map((grupo) => (
+          <div key={grupo.key}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <span style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                {grupo.label}
+              </span>
+              <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
+              <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{grupo.docs.length} doc{grupo.docs.length !== 1 ? "s" : ""}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {grupo.docs.map((doc) => (
           <div
             key={doc.id}
             style={{
@@ -259,7 +286,6 @@ export default function DocumentacionPage() {
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 600, color: "#0f172a", fontSize: "0.9375rem" }}>{doc.titulo}</span>
                 <TipoBadge tipo={doc.tipo} />
-                <CursoBadge name={doc.school_course_name} />
                 {doc.requiere_firma && (
                   doc.firmado
                     ? <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#16a34a", fontWeight: 500 }}><CheckCircle style={{ width: 14, height: 14 }} />Firmado</span>
@@ -297,6 +323,9 @@ export default function DocumentacionPage() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        ))}
             </div>
           </div>
         ))}
