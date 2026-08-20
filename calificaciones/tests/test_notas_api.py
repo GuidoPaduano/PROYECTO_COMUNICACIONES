@@ -490,6 +490,7 @@ class NotasNotificationMetaTests(TestCase):
             apellido="Meta",
             id_alumno="LEGMETA01",
             curso="1A",
+            school_course=self.course,
             padre=self.padre,
         )
         ProfesorCurso.objects.create(school=self.school, profesor=self.profesor, curso="1A")

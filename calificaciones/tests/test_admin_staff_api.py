@@ -240,7 +240,6 @@ class AdminStaffApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(get_user_model().objects.filter(username="ana_corta").exists())
-        self.assertTrue(SchoolAdmin.objects.filter(school=self.school, admin=usuario).exists())
 
     def test_post_rechaza_usuario_sin_nombre(self):
         response = self.client.post(

@@ -66,7 +66,6 @@ describe("ComposeComunicadoFamilia", () => {
     const sendButton = screen.getByRole("button", { name: /^Enviar$/ })
     expect(sendButton).toBeDisabled()
 
-    await user.type(screen.getByLabelText(/asunto/i), "Aviso de prueba")
     await user.type(screen.getByLabelText(/^mensaje$/i), "Contenido de prueba")
 
     await waitFor(() => expect(sendButton).toBeEnabled())
@@ -81,7 +80,6 @@ describe("ComposeComunicadoFamilia", () => {
         expect.objectContaining({
           receptor_id: 55,
           alumno_id: 10,
-          asunto: "Aviso de prueba",
           contenido: "Contenido de prueba",
           tipo: "comunicado",
         })

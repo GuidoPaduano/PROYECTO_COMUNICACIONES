@@ -182,8 +182,8 @@ class LegacyCourseNavigationApiTests(TestCase):
         self.assertEqual(
             res.json()["cursos"],
             [
-                {"id": "1A", "code": "1A", "nombre": "1A Norte", "school_course_id": self.course_a1.id},
-                {"id": "2A", "code": "2A", "nombre": "2A Norte", "school_course_id": self.course_a2.id},
+                {"id": "1A", "code": "1A", "nombre": "1A Norte", "school_course_id": self.course_a1.id, "nivel": "secundaria"},
+                {"id": "2A", "code": "2A", "nombre": "2A Norte", "school_course_id": self.course_a2.id, "nivel": "secundaria"},
             ],
         )
 
@@ -204,7 +204,7 @@ class LegacyCourseNavigationApiTests(TestCase):
         self.assertEqual(
             res.json()["cursos"],
             [
-                {"id": "2A", "code": "2A", "nombre": "2A Norte", "school_course_id": self.course_a2.id},
+                {"id": "2A", "code": "2A", "nombre": "2A Norte", "school_course_id": self.course_a2.id, "nivel": "secundaria"},
             ],
         )
 
@@ -226,7 +226,7 @@ class LegacyCourseNavigationApiTests(TestCase):
             res.json(),
             {
                 "cursos": [
-                    {"id": "1A", "code": "1A", "nombre": "1A Norte", "school_course_id": self.course_a1.id},
+                    {"id": "1A", "code": "1A", "nombre": "1A Norte", "school_course_id": self.course_a1.id, "nivel": "secundaria"},
                 ]
             },
         )
