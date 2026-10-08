@@ -850,7 +850,7 @@ function getLogoutRedirectHref(): string {
   return "/"
 }
 
-export const ALL_ROLES = ["Profesores", "Preceptores", "Directivos", "Padres", "Alumnos"] as const
+export const ALL_ROLES = ["Integracion", "EOE", "Profesores", "Preceptores", "Directivos", "Padres", "Alumnos"] as const
 
 export function getPreviewRole(): string {
   try {
@@ -894,8 +894,8 @@ export function getEffectiveGroups(me: unknown): string[] {
   const base = Array.isArray(m?.groups) ? m.groups as string[] : []
   const isSuper = !!m?.is_superuser || !!(m?.user as Record<string, unknown>)?.is_superuser
   const preview = getPreviewRole()
-  if (isSuper && preview) return [preview]
-  return base
+  const groups = isSuper && preview ? [preview] : base
+  return (groups.includes("EOE") || groups.includes("Integracion")) ? Array.from(new Set([...groups, "Preceptores"])) : groups
 }
 
 function normalizeApiPath(path: unknown): string {

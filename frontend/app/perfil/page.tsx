@@ -257,6 +257,8 @@ export default function Profile() {
     );
     const rolRaw = String(api?.user?.rol || "").toLowerCase();
     const tokens = [rolRaw, ...grupos].filter(Boolean);
+    if (tokens.includes("integracion")) return "Integración";
+    if (tokens.includes("eoe")) return "EOE";
     if (tokens.some((t) => t.includes("preceptor"))) return "Preceptor";
     if (tokens.some((t) => t.includes("profesor"))) return "Profesor";
     if (tokens.some((t) => t.includes("padre"))) return "Padre";

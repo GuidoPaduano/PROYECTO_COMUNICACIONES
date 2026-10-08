@@ -91,7 +91,7 @@ def perfil_api(request):
 
     # Grupos efectivos
     grupos_reales = list(get_user_group_names(user))
-    grupos = [preview_role] if preview_role else grupos_reales
+    grupos = _effective_groups(request)
 
     # Rol real + rol efectivo para UI
     try:

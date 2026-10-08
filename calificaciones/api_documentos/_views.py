@@ -7,6 +7,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from ..user_groups import get_user_group_names
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..models import Alumno, Documento, FirmaDocumento, Notificacion, SchoolCourse
 from ..schools import get_request_school
@@ -21,7 +22,7 @@ except ImportError:
 
 
 def _has_role(request, *roles):
-    groups = set(request.user.groups.values_list("name", flat=True))
+    groups = set(get_user_group_names(request.user))
     return any(r in groups for r in roles)
 
 
@@ -42,7 +43,7 @@ def _get_visible_doc(request, doc_id, school):
     if curso_ids is not None:
         qs = qs.filter(Q(school_course__isnull=True) | Q(school_course_id__in=curso_ids))
 
-    groups = set(request.user.groups.values_list("name", flat=True))
+    groups = set(get_user_group_names(request.user))
     if "Padres" in groups and "Alumnos" not in groups:
         qs = qs.filter(destinatario__in=["todos", "padres"])
     elif "Alumnos" in groups and "Padres" not in groups:
@@ -78,7 +79,7 @@ def _curso_ids_for_user(user, school):
     """
     if getattr(user, "is_superuser", False):
         return None
-    groups = set(user.groups.values_list("name", flat=True))
+    groups = set(get_user_group_names(user))
 
     if groups & {"Directivos"}:
         return None
@@ -215,7 +216,7 @@ def documentos_list(request):
         if curso_ids is not None:
             qs = qs.filter(Q(school_course__isnull=True) | Q(school_course_id__in=curso_ids))
 
-        groups = set(request.user.groups.values_list("name", flat=True))
+        groups = set(get_user_group_names(request.user))
         if "Padres" in groups and "Alumnos" not in groups:
             qs = qs.filter(destinatario__in=["todos", "padres"])
         elif "Alumnos" in groups and "Padres" not in groups:

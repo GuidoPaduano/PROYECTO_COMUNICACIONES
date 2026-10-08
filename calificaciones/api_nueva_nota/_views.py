@@ -16,6 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+from ..user_groups import expand_role_permissions
 from ..course_access import (
     build_course_membership_q_for_refs,
     course_ref_matches,
@@ -89,7 +90,7 @@ class WhoAmI(APIView):
         except Exception:
             preview_role = None
         if preview_role and getattr(u, "is_superuser", False):
-            groups = [preview_role]
+            groups = list(expand_role_permissions([preview_role]))
 
         full_name = (u.get_full_name() or f"{u.first_name} {u.last_name}").strip()
 

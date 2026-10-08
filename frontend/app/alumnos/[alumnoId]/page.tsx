@@ -24,6 +24,7 @@ import {
   Users,
   User as UserIcon,
   ClipboardList,
+  FileText,
   Gavel,
   CalendarDays,
   Pencil,
@@ -56,6 +57,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import PpiDocuments from "./_ppi-documents"
 import { NotificationBell } from "@/components/notification-bell"
 
 const ComposeMensajeAlumno = dynamic(() => import("./_compose-alumno"), {
@@ -70,7 +72,7 @@ const LOGO_SRC = "/imagenes/Logo%20Color.png"
 /* ======================== Fix Mis Hijos: persistencia tab ======================== */
 const MIS_HIJOS_LAST_TAB_KEY = "mis_hijos_last_tab"
 const MIS_HIJOS_LAST_ALUMNO_KEY = "mis_hijos_last_alumno"
-const VALID_TABS = new Set(["notas", "sanciones", "asistencias"])
+const VALID_TABS = new Set(["notas", "sanciones", "asistencias", "documentacion"])
 
 function handleSectionTabKeyDown(event) {
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
@@ -2962,7 +2964,7 @@ function AlumnoPerfilPageInner() {
           <>
             {/* ===== Tarjetas resumen ===== */}
         <div
-          className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4"
+          className={`grid min-w-0 grid-cols-2 gap-2 sm:gap-4 ${alumnoDetail?.es_ppi ? "lg:grid-cols-4" : "sm:grid-cols-3"}`}
           role="tablist"
           aria-label="Secciones de la ficha del alumno"
         >
@@ -3030,7 +3032,7 @@ function AlumnoPerfilPageInner() {
             onClick={() => setActiveSection("asistencias")}
             onKeyDown={handleSectionTabKeyDown}
             className={[
-              "col-span-2 rounded-2xl border-0 bg-white text-left shadow-sm cursor-pointer transition-all sm:col-span-1",
+              `${alumnoDetail?.es_ppi ? "" : "col-span-2"} rounded-2xl border-0 bg-white text-left shadow-sm cursor-pointer transition-all sm:col-span-1`,
               activeSection === "asistencias"
                 ? "ring-2 ring-emerald-500 bg-emerald-50"
                 : "hover:bg-emerald-50/70",
@@ -3049,6 +3051,20 @@ function AlumnoPerfilPageInner() {
               </div>
             </CardContent>
           </button>
+          {alumnoDetail?.es_ppi === true && <button
+            type="button" id="alumno-tab-documentacion" role="tab"
+            aria-selected={activeSection === "documentacion"} aria-controls="alumno-panel-documentacion"
+            tabIndex={activeSection === "documentacion" ? 0 : -1}
+            onClick={() => setActiveSection("documentacion")} onKeyDown={handleSectionTabKeyDown}
+            className={`rounded-2xl border-0 bg-white text-left shadow-sm transition-all ${activeSection === "documentacion" ? "ring-2 ring-violet-500 bg-violet-50" : "hover:bg-violet-50/70"}`}
+          >
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:gap-3 sm:text-left">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 sm:h-10 sm:w-10"><FileText className="h-4 w-4 text-violet-700 sm:h-5 sm:w-5" /></div>
+                <div className="text-xs font-semibold text-gray-900 sm:text-xl">Documentación</div>
+              </div>
+            </CardContent>
+          </button>}
         </div>
 
         {!loading && !error && !activeSection && (
@@ -3072,6 +3088,11 @@ function AlumnoPerfilPageInner() {
           </div>
         ) : (
           <>
+            {activeSection === "documentacion" && alumnoDetail?.es_ppi === true && (
+              <Card id="alumno-panel-documentacion" role="tabpanel" aria-labelledby="alumno-tab-documentacion" tabIndex={0}>
+                <CardContent className="p-4 sm:p-6"><PpiDocuments key={`${alumnoPageScopeKey}:${pk}`} alumnoId={pk} /></CardContent>
+              </Card>
+            )}
             {/* ===== Sección: Notas ===== */}
             {activeSection === "notas" && (
               <Card

@@ -113,7 +113,10 @@ from .api_schools import (
     public_school_directory,
 )
 from .api_backups import admin_manual_platform_backup
+from .api_ppi_documents import ppi_documents, ppi_document_download
 from .api_admin_staff import (
+    admin_students,
+    admin_student_update,
     admin_parent_children_update,
     admin_profesor_materias_overview,
     admin_profesor_materias_update,
@@ -257,6 +260,14 @@ urlpatterns = [
     path("admin/school-courses/course/<int:course_id>", admin_update_school_course, name="admin_update_school_course_noslash"),
     path("admin/school-courses/course/<int:course_id>/delete/", admin_delete_school_course, name="admin_delete_school_course"),
     path("admin/school-courses/course/<int:course_id>/delete", admin_delete_school_course, name="admin_delete_school_course_noslash"),
+    path("alumnos/<int:alumno_id>/ppi-documentos", ppi_documents, name="ppi_documents"),
+    path("alumnos/<int:alumno_id>/ppi-documentos/", ppi_documents),
+    path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/archivo", ppi_document_download, name="ppi_document_download"),
+    path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/archivo/", ppi_document_download),
+    path("admin/students/", admin_students, name="admin_students"),
+    path("admin/students", admin_students, name="admin_students_noslash"),
+    path("admin/students/<int:student_id>/", admin_student_update, name="admin_student_update"),
+    path("admin/students/<int:student_id>", admin_student_update, name="admin_student_update_noslash"),
     path("admin/staff/", admin_staff_overview, name="admin_staff_overview"),
     path("admin/staff", admin_staff_overview, name="admin_staff_overview_noslash"),
     path("admin/school-users/", admin_school_user_directory, name="admin_school_user_directory"),

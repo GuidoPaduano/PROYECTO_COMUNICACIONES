@@ -2,6 +2,7 @@
 "use client"
 
 import Link from "next/link"
+import StudentPpiBadge from "@/components/student-ppi-badge"
 import { useRouter, useSearchParams } from "next/navigation"
 import { use, useCallback, useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch, useSessionContext } from "../../../_lib/auth"
@@ -214,7 +215,7 @@ export default function CursoAlumnosPage({ params }) {
   }, [catalogLoaded, cursoCanonico, cursoParam, router, searchParams])
 
   useEffect(() => {
-    loadAlumnos()
+    loadAlumnos({ force: true })
   }, [loadAlumnos])
 
   const alumnosFiltrados = useMemo(() => {
@@ -287,8 +288,9 @@ export default function CursoAlumnosPage({ params }) {
                 return (
                   <li key={`${alumnoId}`}>
                     <Link href={link} className="block">
-                      <div className="tile-card">
-                        <div className="tile-card-content">
+                      <div className="tile-card relative">
+                        <StudentPpiBadge active={a.es_ppi === true} />
+                        <div className={`tile-card-content ${a.es_ppi === true ? "pr-20" : ""}`}>
                           <div className="tile-icon-lg">
                             <UserIcon className="h-5 w-5" />
                           </div>

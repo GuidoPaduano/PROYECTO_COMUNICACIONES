@@ -9,6 +9,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from ..user_groups import expand_role_permissions
 from ..constants import MATERIAS
 from ..contexto import resolve_alumno_for_user
 from ..course_access import (
@@ -65,7 +66,7 @@ def mi_curso(request):
     active_school = get_request_school(request)
     preview_role = _get_preview_role(request)
     from ..user_groups import get_user_group_names
-    grupos = [preview_role] if (preview_role and user.is_superuser) else list(get_user_group_names(user))
+    grupos = list(expand_role_permissions([preview_role])) if (preview_role and user.is_superuser) else list(get_user_group_names(user))
 
     curso = None
     school_course = None
@@ -323,6 +324,7 @@ def _build_alumnos_payload(qs, *, school=None, course_code="", school_course=Non
             "id": a.id,
             "id_alumno": getattr(a, "id_alumno", None),
             "nombre": a.nombre,
+            "es_ppi": a.es_ppi,
             "apellido": getattr(a, "apellido", "") if _has_model_field(Alumno, "apellido") else "",
             "school_course_id": getattr(a, "school_course_id", None),
             "school_course_name": getattr(getattr(a, "school_course", None), "name", None) or getattr(getattr(a, "school_course", None), "code", None) or a.curso,

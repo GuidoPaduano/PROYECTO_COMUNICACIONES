@@ -241,15 +241,8 @@ def _cursos_profesor_asignados_refs(user, school=None):
 
 
 def _has_group(user, *names):
-    try:
-        # Usa el prefetch cache si está disponible (evita query extra por llamada).
-        cache = getattr(user, "_prefetched_objects_cache", {})
-        if "groups" in cache:
-            name_set = set(names)
-            return any(g.name in name_set for g in cache["groups"])
-        return user.groups.filter(name__in=list(names)).exists()
-    except Exception:
-        return False
+    from ..user_groups import user_in_groups
+    return user_in_groups(user, *names)
 
 
 def _is_profesor_user(user) -> bool:

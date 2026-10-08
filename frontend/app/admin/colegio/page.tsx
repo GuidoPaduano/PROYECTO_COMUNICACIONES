@@ -27,6 +27,20 @@ export default function AdminColegioPage() {
           external: false,
         },
         {
+          title: "Asignación a integración",
+          description: "Asigna cursos a las maestras de integración.",
+          href: "/admin/colegio/asignacion-integracion",
+          icon: <FolderCog className="h-6 w-6" />,
+          external: false,
+        },
+        {
+          title: "Asignación a EOE",
+          description: "Asigna integrantes de EOE a cursos del colegio activo.",
+          href: "/admin/colegio/asignacion-eoe",
+          icon: <FolderCog className="h-6 w-6" />,
+          external: false,
+        },
+        {
           title: "Asignacion a profesores",
           description: "Asigna profesores a cursos del colegio activo desde una herramienta propia de la plataforma.",
           href: "/admin/colegio/asignacion-profesores",

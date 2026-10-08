@@ -2,6 +2,7 @@
 "use client"
 
 import Link from "next/link"
+import StudentPpiBadge from "@/components/student-ppi-badge"
 import { useRouter, useSearchParams } from "next/navigation"
 import { use, useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch, getSessionProfile, useSessionContext } from "../../_lib/auth"
@@ -247,7 +248,8 @@ export default function CursoDetallePage({ params }) {
             throw new Error(j?.detail || `Error ${res.status}`)
           }
           return Array.isArray(j?.alumnos) ? j.alumnos : []
-        }
+        },
+        { force: true }
       )
       setAlumnos(data)
     } catch (e) {
@@ -313,7 +315,8 @@ export default function CursoDetallePage({ params }) {
               : null
             return href ? (
               <Link key={key} href={href} className="block">
-                <Card className="surface-card hover:shadow-md transition-shadow">
+                <Card className="surface-card relative hover:shadow-md transition-shadow">
+                  <StudentPpiBadge active={a.es_ppi === true} />
                   <CardContent className="surface-card-pad">
                     <div className="flex items-start gap-3">
                       <div
@@ -325,7 +328,7 @@ export default function CursoDetallePage({ params }) {
                       >
                         {getInitials(`${a?.nombre || ""} ${a?.apellido || ""}`)}
                       </div>
-                      <div className="flex-1">
+                      <div className={`min-w-0 flex-1 ${a.es_ppi === true ? "pr-12" : ""}`}>
                         <h2 className="font-semibold text-gray-900">
                           {[a?.apellido, a?.nombre].filter(Boolean).join(", ") || "Alumno"}
                         </h2>
@@ -338,7 +341,8 @@ export default function CursoDetallePage({ params }) {
                 </Card>
               </Link>
             ) : (
-              <Card key={`nolink-${a?.nombre}-${Math.random()}`} className="surface-card">
+              <Card key={`nolink-${a?.nombre}-${Math.random()}`} className="surface-card relative">
+                <StudentPpiBadge active={a.es_ppi === true} />
                 <CardContent className="surface-card-pad">
                   <div className="flex items-start gap-3">
                     <div
@@ -350,7 +354,7 @@ export default function CursoDetallePage({ params }) {
                     >
                       {getInitials(`${a?.nombre || ""} ${a?.apellido || ""}`)}
                     </div>
-                    <div className="flex-1">
+                    <div className={`min-w-0 flex-1 ${a.es_ppi === true ? "pr-12" : ""}`}>
                       <h2 className="font-semibold text-gray-900">
                         {[a?.apellido, a?.nombre].filter(Boolean).join(", ") || "Alumno"}
                       </h2>

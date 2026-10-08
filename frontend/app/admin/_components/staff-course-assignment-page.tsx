@@ -23,11 +23,11 @@ function courseLabel(course) {
 }
 
 function roleLabel(role) {
-  return role === "Preceptores" ? "preceptores" : "profesores"
+  return role === "Integracion" ? "integración" : role === "EOE" ? "EOE" : role === "Preceptores" ? "preceptores" : "profesores"
 }
 
 function singularRoleLabel(role) {
-  return role === "Preceptores" ? "preceptor" : "profesor"
+  return role === "Integracion" ? "integración" : role === "EOE" ? "EOE" : role === "Preceptores" ? "preceptor" : "profesor"
 }
 
 export default function StaffCourseAssignmentPage({

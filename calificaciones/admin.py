@@ -132,8 +132,8 @@ class SchoolCourseAdmin(admin.ModelAdmin):
 # ─────────────────────────────────────────────────────────────
 @admin.register(Alumno)
 class AlumnoAdmin(admin.ModelAdmin):
-    list_display = ("school", "school_course", "curso", "apellido", "nombre", "id_alumno", "padre")
-    list_filter = ("school", "school_course")
+    list_display = ("school", "school_course", "curso", "apellido", "nombre", "id_alumno", "es_ppi", "padre")
+    list_filter = ("school", "school_course", "es_ppi")
     search_fields = ("nombre", "apellido", "id_alumno", "school__name", "school_course__code", "school_course__name")
     ordering = ("school__name", "school_course__sort_order", "school_course__code", "apellido", "nombre")
     list_select_related = ("school", "school_course", "padre")
@@ -277,7 +277,7 @@ class PreceptorCursoAdmin(admin.ModelAdmin):
             def __init__(self, *args, **inner_kwargs):
                 super().__init__(*args, **inner_kwargs)
                 self.fields["preceptor"].queryset = User.objects.filter(
-                    groups__name__in=["Preceptores", "Preceptor"]
+                    groups__name__in=["Preceptores", "Preceptor", "EOE", "Integracion"]
                 ).distinct()
 
         kwargs["form"] = _PreceptorCursoForm
@@ -286,7 +286,7 @@ class PreceptorCursoAdmin(admin.ModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "preceptor":
             kwargs["queryset"] = User.objects.filter(
-                groups__name__in=["Preceptores", "Preceptor"]
+                groups__name__in=["Preceptores", "Preceptor", "EOE", "Integracion"]
             ).distinct()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 

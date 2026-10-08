@@ -50,7 +50,7 @@ const ComposeComunicadoFamilia = dynamic(() => import("../mensajes/_compose-comu
   loading: () => null,
 })
 
-const ROLES = ["Profesores", "Alumnos", "Padres", "Preceptores", "Directivos"]
+const ROLES = ["Integracion", "EOE", "Profesores", "Alumnos", "Padres", "Preceptores", "Directivos"]
 const PREVIEW_KEY = "preview_role"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 const LAST_HIJO_KEY = "mis_hijos_last_alumno"
@@ -839,7 +839,7 @@ setMensajeSan("")
   const showProfesor = showAll || effectiveGroups.includes("Profesores")
   const showAlumno = showAll || effectiveGroups.includes("Alumnos")
   const showPadre = showAll || effectiveGroups.includes("Padres")
-  const showPreceptor = showAll || effectiveGroups.includes("Preceptores")
+  const showPreceptor = showAll || effectiveGroups.includes("Preceptores") || effectiveGroups.includes("EOE") || effectiveGroups.includes("Integracion")
   const showDirectivo = showAll || effectiveGroups.includes("Directivos")
   const showDocenteCursos = showProfesor || showPreceptor || showDirectivo
   const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor && !showDirectivo

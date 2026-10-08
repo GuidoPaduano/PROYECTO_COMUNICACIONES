@@ -10,7 +10,7 @@ from ..course_access import (
 )
 from ..models import Evento, Notificacion, SchoolCourse, resolve_school_course_for_value
 from ..schools import scope_queryset_to_school
-from ..user_groups import get_user_group_names
+from ..user_groups import get_user_group_names, expand_role_permissions
 from ..utils_cursos import get_course_label, get_school_course_choices, is_curso_valido
 
 # Intentamos importar Alumno para validar cursos y, si se puede, detectar curso del alumno
@@ -45,9 +45,9 @@ def _effective_groups(request):
     except Exception:
         role = ""
 
-    valid = {"Profesores", "Preceptores", "Padres", "Alumnos", "Directivos"}
+    valid = {"EOE", "Integracion", "Profesores", "Preceptores", "Padres", "Alumnos", "Directivos"}
     if role in valid and getattr(request.user, "is_superuser", False):
-        request._effective_groups_cache = [role]
+        request._effective_groups_cache = list(expand_role_permissions([role]))
         request._effective_groups_resolved = True
         return request._effective_groups_cache
 

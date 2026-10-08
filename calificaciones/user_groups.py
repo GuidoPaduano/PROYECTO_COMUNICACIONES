@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 
+def expand_role_permissions(names):
+    """EOE and Integracion share Preceptor capabilities while keeping its own stored group."""
+    names = tuple(names)
+    if set(names).intersection({"EOE", "Integracion"}) and "Preceptores" not in names:
+        return (*names, "Preceptores")
+    return names
+
+
 def get_user_group_names(user) -> tuple[str, ...]:
     try:
         if user is None or not getattr(user, "is_authenticated", False):
@@ -37,6 +45,7 @@ def get_user_group_names(user) -> tuple[str, ...]:
         except Exception:
             names = ()
 
+    names = expand_role_permissions(names)
     try:
         setattr(user, "_cached_group_names", names)
     except Exception:

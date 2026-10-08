@@ -2,6 +2,7 @@
 "use client"
 
 import Link from "next/link"
+import StudentEditor from "./student-editor"
 import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft, GraduationCap, Pencil, RefreshCw, Search, ShieldCheck, UserX, Users } from "lucide-react"
 
@@ -17,6 +18,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 const DIRECTORY_SECTIONS = {
   profesores: "profesores",
   preceptores: "preceptores",
+  eoe: "eoe",
+  integracion: "integracion",
   directivos: "directivos",
   padres: "padres",
   alumnos: "alumnos",
@@ -200,7 +203,7 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
   )
 }
 
-function StudentsSection({ course, onToggleActive }) {
+function StudentsSection({ course, onToggleActive, onSelectStudent }) {
   if (!course) return null
 
   return (
@@ -214,7 +217,7 @@ function StudentsSection({ course, onToggleActive }) {
             <div key={student.id} className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm${student.linked_user?.is_active === false ? " opacity-60 bg-slate-50" : ""}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{student.full_name || "-"}</p>
+                  <button type="button" onClick={() => onSelectStudent(student)} className="text-left text-sm font-semibold text-blue-700 underline decoration-blue-200 underline-offset-4 hover:decoration-blue-700 focus-visible:outline focus-visible:outline-2">{student.full_name || student.id_alumno}</button>
                   <p className="mt-1 text-xs text-slate-500">Legajo {student.id_alumno}</p>
                 </div>
                 {student.linked_user && (
@@ -267,7 +270,7 @@ function StudentsSection({ course, onToggleActive }) {
               {course.students.map((student) => (
                 <TableRow key={student.id} className={student.linked_user?.is_active === false ? "opacity-60 bg-slate-50" : ""}>
                   <TableCell className="font-medium text-slate-900">{student.id_alumno}</TableCell>
-                  <TableCell>{student.full_name || "-"}</TableCell>
+                  <TableCell><button type="button" onClick={() => onSelectStudent(student)} className="text-left font-medium text-blue-700 underline decoration-blue-200 underline-offset-4 hover:decoration-blue-700 focus-visible:outline focus-visible:outline-2">{student.full_name || student.id_alumno}</button></TableCell>
                   <TableCell>
                     {student.linked_user?.username ? (
                       <span className="text-sm text-slate-700">{student.linked_user.username}<ActiveBadge isActive={student.linked_user.is_active !== false} /></span>
@@ -606,6 +609,7 @@ export default function SchoolUserDirectoryPage() {
   const [query, setQuery] = useState("")
   const [activeSection, setActiveSection] = useState(DIRECTORY_SECTIONS.alumnos)
   const [selectedCourseKey, setSelectedCourseKey] = useState("")
+  const [editingStudent, setEditingStudent] = useState(null)
   const [editingUser, setEditingUser] = useState(null)
   const [editForm, setEditForm] = useState({ first_name: "", last_name: "", email: "" })
   const [editSaving, setEditSaving] = useState(false)
@@ -642,6 +646,16 @@ export default function SchoolUserDirectoryPage() {
 
   const preceptores = useMemo(() => {
     const rows = Array.isArray(payload?.preceptores) ? payload.preceptores : []
+    return rows.filter((row) => matchQuery([row.username, row.full_name, row.email], query))
+  }, [payload, query])
+
+  const eoe = useMemo(() => {
+    const rows = Array.isArray(payload?.eoe) ? payload.eoe : []
+    return rows.filter((row) => matchQuery([row.username, row.full_name, row.email], query))
+  }, [payload, query])
+
+  const integracion = useMemo(() => {
+    const rows = Array.isArray(payload?.integracion) ? payload.integracion : []
     return rows.filter((row) => matchQuery([row.username, row.full_name, row.email], query))
   }, [payload, query])
 
@@ -859,6 +873,22 @@ export default function SchoolUserDirectoryPage() {
           onClick={() => setActiveSection(DIRECTORY_SECTIONS.preceptores)}
         />
         <SummaryCard
+          title="EOE"
+          value={payload?.totals?.eoe ?? 0}
+          icon={<ShieldCheck className="h-5 w-5" />}
+          interactive
+          active={activeSection === DIRECTORY_SECTIONS.eoe}
+          onClick={() => setActiveSection(DIRECTORY_SECTIONS.eoe)}
+        />
+        <SummaryCard
+          title="Integración"
+          value={payload?.totals?.integracion ?? 0}
+          icon={<ShieldCheck className="h-5 w-5" />}
+          interactive
+          active={activeSection === DIRECTORY_SECTIONS.integracion}
+          onClick={() => setActiveSection(DIRECTORY_SECTIONS.integracion)}
+        />
+        <SummaryCard
           title="Directivos"
           value={payload?.totals?.directivos ?? 0}
           icon={<ShieldCheck className="h-5 w-5" />}
@@ -904,6 +934,26 @@ export default function SchoolUserDirectoryPage() {
         />
       ) : null}
 
+      {activeSection === DIRECTORY_SECTIONS.eoe ? (
+        <StaffSection
+          title="EOE"
+          rows={eoe}
+          emptyLabel="No hay eoe asignados en el colegio activo."
+          onEdit={openEditDialog}
+          onToggleActive={handleToggleActive}
+        />
+      ) : null}
+
+      {activeSection === DIRECTORY_SECTIONS.integracion ? (
+        <StaffSection
+          title="Integración"
+          rows={integracion}
+          emptyLabel="No hay integracion asignados en el colegio activo."
+          onEdit={openEditDialog}
+          onToggleActive={handleToggleActive}
+        />
+      ) : null}
+
       {activeSection === DIRECTORY_SECTIONS.directivos ? (
         <StaffSection
           title="Directivos"
@@ -938,7 +988,7 @@ export default function SchoolUserDirectoryPage() {
               <div>
                 <CardTitle>Alumnos por curso</CardTitle>
                 <CardDescription>
-                  {payload?.school?.name || "Colegio activo"}
+                  {payload?.school?.name || "Colegio activo"} · Hacé clic en el nombre de un alumno para ver y editar sus datos.
                 </CardDescription>
               </div>
               {alumnosPorCurso.length ? (
@@ -966,7 +1016,7 @@ export default function SchoolUserDirectoryPage() {
           <CardContent className="space-y-4 pt-0">
             {alumnosPorCurso.length ? (
               <>
-                <StudentsSection course={selectedCourse} onToggleActive={handleToggleActive} />
+                <StudentsSection course={selectedCourse} onToggleActive={handleToggleActive} onSelectStudent={(student) => setEditingStudent({ id: student.id, schoolId: String(payload.school.id) })} />
               </>
             ) : (
               <div className="rounded-lg border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
@@ -976,6 +1026,20 @@ export default function SchoolUserDirectoryPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      {editingStudent && String(payload?.school?.id) === editingStudent.schoolId && (
+        <StudentEditor
+          key={`${editingStudent.schoolId}:${editingStudent.id}`}
+          schoolId={editingStudent.schoolId}
+          studentId={editingStudent.id}
+          onClose={() => setEditingStudent(null)}
+          onSaved={() => {
+            setEditingStudent(null)
+            setEditSuccess("Alumno actualizado correctamente.")
+            loadData()
+          }}
+        />
+      )}
 
       <Dialog open={!!editingUser} onOpenChange={(open) => (!open ? closeEditDialog() : null)}>
         <DialogContent>

@@ -27,6 +27,11 @@ class Alumno(models.Model):
     school_course = models.ForeignKey(SchoolCourse, on_delete=models.PROTECT, related_name="alumnos")
     curso = models.CharField(max_length=20, choices=CURSOS, db_index=True)
     nivel = models.CharField(max_length=20, choices=NIVEL_CHOICES, default='secundaria', db_index=True)
+    es_ppi = models.BooleanField(
+        default=False,
+        verbose_name="PPI",
+        help_text="El estudiante tiene acompañamiento psicopedagógico.",
+    )
     padre = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="alumnos_como_padre")
     usuario = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="perfil_alumno")
 

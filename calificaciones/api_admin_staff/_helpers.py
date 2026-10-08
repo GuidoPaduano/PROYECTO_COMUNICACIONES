@@ -20,8 +20,8 @@ from ..schools import (
 
 User = get_user_model()
 
-STAFF_ROLE_NAMES = ("Profesores", "Preceptores", "Directivos")
-USER_ROLE_NAMES = ("Alumnos", "Padres", "Profesores", "Preceptores", "Directivos", "Administradores")
+STAFF_ROLE_NAMES = ("Profesores", "EOE", "Integracion", "Preceptores", "Directivos")
+USER_ROLE_NAMES = ("Alumnos", "Padres", "Profesores", "EOE", "Integracion", "Preceptores", "Directivos", "Administradores")
 
 
 def _is_school_admin(user) -> bool:
@@ -164,7 +164,7 @@ def _serialize_staff_user(*, user, school, preceptor_map, profesor_map, membersh
         assigned_courses = preceptor_courses
 
     groups = _get_user_group_names(user)
-    staff_role = assignment_role or next((name for name in STAFF_ROLE_NAMES if name in groups), "")
+    staff_role = ("Integracion" if "Integracion" in groups else "EOE" if "EOE" in groups else assignment_role) or next((name for name in STAFF_ROLE_NAMES if name in groups), "")
 
     is_active = (
         membership_active.get(user.id, bool(getattr(user, "is_active", True)))
@@ -344,8 +344,19 @@ def _build_user_directory_payload(*, school) -> dict:
     )
     preceptores = list(
         User.objects.filter(id__in=preceptor_map.keys())
+        .exclude(groups__name__in=["EOE", "Integracion"])
         .exclude(is_superuser=True)
         .order_by("first_name", "last_name", "username", "id")
+    )
+    eoe = list(
+        User.objects.filter(groups__name="EOE")
+        .filter(Q(id__in=preceptor_map.keys()) | Q(school_memberships__school=school))
+        .exclude(is_superuser=True).distinct().order_by("first_name", "last_name", "username", "id")
+    )
+    integracion = list(
+        User.objects.filter(groups__name="Integracion")
+        .filter(Q(id__in=preceptor_map.keys()) | Q(school_memberships__school=school))
+        .exclude(is_superuser=True).distinct().order_by("first_name", "last_name", "username", "id")
     )
     directivos = list(
         User.objects.filter(groups__name="Directivos", school_memberships__school=school)
@@ -402,6 +413,14 @@ def _build_user_directory_payload(*, school) -> dict:
             _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []), membership_active=membership_active)
             for user in preceptores
         ],
+        "eoe": [
+            _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []), membership_active=membership_active)
+            for user in eoe
+        ],
+        "integracion": [
+            _serialize_directory_user(user=user, assigned_courses=preceptor_map.get(user.id, []), membership_active=membership_active)
+            for user in integracion
+        ],
         "directivos": [
             _serialize_directory_user(user=user, assigned_courses=[], membership_active=membership_active)
             for user in directivos
@@ -419,6 +438,8 @@ def _build_user_directory_payload(*, school) -> dict:
         "totals": {
             "profesores": len(profesores),
             "preceptores": len(preceptores),
+            "eoe": len(eoe),
+            "integracion": len(integracion),
             "directivos": len(directivos),
             "padres": len(padres),
             "alumnos": len(alumnos),
@@ -436,7 +457,7 @@ def _list_staff_users(*, school, query: str = "") -> list:
     )
 
     directivo_user_ids = list(
-        SchoolMembership.objects.filter(school=school, user__groups__name="Directivos")
+        SchoolMembership.objects.filter(school=school, user__groups__name__in=["Directivos", "EOE", "Integracion"])
         .values_list("user_id", flat=True)
         .distinct()
     )
@@ -554,7 +575,7 @@ def _set_single_course_assignment(*, user, school, course: SchoolCourse, role: s
             profesor=user,
             defaults={"curso": course.code},
         )
-    elif role == "Preceptores":
+    elif role in {"Preceptores", "EOE", "Integracion"}:
         ProfesorCurso.objects.filter(profesor=user, school=school).delete()
         PreceptorCurso.objects.get_or_create(
             school=school,
@@ -568,7 +589,7 @@ def _set_single_course_assignment(*, user, school, course: SchoolCourse, role: s
 def _remove_single_course_assignment(*, user, school, course: SchoolCourse, role: str):
     if role == "Profesores":
         ProfesorCurso.objects.filter(profesor=user, school=school, school_course=course).delete()
-    elif role == "Preceptores":
+    elif role in {"Preceptores", "EOE", "Integracion"}:
         PreceptorCurso.objects.filter(preceptor=user, school=school, school_course=course).delete()
     invalidate_assignment_cache_for_user(user, school=school)
 
@@ -641,6 +662,8 @@ def _build_user_creation_payload(*, school):
             {"value": "Padres", "label": "Padre, madre o tutor", "description": "Crea un acceso familiar y permite asociarlo a uno o más alumnos."},
             {"value": "Profesores", "label": "Profesor/a", "description": "Alta de docente con asignación opcional a cursos del colegio."},
             {"value": "Preceptores", "label": "Preceptor/a", "description": "Alta de preceptor con asignación opcional a cursos del colegio."},
+            {"value": "Integracion", "label": "Integración", "description": "Personal de integración con cursos asignados y carga de documentación PPI."},
+            {"value": "EOE", "label": "EOE", "description": "Mismos accesos que Preceptor, con asignación opcional a cursos."},
             {"value": "Directivos", "label": "Directivo/a", "description": "Alta de personal institucional sin cursos obligatorios."},
             {"value": "Administradores", "label": "Administrador/a de colegio", "description": "Habilita el acceso al admin del colegio activo."},
         ],

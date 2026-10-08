@@ -9,6 +9,7 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from ..models_preceptores import SchoolAdmin
 from ..contexto import resolve_alumno_for_user
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..models import Alumno, Nota
@@ -30,7 +31,7 @@ from ._cursos import _resolve_alumno_by_pk_or_legajo
 #  API Detalle de Alumno
 # =========================================================
 @csrf_exempt
-@api_view(["GET"])
+@api_view(["GET", "PATCH"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def alumno_detalle(request, alumno_id):
@@ -77,10 +78,30 @@ def alumno_detalle(request, alumno_id):
         or (_has_role(request, "Preceptores") and _preceptor_can_access_alumno(user, a))
     )
 
-    if not (is_padre or is_prof_or_super or is_alumno_mismo or is_preceptor_ok):
+    is_school_admin = (
+        _has_role(request, "Administradores", "Administrador")
+        and SchoolAdmin.objects.filter(admin=user, school=a.school).exists()
+    )
+    can_edit_ppi = bool(user.is_superuser or is_preceptor_ok or is_school_admin)
+
+    if not (is_padre or is_prof_or_super or is_alumno_mismo or is_preceptor_ok or is_school_admin):
         return Response({"detail": "No autorizado"}, status=403)
 
-    return Response(AlumnoFullSerializer(a).data)
+    if request.method == "PATCH":
+        if not can_edit_ppi:
+            return Response({"detail": "No autorizado para modificar PPI."}, status=403)
+        # This endpoint only updates the PPI flag; student identity stays untouched.
+        if set(request.data) != {"es_ppi"} or not isinstance(request.data.get("es_ppi"), bool):
+            return Response({"detail": "Enviá únicamente es_ppi con valor true o false."}, status=400)
+        a.es_ppi = request.data["es_ppi"]
+        a.save(update_fields=["es_ppi"])
+
+    data = dict(AlumnoFullSerializer(a).data)
+    # Keep this flag within the authorized institutional student profile.
+    if can_edit_ppi or is_prof_ok:
+        data["es_ppi"] = a.es_ppi
+        data["can_edit_ppi"] = can_edit_ppi
+    return Response(data)
 
 
 # =========================================================

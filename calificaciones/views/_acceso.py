@@ -25,7 +25,7 @@ from ..schools import (
     get_request_school,
     scope_queryset_to_school,
 )
-from ..user_groups import get_user_group_names
+from ..user_groups import get_user_group_names, expand_role_permissions
 from ..utils_cursos import (
     get_course_label,
     get_school_course_by_id,
@@ -58,7 +58,7 @@ def _get_preview_role(request):
         role = (request.GET.get("view_as") or request.headers.get("X-Preview-Role") or "").strip()
     except Exception:
         role = ""
-    valid = {"Profesores", "Preceptores", "Directivos", "Padres", "Alumnos"}
+    valid = {"EOE", "Integracion", "Profesores", "Preceptores", "Directivos", "Padres", "Alumnos"}
     if role in valid and getattr(request.user, "is_superuser", False):
         return role
     return None
@@ -88,7 +88,7 @@ def _rol_principal(user):
     if getattr(user, "is_superuser", False):
         return "superusuario"
     group_names = set(get_user_group_names(user))
-    for g in ("Administradores", "Directivos", "Profesores", "Padres", "Alumnos", "Preceptores"):
+    for g in ("Administradores", "Directivos", "Profesores", "Padres", "Alumnos", "EOE", "Integracion", "Preceptores"):
         if g in group_names:
             return g
     return "—"
@@ -117,7 +117,7 @@ def _effective_groups(request):
         return cached
     pr = _get_preview_role(request)
     if pr and getattr(request.user, "is_superuser", False):
-        groups = [pr]
+        groups = list(expand_role_permissions([pr]))
         setattr(request, "_cached_effective_groups", groups)
         return groups
     try:

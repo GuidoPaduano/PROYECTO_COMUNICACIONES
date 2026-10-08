@@ -189,7 +189,8 @@ export function AppShell({
   const fallbackUnread = useUnreadMessages()
   const roleSet = useMemo(() => {
     if (!Array.isArray(roles)) return new Set()
-    return new Set(roles.map((role) => String(role || "").toLowerCase()).filter(Boolean))
+    const effectiveRoles = (roles.includes("EOE") || roles.includes("Integracion")) ? [...roles, "Preceptores"] : roles
+    return new Set(effectiveRoles.map((role) => String(role || "").toLowerCase()).filter(Boolean))
   }, [roles])
   const schoolAdminOnlyMode = useMemo(
     () => rolesReady && !isSuper && (roleSet.has("administradores") || roleSet.has("administrador")),
@@ -204,6 +205,8 @@ export function AppShell({
     if (roleSet.has("padres")) return "Padre"
     if (roleSet.has("profesores")) return "Profesor"
     if (roleSet.has("directivos")) return "Directivo"
+    if (roleSet.has("integracion")) return "Integración"
+    if (roleSet.has("eoe")) return "EOE"
     if (roleSet.has("preceptores")) return "Preceptor"
     if (roleSet.has("alumnos")) return "Alumno"
     return isSuper ? "Administrador" : ""
