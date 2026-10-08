@@ -178,6 +178,8 @@ def _message_select_related_fields(fields: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _select_message_related(qs, *fields):
+    from ..message_reminders import with_reply_status
+    qs = with_reply_status(qs)
     ok_fields = _message_select_related_fields(tuple(fields))
     if not ok_fields:
         return qs
@@ -345,6 +347,9 @@ def _serialize_msg(m):
 
     item = {
         "id": m.id,
+        "ultimo_recordatorio_en": m.ultimo_recordatorio_en,
+        "recordatorio_resuelto_en": m.recordatorio_resuelto_en,
+        "recordatorio_respondido": bool(getattr(m, "recordatorio_respondido", False)),
         "asunto": getattr(m, "asunto", "") or "",
         "contenido": getattr(m, "contenido", "") or "",
         "fecha_envio": getattr(m, "fecha_envio", None),

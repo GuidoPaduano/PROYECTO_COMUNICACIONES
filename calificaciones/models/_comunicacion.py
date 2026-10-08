@@ -25,6 +25,8 @@ class Mensaje(models.Model):
     fecha_envio = models.DateTimeField(auto_now_add=True)
     leido = models.BooleanField(default=False)
     leido_en = models.DateTimeField(null=True, blank=True, db_index=True)
+    ultimo_recordatorio_en = models.DateTimeField(null=True, blank=True)
+    recordatorio_resuelto_en = models.DateTimeField(null=True, blank=True)
     client_request_id = models.UUIDField(null=True, blank=True, editable=False)
 
     class Meta:

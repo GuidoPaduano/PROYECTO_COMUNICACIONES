@@ -1,6 +1,8 @@
 // @ts-nocheck
 "use client"
 
+import MessageReminder from "@/components/message-reminder"
+
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -903,7 +905,7 @@ export default function MensajesPage() {
                         messageDialogTriggerRef.current = event.currentTarget
                         abrirMensaje(m)
                       }}
-                      className="flex w-full items-start gap-3 pr-9 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)]"
+                      className={"flex w-full items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)] " + (m.emisor_id === myId ? "pr-16" : "pr-9")}
                       aria-label={`Abrir mensaje: ${collapseRePrefix(m.asunto) || "Sin asunto"}`}
                     >
                       <div className="w-10 h-10 rounded-full school-primary-soft-icon flex items-center justify-center font-semibold flex-shrink-0">
@@ -949,6 +951,7 @@ export default function MensajesPage() {
                         ) : null}
                       </div>
                     </button>
+                    {m.emisor_id === myId && <MessageReminder message={m} className="absolute right-10 top-3 text-slate-500" />}
                     {!(blockDeleteForUnread && esNoLeido(m, myId)) ? (
                       <button
                         type="button"
@@ -1244,9 +1247,11 @@ export default function MensajesPage() {
 
           <div className="h-px bg-gray-200" />
 
-          <div className="px-6 py-5">
+          <div className="relative px-6 py-5">
             <Label className="text-xs text-gray-600">Mensaje</Label>
             <div className="mt-2 rounded-lg border bg-gray-50 p-4 text-gray-900 break-words max-h-[42vh] overflow-auto rich-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(msgSel?.contenido || msgSel?.body || "—") }} />
+
+            {msgSel?.id && msgSel.emisor_id === myId && <MessageReminder key={msgSel.id} message={msgSel} className="absolute right-6 top-4 text-slate-500" />}
 
             {!replyMode && msgSel?.id && (
               <div className="mt-3 text-xs text-gray-500">

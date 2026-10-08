@@ -113,7 +113,8 @@ from .api_schools import (
     public_school_directory,
 )
 from .api_backups import admin_manual_platform_backup
-from .api_ppi_documents import ppi_documents, ppi_document_download
+from .api_ppi_documents import ppi_documents, ppi_document_download, ppi_document_sign, ppi_document_remind, ppi_document_inbox
+from .api_mensajes._reminders import message_reminder
 from .api_admin_staff import (
     admin_students,
     admin_student_update,
@@ -260,6 +261,12 @@ urlpatterns = [
     path("admin/school-courses/course/<int:course_id>", admin_update_school_course, name="admin_update_school_course_noslash"),
     path("admin/school-courses/course/<int:course_id>/delete/", admin_delete_school_course, name="admin_delete_school_course"),
     path("admin/school-courses/course/<int:course_id>/delete", admin_delete_school_course, name="admin_delete_school_course_noslash"),
+    path("ppi-documentos/recibidos", ppi_document_inbox),
+    path("ppi-documentos/recibidos/", ppi_document_inbox),
+    path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/firmar", ppi_document_sign),
+    path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/firmar/", ppi_document_sign),
+    path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/recordar/<int:teacher_id>", ppi_document_remind),
+    path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/recordar/<int:teacher_id>/", ppi_document_remind),
     path("alumnos/<int:alumno_id>/ppi-documentos", ppi_documents, name="ppi_documents"),
     path("alumnos/<int:alumno_id>/ppi-documentos/", ppi_documents),
     path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/archivo", ppi_document_download, name="ppi_document_download"),
@@ -396,6 +403,8 @@ urlpatterns = [
     path("calificaciones/notas/<int:nota_id>", EditarNota.as_view(), name="editar_nota_noslash"),
 
     # ===== Mensajes =====
+    path("mensajes/<int:mensaje_id>/recordatorio", message_reminder, name="message_reminder"),
+    path("mensajes/<int:mensaje_id>/recordatorio/", message_reminder),
     path("mensajes/enviar/", enviar_mensaje, name="api_mensaje_enviar"),
     path("mensajes/enviar", enviar_mensaje, name="api_mensaje_enviar_noslash"),
 

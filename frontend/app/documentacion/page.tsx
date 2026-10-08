@@ -1,6 +1,8 @@
 // @ts-nocheck
 "use client"
 
+import PpiDocumentInbox from "@/components/ppi-document-inbox"
+
 import { useEffect, useState, useMemo } from "react"
 import { FileText, Upload, CheckCircle, Clock, Trash2, Eye, X } from "lucide-react"
 import { useAuthGuard, authFetch, useSessionContext } from "../_lib/auth"
@@ -241,6 +243,8 @@ export default function DocumentacionPage() {
           </Button>
         )}
       </div>
+
+      <PpiDocumentInbox key={`${sessionContext?.username}:${sessionContext?.school?.id}`} />
 
       {/* Lista */}
       {loading && (

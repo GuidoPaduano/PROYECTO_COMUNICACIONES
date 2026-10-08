@@ -1,6 +1,8 @@
 // @ts-nocheck
 "use client"
 
+import MessageReminder from "@/components/message-reminder"
+
 import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useAuthGuard, authFetch, getCachedSessionProfileData, getSessionProfile, useSessionContext } from "../../../_lib/auth"
@@ -370,7 +372,7 @@ export default function HiloMensajesPage() {
                       <div
                         className={
                           (mine ? "" : "bg-gray-100 text-gray-900")
-                          + " max-w-[80%] rounded-2xl px-4 py-2 shadow-sm border "
+                          + " relative max-w-[80%] rounded-2xl px-4 py-2 shadow-sm border "
                           + (isReplyTarget ? (mine ? "border-white/70" : "") : "border-transparent")
                         }
                         style={
@@ -384,12 +386,14 @@ export default function HiloMensajesPage() {
                               : undefined
                         }
                       >
-                        <div className="text-xs opacity-80 mb-1 flex items-center justify-between gap-3">
+                        <div className={"text-xs opacity-80 mb-1 flex items-center justify-between gap-3" + (mine ? " pr-7" : "")}>
                           <span className="truncate">{mine ? "Vos" : (m.emisor || "—")}</span>
                           <span className="truncate">{`Enviado el ${fmtFecha(m.fecha || m.fecha_envio)}`}</span>
                         </div>
                         <div className="font-medium break-words">{collapseRePrefix(m.asunto) || "Sin asunto"}</div>
                         <div className="mt-1 break-words rich-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(m.contenido || m.body || "") }} />
+
+                        {mine && <MessageReminder message={m} className="absolute right-2 top-1 text-white" />}
 
                         {readReceipt ? (
                           <div className={"mt-2 text-[12px] " + (mine ? "text-white/80" : "text-gray-600")}>

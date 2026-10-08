@@ -27,6 +27,10 @@ const nextConfig = {
         source: "/agregar-nota/:path*",
         destination: `${backendOrigin}/agregar-nota/:path*`,
       },
+      {
+        source: "/media/:path*",
+        destination: `${backendOrigin}/media/:path*`,
+      },
     ];
   },
 };
