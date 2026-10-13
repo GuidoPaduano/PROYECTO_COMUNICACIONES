@@ -150,6 +150,12 @@ def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     """
     Permite acceso a preceptor SOLO si el alumno pertenece a un curso asignado a ese preceptor.
     """
+    if "EOE" in get_user_group_names(user):
+        from ..eoe_access import eoe_can_access_school
+        return bool(alumno.es_ppi and eoe_can_access_school(user, alumno.school))
+    if "Integracion" in get_user_group_names(user):
+        from ..integration_access import integration_can_access_student
+        return integration_can_access_student(user, alumno)
     curso_alumno = getattr(alumno, "curso", None)
     if not curso_alumno or PreceptorCurso is None:
         return False
@@ -163,6 +169,8 @@ def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
 
 
 def _preceptor_can_access_curso(user, curso: str = "", school=None, school_course=None) -> bool:
+    if {"EOE", "Integracion"}.intersection(get_user_group_names(user)):
+        return False
     curso = (curso or "").strip()
     if (not curso and school_course is None) or PreceptorCurso is None:
         return False
@@ -289,6 +297,8 @@ def _profesor_assignment_refs(user, school=None):
 
 
 def _preceptor_assignment_refs(user, school=None):
+    if {"EOE", "Integracion"}.intersection(get_user_group_names(user)):
+        return []
     if PreceptorCurso is None:
         return []
     school_id = getattr(school, "id", None) or 0
@@ -444,6 +454,8 @@ def _profesor_assignment_course_options(user, *, school=None):
 
 
 def _preceptor_assignment_course_options(user, *, school=None):
+    if {"EOE", "Integracion"}.intersection(get_user_group_names(user)):
+        return []
     if PreceptorCurso is None:
         return []
     qs = PreceptorCurso.objects.filter(preceptor=user)

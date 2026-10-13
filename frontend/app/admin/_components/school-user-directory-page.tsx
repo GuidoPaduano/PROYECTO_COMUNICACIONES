@@ -101,6 +101,8 @@ function ActiveBadge({ isActive }) {
 }
 
 function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
+  const schoolTeam = title === "EOE" || title === "Integración"
+  const scope = title === "EOE" ? "Todos los alumnos PPI del colegio" : "Asignación individual a alumnos PPI"
   return (
     <Card>
       <CardHeader className="pb-4">
@@ -123,9 +125,9 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
                   <span className="break-all">{row.email || "-"}</span>
                 </div>
                 <div>
-                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cursos</span>
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{schoolTeam ? "Alcance" : "Cursos"}</span>
                   <span className="block">
-                    {Array.isArray(row.assigned_school_courses) && row.assigned_school_courses.length
+                    {schoolTeam ? scope : Array.isArray(row.assigned_school_courses) && row.assigned_school_courses.length
                       ? row.assigned_school_courses.map((course) => course.code || course.name).join(", ")
                       : "-"}
                   </span>
@@ -159,7 +161,7 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
                 <TableHead>Usuario</TableHead>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Cursos</TableHead>
+                <TableHead>{schoolTeam ? "Alcance" : "Cursos"}</TableHead>
                 <TableHead className="text-right">Acción</TableHead>
               </TableRow>
             </TableHeader>
@@ -170,7 +172,7 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
                   <TableCell>{row.full_name || "-"}</TableCell>
                   <TableCell>{row.email || "-"}</TableCell>
                   <TableCell className="text-sm text-slate-600">
-                    {Array.isArray(row.assigned_school_courses) && row.assigned_school_courses.length
+                    {schoolTeam ? scope : Array.isArray(row.assigned_school_courses) && row.assigned_school_courses.length
                       ? row.assigned_school_courses.map((course) => course.code || course.name).join(", ")
                       : "-"}
                   </TableCell>
@@ -938,7 +940,7 @@ export default function SchoolUserDirectoryPage() {
         <StaffSection
           title="EOE"
           rows={eoe}
-          emptyLabel="No hay eoe asignados en el colegio activo."
+          emptyLabel="No hay integrantes de EOE en el colegio activo."
           onEdit={openEditDialog}
           onToggleActive={handleToggleActive}
         />
@@ -948,7 +950,7 @@ export default function SchoolUserDirectoryPage() {
         <StaffSection
           title="Integración"
           rows={integracion}
-          emptyLabel="No hay integracion asignados en el colegio activo."
+          emptyLabel="No hay maestras de integración en el colegio activo."
           onEdit={openEditDialog}
           onToggleActive={handleToggleActive}
         />

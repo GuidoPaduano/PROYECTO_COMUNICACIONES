@@ -304,6 +304,8 @@ def admin_user_create(request):
                 status=400,
             )
 
+    if data["role"] in {"EOE", "Integracion"} and data["school_course_ids"]:
+        return Response({"detail": "EOE e Integración no admiten asignaciones a cursos. Integración se asigna por alumno."}, status=400)
     selected_courses = []
     if data["school_course_ids"]:
         selected_courses = list(
@@ -324,11 +326,11 @@ def admin_user_create(request):
 
         if data["role"] == "Administradores":
             SchoolAdmin.objects.get_or_create(school=active_school, admin=created_user)
-        elif data["role"] == "Directivos":
+        elif data["role"] in {"Directivos", "EOE", "Integracion"}:
             SchoolMembership.objects.get_or_create(school=active_school, user=created_user)
         elif data["role"] == "Profesores":
             _replace_profesor_assignments(user=created_user, school=active_school, courses=selected_courses)
-        elif data["role"] in {"Preceptores", "EOE", "Integracion"}:
+        elif data["role"] in {"Preceptores"}:
             _replace_preceptor_assignments(user=created_user, school=active_school, courses=selected_courses)
         elif data["role"] == "Alumnos" and linked_student is not None:
             linked_student.usuario = created_user
@@ -365,9 +367,9 @@ def admin_staff_update(request, user_id: int):
     role = _normalize_staff_role(payload.get("staff_role") or "")
     course_ids = _normalize_course_ids(payload.get("school_course_ids"))
 
-    if role in {"Profesores", "Preceptores", "EOE", "Integracion"} and not course_ids:
+    if role in {"Profesores", "Preceptores"} and not course_ids:
         return Response({"detail": "Seleccioná al menos un curso para ese rol."}, status=400)
-    if role not in {"Profesores", "Preceptores", "EOE", "Integracion"} and course_ids:
+    if role not in {"Profesores", "Preceptores"} and course_ids:
         return Response({"detail": "Solo profesores y preceptores admiten asignaciones de cursos."}, status=400)
 
     courses = []
@@ -379,14 +381,14 @@ def admin_staff_update(request, user_id: int):
             return Response({"detail": "Uno o más cursos no pertenecen al colegio activo."}, status=400)
 
     with transaction.atomic():
-        if role == "Directivos":
+        if role in {"Directivos", "EOE", "Integracion"}:
             SchoolMembership.objects.get_or_create(school=active_school, user=target)
         else:
             SchoolMembership.objects.filter(school=active_school, user=target).delete()
         _set_staff_role_group(user=target, role=role)
         if role == "Profesores":
             _replace_profesor_assignments(user=target, school=active_school, courses=courses)
-        elif role in {"Preceptores", "EOE", "Integracion"}:
+        elif role in {"Preceptores"}:
             _replace_preceptor_assignments(user=target, school=active_school, courses=courses)
         else:
             ProfesorCurso.objects.filter(profesor=target, school=active_school).delete()
@@ -427,8 +429,8 @@ def admin_staff_course_update(request, course_id: int):
     role = _normalize_staff_role(payload.get("staff_role") or "")
     user_ids = _normalize_user_ids(payload.get("user_ids"))
 
-    if role not in {"Profesores", "Preceptores", "EOE", "Integracion"}:
-        return Response({"detail": "La asignación masiva por curso solo admite profesores, preceptores o EOE."}, status=400)
+    if role not in {"Profesores", "Preceptores"}:
+        return Response({"detail": "La asignación por curso solo admite profesores o preceptores."}, status=400)
 
     users = list(User.objects.filter(id__in=user_ids).exclude(is_superuser=True))
     if len(users) != len(user_ids):

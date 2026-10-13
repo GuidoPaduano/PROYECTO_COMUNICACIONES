@@ -113,7 +113,8 @@ from .api_schools import (
     public_school_directory,
 )
 from .api_backups import admin_manual_platform_backup
-from .api_ppi_documents import ppi_documents, ppi_document_download, ppi_document_sign, ppi_document_remind, ppi_document_inbox
+from .api_integration_assignments import integration_assignment_overview, integration_assignment_update, integration_students
+from .api_ppi_documents import ppi_documents, ppi_document_download, ppi_document_sign, ppi_document_remind, ppi_document_inbox, eoe_students
 from .api_mensajes._reminders import message_reminder
 from .api_admin_staff import (
     admin_students,
@@ -261,6 +262,14 @@ urlpatterns = [
     path("admin/school-courses/course/<int:course_id>", admin_update_school_course, name="admin_update_school_course_noslash"),
     path("admin/school-courses/course/<int:course_id>/delete/", admin_delete_school_course, name="admin_delete_school_course"),
     path("admin/school-courses/course/<int:course_id>/delete", admin_delete_school_course, name="admin_delete_school_course_noslash"),
+    path("admin/integracion/alumnos", integration_assignment_overview),
+    path("admin/integracion/alumnos/", integration_assignment_overview),
+    path("admin/integracion/alumnos/<int:alumno_id>", integration_assignment_update),
+    path("admin/integracion/alumnos/<int:alumno_id>/", integration_assignment_update),
+    path("integracion/alumnos", integration_students),
+    path("integracion/alumnos/", integration_students),
+    path("eoe/alumnos", eoe_students),
+    path("eoe/alumnos/", eoe_students),
     path("ppi-documentos/recibidos", ppi_document_inbox),
     path("ppi-documentos/recibidos/", ppi_document_inbox),
     path("alumnos/<int:alumno_id>/ppi-documentos/<int:document_id>/firmar", ppi_document_sign),

@@ -1,6 +1,7 @@
 // @ts-nocheck
 "use client"
 
+import type { ReactNode } from "react"
 import Link from "next/link"
 import { useDeferredValue, useEffect, useMemo, useState, startTransition } from "react"
 import { ArrowLeft, BookCopy, BriefcaseBusiness, RefreshCcw, Search, ShieldCheck } from "lucide-react"
@@ -34,6 +35,7 @@ export default function StaffCourseAssignmentPage({
   role,
   title,
   description,
+  navigation = null as ReactNode,
   backHref = "/admin/colegio",
   backLabel = "Volver a admin colegio",
 }) {
@@ -304,6 +306,8 @@ export default function StaffCourseAssignmentPage({
           <div>Colegio activo</div>
         </div>
       </div>
+
+      {navigation}
 
       <Card className="min-w-0">
         <CardContent className="flex flex-col gap-3 py-5 lg:flex-row lg:items-end lg:justify-between">

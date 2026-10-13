@@ -1,0 +1,11 @@
+from .models_preceptores import SchoolMembership
+from .user_groups import get_user_group_names
+
+
+def eoe_can_access_school(user, school):
+    return bool(
+        school is not None
+        and getattr(user, 'is_active', False)
+        and 'EOE' in get_user_group_names(user)
+        and SchoolMembership.objects.filter(user=user, school=school, is_active=True).exists()
+    )

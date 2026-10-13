@@ -1,3 +1,4 @@
+from ._integration_assignment import IntegrationStudentAssignment
 from ._ppi_documents import PpiDocument, PpiDocumentReceipt
 from ._validators import validate_calificacion_ext, HEX_COLOR_VALIDATOR
 from ._school import School, SchoolDeletionJob, SchoolCourse, resolve_school_course_for_value
@@ -15,6 +16,7 @@ from ._ciclo_lectivo import CicloLectivo, Matricula
 from ._documentos import Documento, FirmaDocumento
 
 __all__ = [
+    "IntegrationStudentAssignment",
     "PpiDocument",
     "PpiDocumentReceipt",
     "validate_calificacion_ext",

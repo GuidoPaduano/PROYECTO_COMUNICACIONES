@@ -263,3 +263,21 @@ def ppi_document_inbox(request):
         if denied is None:
             visible.append(_document_data(doc, request.user))
     return Response({'documents': visible})
+
+
+@api_view(['GET'])
+@authentication_classes([CookieJWTAuthentication])
+@permission_classes([IsAuthenticated])
+def eoe_students(request):
+    from .eoe_access import eoe_can_access_school
+    school, denied = _school(request)
+    if denied is not None:
+        return denied
+    if not eoe_can_access_school(request.user, school):
+        return Response({'detail': 'No autorizado para el gabinete de este colegio.'}, status=403)
+    students = Alumno.objects.filter(school=school, es_ppi=True).select_related('school_course').order_by('apellido', 'nombre', 'id')
+    return Response({'alumnos': [
+        {'id': a.id, 'nombre': a.nombre, 'apellido': a.apellido, 'legajo': a.id_alumno,
+         'curso': a.school_course.name, 'school_course_id': a.school_course_id}
+        for a in students
+    ]})

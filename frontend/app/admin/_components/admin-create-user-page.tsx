@@ -620,7 +620,7 @@ export default function AdminCreateUserPage({
               </Card>
             ) : null}
 
-            {(["Profesores", "Preceptores", "EOE", "Integracion"].includes(form.role)) ? (
+            {(["Profesores", "Preceptores"].includes(form.role)) ? (
               <Card>
                 <CardHeader>
                   <CardTitle>Asignación inicial a cursos</CardTitle>

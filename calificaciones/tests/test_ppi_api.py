@@ -30,8 +30,8 @@ class StudentPpiTests(TestCase):
     def patch(self, data):
         return self.client.patch(self.url, data, format='json', HTTP_X_SCHOOL=self.school.slug)
 
-    def test_eoe_can_mark_unmark_and_persist_without_changing_level(self):
-        user = self.user('EOE')
+    def test_preceptor_can_mark_unmark_and_persist_without_changing_level(self):
+        user = self.user('Preceptores')
         PreceptorCurso.objects.create(preceptor=user, school=self.school, school_course=self.course, curso='1A')
         self.assertFalse(self.alumno.es_ppi)
         for value in [True, False]:
@@ -45,7 +45,7 @@ class StudentPpiTests(TestCase):
             self.assertTrue(response.json()['can_edit_ppi'])
 
     def test_unassigned_course_and_other_school_are_denied(self):
-        user = self.user('EOE')
+        user = self.user('Preceptores')
         PreceptorCurso.objects.create(preceptor=user, school=self.school, school_course=self.other_course, curso='1B')
         self.assertEqual(self.patch({'es_ppi': True}).status_code, 403)
         response = self.client.patch(self.url, {'es_ppi': True}, format='json', HTTP_X_SCHOOL=self.other_school.slug)
@@ -85,7 +85,7 @@ class StudentPpiTests(TestCase):
         self.assertEqual(self.patch({'es_ppi': True}).status_code, 200)
 
     def test_course_rosters_include_current_ppi_flag(self):
-        user = self.user('EOE')
+        user = self.user('Preceptores')
         PreceptorCurso.objects.create(preceptor=user, school=self.school, school_course=self.course, curso='1A')
         for value in [True, False]:
             self.assertEqual(self.patch({'es_ppi': value}).status_code, 200)

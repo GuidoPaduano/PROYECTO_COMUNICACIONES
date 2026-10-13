@@ -4,7 +4,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
-from calificaciones.models import Alumno, PpiDocument, School, SchoolCourse
+from calificaciones.models import Alumno, PpiDocument, School, SchoolCourse, IntegrationStudentAssignment
 from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolMembership
 
 PDF = b'%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF'
@@ -29,6 +29,9 @@ class PpiDocumentsTests(TestCase):
         if course:
             if role == 'Profesores':
                 ProfesorCurso.objects.create(profesor=user, school=self.school, school_course=course, curso=course.code)
+            elif role == 'Integracion':
+                if course == self.alumno.school_course:
+                    IntegrationStudentAssignment.objects.create(school=self.school, alumno=self.alumno, maestra=user)
             else:
                 PreceptorCurso.objects.create(preceptor=user, school=self.school, school_course=course, curso=course.code)
         self.client.force_authenticate(user)
@@ -58,7 +61,7 @@ class PpiDocumentsTests(TestCase):
         self.assertFalse(self.client.get(self.url, HTTP_X_SCHOOL=self.school.slug).data['can_upload'])
         self.assertEqual(self.client.get(f'{self.url}/{doc.id}/archivo', HTTP_X_SCHOOL=self.school.slug).status_code, 200)
 
-    def test_unassigned_integration_is_denied(self):
+    def test_integration_without_student_assignment_is_denied(self):
         self.login('Integracion', self.other_course)
         self.assertEqual(self.upload().status_code, 403)
         self.assertEqual(self.client.get(self.url, HTTP_X_SCHOOL=self.school.slug).status_code, 403)
@@ -88,11 +91,12 @@ class PpiDocumentsTests(TestCase):
         self.assertEqual(self.client.get(self.url, HTTP_X_SCHOOL=self.school.slug).status_code, 403)
         self.assertEqual(PpiDocument.objects.filter(alumno=self.alumno).count(), 1)
 
-    def test_admin_can_create_integration_user_with_courses(self):
+    def test_admin_can_create_integration_user_without_courses(self):
         admin = get_user_model().objects.create_user(username='admin', is_superuser=True)
         self.client.force_authenticate(admin)
-        response = self.client.post('/api/admin/users/create/', {'username':'integracion_nueva','first_name':'Ana','last_name':'Docente','email':'integ@example.com','password':'Integracion-9955!','password_confirm':'Integracion-9955!','role':'Integracion','school_course_ids':[self.course.id]}, format='json', HTTP_X_SCHOOL=self.school.slug)
+        response = self.client.post('/api/admin/users/create/', {'username':'integracion_nueva','first_name':'Ana','last_name':'Docente','email':'integ@example.com','password':'Integracion-9955!','password_confirm':'Integracion-9955!','role':'Integracion','school_course_ids':[]}, format='json', HTTP_X_SCHOOL=self.school.slug)
         self.assertEqual(response.status_code, 201, response.data)
         user = get_user_model().objects.get(username='integracion_nueva')
         self.assertEqual(list(user.groups.values_list('name',flat=True)), ['Integracion'])
-        self.assertTrue(PreceptorCurso.objects.filter(preceptor=user, school_course=self.course).exists())
+        self.assertFalse(PreceptorCurso.objects.filter(preceptor=user).exists())
+        self.assertTrue(SchoolMembership.objects.filter(user=user, school=self.school).exists())

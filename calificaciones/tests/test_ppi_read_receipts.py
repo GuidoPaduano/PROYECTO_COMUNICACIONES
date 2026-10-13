@@ -28,7 +28,6 @@ class PpiReadReceiptsTests(TestCase):
         self.client = APIClient()
         self.url = f'/api/alumnos/{self.alumno.id}/ppi-documentos'
         self.eoe = self.user('eoe', 'EOE')
-        PreceptorCurso.objects.create(preceptor=self.eoe, school=self.school, school_course=self.course, curso='1A')
         self.teacher = self.user('teacher', 'Profesores')
         self.second = self.user('second', 'Profesores')
         self.outsider = self.user('outsider', 'Profesores')
@@ -193,10 +192,11 @@ class PpiReadReceiptsTests(TestCase):
         self.client.force_authenticate(self.eoe)
         self.assertEqual(self.post(endpoint).status_code, 409)
 
-    def test_eoe_outside_assigned_course_cannot_publish_or_remind(self):
+    def test_eoe_without_active_membership_cannot_publish_or_remind(self):
         doc = self.create_doc()
         unassigned = self.user('unassigned', 'EOE')
         PreceptorCurso.objects.create(preceptor=unassigned, school=self.school, school_course=self.other_course, curso='1B')
+        SchoolMembership.objects.filter(user=unassigned, school=self.school).update(is_active=False)
         self.client.force_authenticate(unassigned)
         self.assertEqual(self.upload().status_code, 403)
         self.assertEqual(self.post(f'{self.url}/{doc.id}/recordar/{self.teacher.id}').status_code, 403)

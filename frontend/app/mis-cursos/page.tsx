@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import EoeStudents from "@/components/eoe-students"
 import { useEffect, useMemo, useState } from "react"
 import { useAuthGuard, authFetch, getSessionProfile, useSessionContext } from "../_lib/auth"
 import {
@@ -24,6 +25,8 @@ function filterCursosValidos(list: any[]) {
 export default function MisCursosPage() {
   useAuthGuard()
   const session = useSessionContext()
+  const isEOE = !!session?.groups?.includes("EOE")
+  const isIntegration = !!session?.groups?.includes("Integracion")
 
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(true)
@@ -37,6 +40,7 @@ export default function MisCursosPage() {
   )
 
   useEffect(() => {
+    if (isEOE || isIntegration) return
     let alive = true
     ;(async () => {
       setLoading(true)
@@ -88,7 +92,9 @@ export default function MisCursosPage() {
     return () => {
       alive = false
     }
-  }, [reloadTick, schoolCacheKey, session])
+  }, [reloadTick, schoolCacheKey, session, isEOE, isIntegration])
+
+  if (isEOE || isIntegration) return <EoeStudents key={`${schoolCacheKey}:${isEOE}`} integration={!isEOE && isIntegration} />
 
   return (
     <div className="space-y-6">

@@ -272,6 +272,7 @@ export function AppShell({
     }
     return NAV_ITEMS.filter((item) => {
       if (!rolesReady) return item.public
+      if ((roleSet.has("eoe") || roleSet.has("integracion")) && item.href === "/pasar_asistencia") return false
       if (!item.show) return true
       return item.show({ roles: roleSet, isSuper })
     })
@@ -363,7 +364,7 @@ export function AppShell({
                   className={cn("sidebar-link", active && "sidebar-link--active")}
                 >
                   <Icon className="w-5 h-5" />
-                  <span>{item.label}</span>
+                  <span>{item.href === "/mis-cursos" && (roleSet.has("eoe") || roleSet.has("integracion")) ? "Alumnos PPI" : item.label}</span>
                   {item.href === "/mensajes" && !adminOnlyMode && messageBadge > 0 ? (
                     <span className="sidebar-pill">{messageBadge > 99 ? "99+" : messageBadge}</span>
                   ) : null}

@@ -253,7 +253,11 @@ function ProtectedShell({ children, pathname }) {
     }
   }, [isPublic, pathname, sessionContext])
 
-  const meta = useMemo(() => resolveMeta(pathname, userLabel), [pathname, userLabel])
+  const meta = useMemo(() => {
+    const result = resolveMeta(pathname, userLabel)
+    if (pathname === "/mis-cursos" && roles.includes("Integracion") && !roles.includes("EOE")) return { ...result, title: "Mis alumnos PPI", subtitle: "Acompañamiento de integración." }
+    return pathname === "/mis-cursos" && roles.includes("EOE") ? { ...result, title: "Alumnos PPI", subtitle: "Acompañamiento del gabinete del colegio." } : result
+  }, [pathname, userLabel, roles])
   const hideHeader = useMemo(
     () => shouldHideHeader(),
     []
