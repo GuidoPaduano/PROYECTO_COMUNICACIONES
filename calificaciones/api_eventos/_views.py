@@ -14,7 +14,8 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
-from ..models import Evento, SchoolCourse
+from ..models import Alumno, Evento, SchoolCourse
+from ..integration_access import integration_can_access_school
 from ..schools import get_request_school, scope_queryset_to_school
 from ..utils_cursos import get_school_course_choices, resolve_course_reference
 
@@ -42,7 +43,7 @@ from ._helpers import (
     _school_course_ids_habilitados_profesor,
     _cursos_habilitados_preceptor,
 )
-from ..course_access import build_course_membership_q_for_refs
+from ..course_access import build_course_membership_q_for_refs, course_ref_matches, get_assignment_course_refs
 
 try:
     from ..models_preceptores import PreceptorCurso  # type: ignore
@@ -63,6 +64,7 @@ def eventos_listar(request):
     - curso=ALL (marcador especial para vista global donde corresponda)
     - desde=YYYY-MM-DD (opcional)
     - hasta=YYYY-MM-DD (opcional)
+    - alumno_id=... (Integración: alumno PPI asignado)
 
     Reglas:
     - Alumnos: intenta usar su curso automáticamente; si no se puede detectar, sólo admite el marcador global ALL.
@@ -103,6 +105,39 @@ def eventos_listar(request):
                 {"detail": "Falta el parámetro 'curso' para alumnos (no se pudo detectar automáticamente)."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+    elif _has_role(request, "Integracion"):
+        if not integration_can_access_school(request.user, active_school):
+            return Response({"detail": "No autorizado para integración en este colegio."}, status=status.HTTP_403_FORBIDDEN)
+        alumnos = Alumno.objects.filter(
+            school=active_school,
+            es_ppi=True,
+            integration_assignments__school=active_school,
+            integration_assignments__maestra=request.user,
+        ).select_related("school_course").distinct()
+        selected_student_id = request.GET.get("alumno_id")
+        if selected_student_id is not None:
+            if not str(selected_student_id).isdecimal():
+                return Response({"detail": "Alumno inválido."}, status=status.HTTP_400_BAD_REQUEST)
+            alumnos = alumnos.filter(pk=int(selected_student_id))
+            if not alumnos.exists():
+                return Response({"detail": "No tenés permiso para ver eventos de este alumno."}, status=status.HTTP_403_FORBIDDEN)
+        course_refs = get_assignment_course_refs(alumnos)
+        if not course_refs:
+            return Response([], status=status.HTTP_200_OK)
+        if (selected_school_course_id is not None or (curso and not _is_all_cursos(curso))) and not course_ref_matches(
+            course_refs,
+            school=active_school,
+            school_course_id=selected_school_course_id,
+            course_code=curso,
+        ):
+            return Response({"detail": "No tenés permiso para ver eventos de este curso."}, status=status.HTTP_403_FORBIDDEN)
+        qs = qs.filter(build_course_membership_q_for_refs(
+            course_refs,
+            school_course_field="school_course",
+            code_field="curso",
+            include_all_markers=True,
+        ))
 
     elif _has_role(request, "Preceptores"):
         # ✅ Preceptores pueden listar todos los cursos si no pasan curso o si piden "ALL"

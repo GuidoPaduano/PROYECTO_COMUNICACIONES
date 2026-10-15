@@ -497,6 +497,7 @@ a, button, [role="button"] { cursor: pointer; }
   background: var(--school-primary);
   border: 1px solid var(--school-primary);
 }
+.app-shell a.btn-school-primary { color: #ffffff; }
 .btn-school-primary:hover {
   background: var(--school-primary-hover, var(--school-primary));
   border-color: var(--school-primary-hover, var(--school-primary));

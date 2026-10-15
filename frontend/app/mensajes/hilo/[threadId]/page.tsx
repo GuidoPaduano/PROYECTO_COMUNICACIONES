@@ -170,6 +170,7 @@ export default function HiloMensajesPage() {
   )
 
   const [me, setMe] = useState(null)
+  const isIntegracion = Array.isArray(me?.groups) && me.groups.includes("Integracion")
   const [mensajes, setMensajes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -227,11 +228,18 @@ export default function HiloMensajesPage() {
         // Elegir por defecto: último que YO recibí
         const recvd = msgs.filter(m => m.receptor_id && myId && m.receptor_id === myId)
         const base = recvd.length ? recvd[recvd.length - 1] : (msgs.length ? msgs[msgs.length - 1] : null)
+        const integrationRole = Array.isArray(who?.groups) && who.groups.includes("Integracion")
+        const allowedReplies = integrationRole
+          ? recvd.filter(m => ["Profesor", "Preceptor"].includes(m.tipo_emisor))
+          : recvd
+        const replyBase = allowedReplies.length
+          ? allowedReplies[allowedReplies.length - 1]
+          : (integrationRole ? null : base)
 
         if (alive) {
           setMensajes(msgs)
-          setReplyToId(base?.id ?? null)
-          setReplyAsunto(base?.asunto ? `Re: ${stripRePrefix(base.asunto)}` : "Re:")
+          setReplyToId(replyBase?.id ?? null)
+          setReplyAsunto(replyBase?.asunto ? `Re: ${stripRePrefix(replyBase.asunto)}` : "Re:")
         }
 
         // Auto-marcado: marca como leídos todos los mensajes recibidos de este hilo.
@@ -365,6 +373,7 @@ export default function HiloMensajesPage() {
                 {mensajes.map((m) => {
                   const mine = m.emisor_id && myId && m.emisor_id === myId
                   const canReplyToThis = m.receptor_id && myId && m.receptor_id === myId
+                    && (!isIntegracion || ["Profesor", "Preceptor"].includes(m.tipo_emisor))
                   const isReplyTarget = m.id === replyToId
                   const readReceipt = getReadReceiptLabel(m, myId)
                   return (
@@ -424,7 +433,7 @@ export default function HiloMensajesPage() {
         </Card>
 
         {/* Responder */}
-        <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm mt-4">
+        {(!isIntegracion || replyToId) && <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm mt-4">
           <CardContent className="p-6 space-y-3">
             <div className="text-sm text-gray-700">
               Estás respondiendo dentro de este hilo. Por defecto se responde al último que recibiste.
@@ -458,7 +467,7 @@ export default function HiloMensajesPage() {
               </Button>
             </div>
           </CardContent>
-        </Card>
+        </Card>}
       </div>
     </div>
   )

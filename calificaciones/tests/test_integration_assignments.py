@@ -10,7 +10,7 @@ from django.db import connection
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-from calificaciones.models import Alumno, IntegrationStudentAssignment, PpiDocument, School, SchoolCourse
+from calificaciones.models import Alumno, Documento, Evento, IntegrationStudentAssignment, PpiDocument, School, SchoolCourse
 from calificaciones.models_preceptores import PreceptorCurso, SchoolMembership
 
 
@@ -73,6 +73,16 @@ class IntegrationAssignmentTests(TestCase):
         self.assertTrue(self.get(url).data['can_upload'])
         other_doc = PpiDocument.objects.create(alumno=self.classmate, titulo='Otro', nombre_archivo='otro.pdf', contenido=b'%PDF-1.4', tamano=8)
         self.assertEqual(self.get(f'/api/alumnos/{self.classmate.pk}/ppi-documentos/{other_doc.pk}/archivo').status_code, 403)
+
+    def test_integration_cannot_access_institutional_documents(self):
+        institutional = Documento.objects.create(school=self.school, titulo='Circular', archivo='documentos/circular.pdf')
+        self.assign([self.teacher.pk])
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.get('/api/documentos/').status_code, 403)
+        self.assertEqual(self.get(f'/api/documentos/{institutional.pk}/').status_code, 404)
+        self.assertEqual(self.get(f'/api/documentos/{institutional.pk}/archivo/').status_code, 404)
+        self.assertEqual(self.client.post(f'/api/documentos/{institutional.pk}/firmar/', HTTP_X_SCHOOL=self.school.slug).status_code, 404)
+        self.assertEqual(self.get(f'/api/alumnos/{self.student.pk}/ppi-documentos').status_code, 200)
 
     def test_unassignment_revokes_access_without_deleting_documents(self):
         self.assign([self.teacher.pk])
@@ -151,3 +161,41 @@ class IntegrationAssignmentTests(TestCase):
     def test_legacy_course_assignment_api_rejects_integration(self):
         response = self.client.patch(f'/api/admin/staff/course/{self.course.pk}/', {'staff_role':'Integracion', 'user_ids':[self.teacher.pk]}, format='json', HTTP_X_SCHOOL=self.school.slug)
         self.assertEqual(response.status_code, 400)
+
+    def test_calendar_follows_assigned_ppi_students_courses(self):
+        second_course = SchoolCourse.objects.create(school=self.school, code='2A', name='2A')
+        second_student = self.student_at('D', self.school, second_course)
+        assigned_event = Evento.objects.create(school=self.school, school_course=self.course, curso='1A', titulo='Acto 1A', fecha='2026-10-20')
+        second_event = Evento.objects.create(school=self.school, school_course=second_course, curso='2A', titulo='Acto 2A', fecha='2026-10-21')
+        Evento.objects.create(school=self.other, school_course=self.other_course, curso='1A', titulo='Otro colegio', fecha='2026-10-20')
+
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.get('/api/eventos/').json(), [])
+
+        IntegrationStudentAssignment.objects.create(school=self.school, alumno=self.student, maestra=self.teacher)
+        response = self.get('/api/eventos/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([event['id'] for event in response.json()], [str(assigned_event.pk)])
+        self.assertEqual(self.get(f'/api/eventos/?school_course_id={second_course.pk}').status_code, 403)
+
+        IntegrationStudentAssignment.objects.create(school=self.school, alumno=second_student, maestra=self.teacher)
+        self.assertEqual(
+            {event['id'] for event in self.get('/api/eventos/').json()},
+            {str(assigned_event.pk), str(second_event.pk)},
+        )
+        self.assertEqual(
+            [event['id'] for event in self.get(f'/api/eventos/?alumno_id={self.student.pk}').json()],
+            [str(assigned_event.pk)],
+        )
+        self.assertEqual(
+            [event['id'] for event in self.get(f'/api/eventos/?alumno_id={second_student.pk}').json()],
+            [str(second_event.pk)],
+        )
+        self.assertEqual(self.get(f'/api/eventos/?alumno_id={self.classmate.pk}').status_code, 403)
+        self.assertEqual(self.get(f'/api/eventos/?alumno_id={self.external.pk}').status_code, 403)
+        self.assertEqual(self.get('/api/eventos/?alumno_id=invalid').status_code, 400)
+
+        self.student.es_ppi = False
+        self.student.save(update_fields=['es_ppi'])
+        self.assertEqual([event['id'] for event in self.get('/api/eventos/').json()], [str(second_event.pk)])
+        self.assertEqual(self.get(f'/api/eventos/?alumno_id={self.student.pk}').status_code, 403)

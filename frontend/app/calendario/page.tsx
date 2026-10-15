@@ -60,6 +60,7 @@ import {
 const LOGO_SRC = "/imagenes/Logo%20Color.png"
 const LAST_CURSO_KEY = "ultimo_curso_seleccionado"
 const LAST_HIJO_KEY = "mis_hijos_last_alumno"
+const LAST_PPI_STUDENT_KEY = "integracion_last_alumno_ppi"
 const fetchCache = new Map()
 const CALENDAR_BOOTSTRAP_RESOURCE_MAX_AGE_MS = 15000
 const CALENDAR_EVENTS_MAX_AGE_MS = 10000
@@ -123,6 +124,20 @@ function getStoredHijo() {
 function setStoredHijo(value) {
   try {
     if (value) localStorage.setItem(LAST_HIJO_KEY, value)
+  } catch {}
+}
+
+function getStoredPpiStudent() {
+  try {
+    return localStorage.getItem(LAST_PPI_STUDENT_KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
+function setStoredPpiStudent(value) {
+  try {
+    if (value) localStorage.setItem(LAST_PPI_STUDENT_KEY, value)
   } catch {}
 }
 
@@ -317,10 +332,11 @@ export default function CalendarioEscolarPage() {
 
   const isAlumno = useMemo(() => grupos.includes("Alumnos"), [grupos])
   const isPadre = useMemo(() => grupos.includes("Padres"), [grupos])
-  const isPreceptor = useMemo(() => grupos.includes("Preceptores"), [grupos])
+  const isIntegracion = useMemo(() => grupos.includes("Integracion"), [grupos])
+  const isPreceptor = useMemo(() => grupos.includes("Preceptores") && !isIntegracion, [grupos, isIntegracion])
   const isProfesor = useMemo(() => grupos.includes("Profesores"), [grupos])
   const isDirectivo = useMemo(() => grupos.includes("Directivos"), [grupos])
-  const canSelectCurso = useMemo(() => isPreceptor || isDirectivo, [isPreceptor, isDirectivo])
+  const canSelectCurso = useMemo(() => !isIntegracion && (isPreceptor || isDirectivo), [isIntegracion, isPreceptor, isDirectivo])
   const canCreateAllCursos = useMemo(
     () => canSelectCurso || isProfesor,
     [canSelectCurso, isProfesor]
@@ -344,6 +360,9 @@ export default function CalendarioEscolarPage() {
   // hijos del padre y seleccionado
   const [hijos, setHijos] = useState([])
   const [selectedKid, setSelectedKid] = useState("")
+  const [ppiStudents, setPpiStudents] = useState([])
+  const [selectedPpiStudent, setSelectedPpiStudent] = useState("")
+  const [ppiStudentsLoaded, setPpiStudentsLoaded] = useState(false)
 
   // cursos del preceptor y seleccionado
   const [preceptorCursos, setPreceptorCursos] = useState([]) // [{id,nombre}]
@@ -432,12 +451,13 @@ export default function CalendarioEscolarPage() {
 
         groups = Array.isArray(meJson.groups) ? meJson.groups : []
         const isProfesorLocal = groups.includes("Profesores")
-        const isPreceptorLocal = groups.includes("Preceptores")
+        const isIntegracionLocal = groups.includes("Integracion")
+        const isPreceptorLocal = groups.includes("Preceptores") && !isIntegracionLocal
         const isDirectivoLocal = groups.includes("Directivos")
         const isSuper = !!meJson.is_superuser
 
         // Debe matchear el backend: Profesores, Preceptores, Directivos o superuser.
-        setPuedeEditar(isProfesorLocal || isPreceptorLocal || isDirectivoLocal || isSuper)
+        setPuedeEditar(!isIntegracionLocal && (isProfesorLocal || isPreceptorLocal || isDirectivoLocal || isSuper))
 
         // Alumno: obtener curso
         try {
@@ -494,6 +514,34 @@ export default function CalendarioEscolarPage() {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (!isIntegracion) return
+    let alive = true
+    setPpiStudentsLoaded(false)
+    ;(async () => {
+      try {
+        const response = await authFetch("/integracion/alumnos/")
+        if (!response.ok) throw new Error("No se pudieron cargar tus alumnos PPI.")
+        const data = await response.json().catch(() => ({}))
+        const students = Array.isArray(data?.alumnos) ? data.alumnos : []
+        if (!alive) return
+        setPpiStudents(students)
+        const ids = students.map((student) => String(student.id))
+        const stored = getStoredPpiStudent()
+        setSelectedPpiStudent(stored && ids.includes(stored) ? stored : ids[0] || "")
+      } catch (err) {
+        if (alive) {
+          setPpiStudents([])
+          setSelectedPpiStudent("")
+          setError(err?.message || "No se pudieron cargar tus alumnos PPI.")
+        }
+      } finally {
+        if (alive) setPpiStudentsLoaded(true)
+      }
+    })()
+    return () => { alive = false }
+  }, [isIntegracion, calendarBootstrapScopeKey])
 
   useEffect(() => {
     if (!isProfesor) return
@@ -656,10 +704,16 @@ export default function CalendarioEscolarPage() {
     refetchEvents()
   }, [isProfesor, selectedProfesorCurso])
 
+  useEffect(() => {
+    if (!isIntegracion || !selectedPpiStudent) return
+    setStoredPpiStudent(selectedPpiStudent)
+    refetchEvents()
+  }, [isIntegracion, selectedPpiStudent])
+
   // si cambia el rol, también refetch
   useEffect(() => {
     refetchEvents()
-  }, [isAlumno, isPadre, isPreceptor, isProfesor, isDirectivo])
+  }, [isAlumno, isPadre, isPreceptor, isIntegracion, isProfesor, isDirectivo])
 
   // ✅ GATING: no crear FullCalendar hasta que el perfil esté cargado (y checks listos)
   const readyToInitCalendar = useMemo(() => {
@@ -669,6 +723,7 @@ export default function CalendarioEscolarPage() {
 
     // si es alumno, esperar a que termine el check de curso (aunque sea vacío)
     if (isAlumno && !alumnoCursoChecked) return false
+    if (isIntegracion && (!ppiStudentsLoaded || (ppiStudents.length > 0 && !selectedPpiStudent))) return false
 
     // si es preceptor, esperar a que termine de cargar cursos
     if (canSelectCurso && !preceptorCursosLoaded) return false
@@ -676,7 +731,7 @@ export default function CalendarioEscolarPage() {
     if (canSelectCurso && selectedCurso && selectedCursoId == null) return false
 
     return true
-  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, canSelectCurso, preceptorCursosLoaded, preceptorCursos.length, selectedCurso, selectedCursoId])
+  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, isIntegracion, ppiStudentsLoaded, ppiStudents.length, selectedPpiStudent, canSelectCurso, preceptorCursosLoaded, preceptorCursos.length, selectedCurso, selectedCursoId])
 
   // ✅ FIX: limpiar tooltips colgados (evita que “aparezcan fantasmas” en otras páginas)
   function cleanupTooltips() {
@@ -738,6 +793,12 @@ export default function CalendarioEscolarPage() {
               return
             }
             url = `/eventos/?${buildEventQueryString({ courseLike: alumnoCursoId, desde, hasta })}`
+          } else if (isIntegracion) {
+            if (!selectedPpiStudent) {
+              success([])
+              return
+            }
+            url = `/eventos/?desde=${desde}&hasta=${hasta}&alumno_id=${encodeURIComponent(selectedPpiStudent)}`
           } else if (canSelectCurso) {
             if (!preceptorCursosLoaded || !selectedCurso || (preceptorCursos.length > 0 && selectedCursoId == null)) {
               success([])
@@ -932,10 +993,12 @@ export default function CalendarioEscolarPage() {
     readyToInitCalendar,
     puedeEditar,
     selectedKid,
+    selectedPpiStudent,
     isAlumno,
     alumnoCurso,
     alumnoCursoId,
     canSelectCurso,
+    isIntegracion,
     selectedCurso,
     selectedCursoId,
   ])
@@ -1203,6 +1266,40 @@ export default function CalendarioEscolarPage() {
                   El calendario mostrará únicamente eventos del curso del alumno seleccionado.
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {isIntegracion && (
+          <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
+            <CardContent className="p-6">
+              {!ppiStudentsLoaded ? (
+                <p className="text-sm text-gray-700">Cargando alumnos PPI…</p>
+              ) : ppiStudents.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                  <div>
+                    <Label className="block text-sm mb-1">Alumno PPI</Label>
+                    <Select value={selectedPpiStudent} onValueChange={setSelectedPpiStudent}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Seleccionar alumno" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ppiStudents.map((student) => (
+                          <SelectItem key={student.id} value={String(student.id)}>
+                            {[student.apellido, student.nombre].filter(Boolean).join(", ")}
+                            {student.curso ? ` — ${student.curso}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="text-sm text-gray-600 md:col-span-2 flex items-center min-h-[40px]">
+                    El calendario mostrará los eventos del curso del alumno seleccionado.
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-700">No tenés alumnos PPI asignados.</p>
+              )}
             </CardContent>
           </Card>
         )}

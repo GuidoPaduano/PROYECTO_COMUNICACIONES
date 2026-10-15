@@ -32,6 +32,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import SuccessMessage from "@/components/ui/success-message"
+import IntegrationPpiDocumentsDashboardCard from "@/components/integration-ppi-documents-dashboard-card"
 
 import {
   Dialog,
@@ -840,6 +841,8 @@ setMensajeSan("")
   const showAlumno = showAll || effectiveGroups.includes("Alumnos")
   const showPadre = showAll || effectiveGroups.includes("Padres")
   const showPreceptor = showAll || effectiveGroups.includes("Preceptores") || effectiveGroups.includes("EOE") || effectiveGroups.includes("Integracion")
+  const showPreceptorAlerts = !effectiveGroups.includes("Integracion") &&
+    (showAll || effectiveGroups.includes("Preceptores") || effectiveGroups.includes("EOE"))
   const showDirectivo = showAll || effectiveGroups.includes("Directivos")
   const showDocenteCursos = showProfesor || showPreceptor || showDirectivo
   const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor && !showDirectivo
@@ -1077,7 +1080,7 @@ setMensajeSan("")
   }, [showPadre, showAlumno, showPreceptor, showDirectivo, showProfesor, previewRole])
 
   useEffect(() => {
-    if (!showPreceptor) return
+    if (!showPreceptorAlerts) return
     let alive = true
     ;(async () => {
       setPreceptorAlertasLoading(true)
@@ -1126,7 +1129,7 @@ setMensajeSan("")
     return () => {
       alive = false
     }
-  }, [showPreceptor, previewRole])
+  }, [showPreceptorAlerts, previewRole])
 
   useEffect(() => {
     if (!isAlumnoOnly) return
@@ -1277,7 +1280,7 @@ setMensajeSan("")
               getCursoNombre={getCursoNombre}
               mensajes={mensajesHome}
               mensajesLoading={mensajesHomeLoading}
-              showAlerts={showPreceptor}
+              showAlerts={showPreceptorAlerts}
               alertas={preceptorAlertas}
               alertasLoading={preceptorAlertasLoading}
               alertasInasistencias={preceptorAlertasInasistencias}
@@ -1303,6 +1306,12 @@ setMensajeSan("")
             />
         ) : null}
       </div>
+
+      {effectiveGroups.includes("Integracion") && (
+        <div className="w-full max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <IntegrationPpiDocumentsDashboardCard />
+        </div>
+      )}
 
       {/* ✅ NUEVO: Selector “Enviar mensajes” */}
       <Dialog open={openSendPicker} onOpenChange={setOpenSendPicker}>

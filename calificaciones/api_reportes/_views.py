@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from ..contexto import resolve_alumno_for_user
 from ..course_access import course_ref_matches
+from ..integration_access import integration_can_access_school
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..models import Alumno, Nota
 from ..schools import get_request_school, scope_queryset_to_school
@@ -50,8 +51,10 @@ def reportes_mis_estadisticas(request):
     active_school = get_request_school(request)
     alumno_param = (request.GET.get("alumno_id") or "").strip()
 
-    if role not in ("Padres", "Alumnos", "Superuser"):
+    if role not in ("Padres", "Alumnos", "Integracion", "Superuser"):
         return Response({"detail": "No autorizado para este reporte."}, status=403)
+    if role == "Integracion" and not integration_can_access_school(user, active_school):
+        return Response({"detail": "No autorizado para integración en este colegio."}, status=403)
 
     cache_key = _mis_estadisticas_cache_key(
         user_id=getattr(user, "id", None),
@@ -62,7 +65,7 @@ def reportes_mis_estadisticas(request):
         cuatrimestre=cuatrimestre,
         materia=materia,
     )
-    cached = cache.get(cache_key)
+    cached = cache.get(cache_key) if role != "Integracion" else None
     if cached is not None:
         return Response(cached)
 
@@ -84,17 +87,23 @@ def reportes_mis_estadisticas(request):
             return Response({"detail": "Alumno no encontrado."}, status=404)
         alumnos = [selected]
 
-    elif role == "Padres":
-        alumnos_qs = (
-            scope_queryset_to_school(
-                Alumno.objects.select_related("school_course"),
-                active_school,
-            )
-            .filter(padre=user)
-            .order_by("curso", "nombre")
+    elif role in ("Padres", "Integracion"):
+        alumnos_qs = scope_queryset_to_school(
+            Alumno.objects.select_related("school_course"), active_school,
         )
+        if role == "Integracion":
+            alumnos_qs = alumnos_qs.filter(
+                es_ppi=True,
+                integration_assignments__school=active_school,
+                integration_assignments__maestra=user,
+            ).distinct()
+        else:
+            alumnos_qs = alumnos_qs.filter(padre=user)
+        alumnos_qs = alumnos_qs.order_by("curso", "nombre")
         alumnos = list(alumnos_qs)
         if not alumnos:
+            if role == "Integracion" and alumno_param:
+                return Response({"detail": "No autorizado para ese alumno."}, status=403)
             payload = {
                 "scope": "mis_estadisticas",
                 "rol": role,
@@ -109,7 +118,8 @@ def reportes_mis_estadisticas(request):
                 "evolucion_mensual_notas": [],
                 "materia_mas_floja": None,
             }
-            cache.set(cache_key, payload, 120)
+            if role != "Integracion":
+                cache.set(cache_key, payload, 120)
             return Response(payload)
 
         if not alumno_param:
@@ -144,7 +154,8 @@ def reportes_mis_estadisticas(request):
         "filtros": {"cuatrimestre": cuatrimestre, "anio": anio, "materia": materia},
         **notas_payload,
     }
-    cache.set(cache_key, payload, 120)
+    if role != "Integracion":
+        cache.set(cache_key, payload, 120)
     return Response(payload)
 
 

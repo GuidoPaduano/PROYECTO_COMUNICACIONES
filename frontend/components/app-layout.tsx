@@ -255,6 +255,7 @@ function ProtectedShell({ children, pathname }) {
 
   const meta = useMemo(() => {
     const result = resolveMeta(pathname, userLabel)
+    if (pathname === "/documentacion" && roles.includes("Integracion")) return { ...result, subtitle: "Documentos de tus alumnos PPI." }
     if (pathname === "/mis-cursos" && roles.includes("Integracion") && !roles.includes("EOE")) return { ...result, title: "Mis alumnos PPI", subtitle: "Acompañamiento de integración." }
     return pathname === "/mis-cursos" && roles.includes("EOE") ? { ...result, title: "Alumnos PPI", subtitle: "Acompañamiento del gabinete del colegio." } : result
   }, [pathname, userLabel, roles])

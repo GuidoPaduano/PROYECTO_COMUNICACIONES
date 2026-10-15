@@ -74,6 +74,8 @@ def _role_label(user) -> str:
         return "Profesores"
     if user_in_groups(user, "Directivos", "Directivo"):
         return "Directivos"
+    if user_in_groups(user, "Integracion"):
+        return "Integracion"
     if user_in_groups(user, "Preceptores", "Preceptor"):
         return "Preceptores"
     return "SinRol"

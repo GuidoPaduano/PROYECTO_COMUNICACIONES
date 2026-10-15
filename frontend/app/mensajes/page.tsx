@@ -265,11 +265,13 @@ export default function MensajesPage() {
   const roleProfile = clientReady ? me : null
   const blockDeleteForUnread = hasAlumnoOrPadreRole(roleProfile)
   const groups = Array.isArray(roleProfile?.groups) ? roleProfile.groups : []
-  const isPreceptor = groups.includes("Preceptores") || groups.includes("Preceptor")
+  const isIntegracion = groups.includes("Integracion")
+  const isPreceptor = !isIntegracion && (groups.includes("Preceptores") || groups.includes("Preceptor"))
   const isProfesor = groups.includes("Profesores") || groups.includes("Profesor")
   const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
   const isPadre = groups.includes("Padres") || groups.includes("Padre")
   const isAlumnoOrPadre = isAlumno || isPadre
+  const canMessageStaff = isAlumnoOrPadre || isIntegracion
   const mensajesScopeKey = useMemo(
     () => `${session?.username || me?.username || "anon"}:${session?.school?.id || "default"}`,
     [me?.username, session?.school?.id, session?.username]
@@ -731,7 +733,7 @@ export default function MensajesPage() {
               ? list.filter((x) => x?.kind === "preceptor")
               : list
           setDestinatariosDoc(filtered.filter((x) => x?.id))
-          if (filtered.length && !destSel) setDestSel(String(filtered[0].id))
+          setDestSel((current) => filtered.some((item) => String(item.id) === current) ? current : String(filtered[0]?.id || ""))
         }
       } catch (e) {
         if (alive) setAlumnoMsgErr(e?.message || "No se pudieron cargar los destinatarios.")
@@ -742,7 +744,7 @@ export default function MensajesPage() {
     return () => {
       alive = false
     }
-  }, [openAlumnoMsg, cursoSugeridoAlumnoId, alumnoDestType, destSel])
+  }, [openAlumnoMsg, cursoSugeridoAlumnoId, alumnoDestType])
 
   return (
     <div className="space-y-6">
@@ -834,7 +836,7 @@ export default function MensajesPage() {
             </div>
 
             {/* Filtro por tipo de emisor — solo visible para staff */}
-            {!isAlumnoOrPadre && (
+            {!canMessageStaff && (
               <div className="flex flex-wrap gap-2 mt-3">
                 {(["ALL", "Padre", "Alumno"] as const).map((tipo) => {
                   const label = tipo === "ALL" ? "Todos" : tipo === "Padre" ? "Padres" : "Alumnos"
@@ -978,19 +980,20 @@ export default function MensajesPage() {
           <DialogHeader>
             <DialogTitle>Enviar mensajes</DialogTitle>
             <DialogDescription>
-              {isAlumnoOrPadre
+              {canMessageStaff
                 ? "Elegí si querés enviar a un profesor o preceptor."
                 : "Elegí si querés enviar a un alumno en particular o a un curso entero."}
             </DialogDescription>
           </DialogHeader>
 
-          {isAlumnoOrPadre ? (
+          {canMessageStaff ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
                 onClick={() => {
                   setOpenSendPicker(false)
                   setAlumnoDestType("profesor")
+                  setDestSel("")
                   setTimeout(() => setOpenAlumnoMsg(true), 0)
                 }}
                 className="border rounded-xl p-4 text-left transition school-hover-card"
@@ -1003,6 +1006,7 @@ export default function MensajesPage() {
                 onClick={() => {
                   setOpenSendPicker(false)
                   setAlumnoDestType("preceptor")
+                  setDestSel("")
                   setTimeout(() => setOpenAlumnoMsg(true), 0)
                 }}
                 className="border rounded-xl p-4 text-left transition school-hover-card"
@@ -1139,15 +1143,14 @@ export default function MensajesPage() {
                   receptor_id: Number(destSel),
                   asunto: "",
                   contenido: contenidoAlu.trim(),
-                  ...(cursoSugeridoAlumnoId != null
+                  ...(!isIntegracion && cursoSugeridoAlumnoId != null
                     ? { school_course_id: cursoSugeridoAlumnoId }
                     : {}),
                 }
 
-                const tries = [
-                  "/api/mensajes/alumno/enviar/",
-                  "/api/mensajes/enviar/",
-                ]
+                const tries = isIntegracion
+                  ? ["/api/mensajes/alumno/enviar/"]
+                  : ["/api/mensajes/alumno/enviar/", "/api/mensajes/enviar/"]
 
                 let sent = false
                 let lastErr = ""
@@ -1310,7 +1313,7 @@ export default function MensajesPage() {
               Cerrar
             </Button>
 
-            <Button onClick={() => setReplyMode((v) => !v)} disabled={!msgSel?.id} className="gap-2">
+            <Button onClick={() => setReplyMode((v) => !v)} disabled={!msgSel?.id || (isIntegracion && !["Profesor", "Preceptor"].includes(msgSel?.tipo_emisor))} className="gap-2">
               <Reply className="h-4 w-4" />
               {replyMode ? "Cancelar" : "Responder"}
             </Button>

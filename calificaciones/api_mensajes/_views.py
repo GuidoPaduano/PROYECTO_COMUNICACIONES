@@ -20,6 +20,8 @@ from ..models import Mensaje, Notificacion
 from ..schools import get_request_school, scope_queryset_to_school
 from ..utils_cursos import resolve_course_reference
 from ..html_sanitizer import sanitize_html
+from ..user_groups import user_in_groups
+from ..api_mensajes_alumno._helpers import _integration_staff_recipients
 
 from uuid import UUID, uuid4
 import json
@@ -75,6 +77,8 @@ def enviar_mensaje(request):
     flags = _flags()
     data = _coerce_json(request)
     active_school = get_request_school(request)
+    if user_in_groups(request.user, "Integracion"):
+        return Response({"detail": "Integración solo puede enviar mensajes directos a profesores o preceptores."}, status=403)
 
     asunto = (data.get("asunto") or "").strip()
     contenido = sanitize_html((data.get("contenido") or "").strip())
@@ -205,6 +209,8 @@ def enviar_mensaje_grupal(request):
     flags = _flags()
     data = _coerce_json(request)
     active_school = get_request_school(request)
+    if user_in_groups(request.user, "Integracion"):
+        return Response({"detail": "Integración solo puede enviar mensajes directos a profesores o preceptores."}, status=403)
     school_course_ref, curso, course_error = resolve_course_reference(
         school=active_school,
         raw_course=data.get("curso"),
@@ -804,6 +810,10 @@ def responder_mensaje(request):
     original_sender = getattr(original, sf, None)
     if not original_sender:
         return Response({"detail": "No se pudo resolver el remitente del mensaje original."}, status=400)
+    if user_in_groups(request.user, "Integracion") and original_sender.id not in {
+        recipient.id for recipient in _integration_staff_recipients(active_school)
+    }:
+        return Response({"detail": "Integración solo puede responder a profesores o preceptores del colegio."}, status=403)
 
     nuevo_kwargs = {
         sf: request.user,

@@ -206,3 +206,20 @@ def _allowed_docentes_list(*, school=None, school_course=None, curso: str = "", 
             alumno=alumno,
         ).prefetch_related("groups")
     )
+
+
+def _integration_staff_recipients(school):
+    if school is None:
+        return []
+    return list(
+        User.objects.filter(
+            is_active=True,
+            groups__name__in=PROF_GROUPS + PREC_GROUPS,
+            school_memberships__school=school,
+            school_memberships__is_active=True,
+        )
+        .exclude(groups__name__in=["EOE", "Integracion"])
+        .distinct()
+        .prefetch_related("groups")
+        .order_by("last_name", "first_name", "username")
+    )

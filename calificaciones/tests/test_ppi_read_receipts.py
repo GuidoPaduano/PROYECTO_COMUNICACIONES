@@ -10,7 +10,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from calificaciones.models import Alumno, Notificacion, PpiDocument, PpiDocumentReceipt, School, SchoolCourse
+from calificaciones.models import Alumno, IntegrationStudentAssignment, Notificacion, PpiDocument, PpiDocumentReceipt, School, SchoolCourse
 from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, ProfesorCursoMateria, SchoolMembership
 
 PDF = b'%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF'
@@ -73,6 +73,45 @@ class PpiReadReceiptsTests(TestCase):
         self.assertTrue(listing.data['can_upload'])
         self.assertEqual({r['id'] for r in listing.data['docentes']}, {self.teacher.id, self.second.id})
         self.assertEqual(listing.data['documents'][0]['destinatarios'][0]['nombre'], 'teacher')
+
+    def test_integration_sends_to_every_professor_of_assigned_ppi_student(self):
+        integration = self.user('integration', 'Integracion')
+        IntegrationStudentAssignment.objects.create(school=self.school, alumno=self.alumno, maestra=integration)
+        subject_teacher = self.user('subject', 'Profesores')
+        ProfesorCursoMateria.objects.create(profesor=subject_teacher, school=self.school, school_course=self.course, materia='Matemática')
+        self.client.force_authenticate(integration)
+        response = self.upload(docentes='[]', todos_docentes_curso='true')
+        self.assertEqual(response.status_code, 201, response.data)
+        doc = PpiDocument.objects.get(pk=response.data['document']['id'])
+        expected = {self.teacher.id, self.second.id, subject_teacher.id}
+        self.assertEqual(set(doc.receipts.values_list('docente_id', flat=True)), expected)
+        self.assertEqual(set(Notificacion.objects.filter(meta__ppi_document_id=doc.id).values_list('destinatario_id', flat=True)), expected)
+        self.assertTrue(doc.requiere_firma)
+
+        self.client.force_authenticate(self.outsider)
+        self.assertEqual(self.get(f'{self.url}/{doc.id}/archivo').status_code, 403)
+
+    def test_integration_can_file_document_without_requesting_signatures(self):
+        integration = self.user('integration', 'Integracion')
+        IntegrationStudentAssignment.objects.create(school=self.school, alumno=self.alumno, maestra=integration)
+        self.client.force_authenticate(integration)
+        response = self.upload(requiere_firma='false', docentes='[]')
+        self.assertEqual(response.status_code, 201, response.data)
+        doc = PpiDocument.objects.get(pk=response.data['document']['id'])
+        self.assertFalse(doc.requiere_firma)
+        self.assertFalse(doc.receipts.exists())
+        self.assertFalse(Notificacion.objects.filter(meta__ppi_document_id=doc.id).exists())
+        self.assertEqual(self.get(self.url).data['documents'][0]['id'], doc.id)
+
+    def test_integration_bulk_send_requires_assignment_and_professors(self):
+        integration = self.user('integration', 'Integracion')
+        self.client.force_authenticate(integration)
+        self.assertEqual(self.upload(todos_docentes_curso='true').status_code, 403)
+        IntegrationStudentAssignment.objects.create(school=self.school, alumno=self.alumno, maestra=integration)
+        self.assertEqual(self.upload(todos_docentes_curso='true', requiere_firma='false').status_code, 400)
+        ProfesorCurso.objects.filter(school=self.school, school_course=self.course).delete()
+        self.assertEqual(self.upload(todos_docentes_curso='true').status_code, 400)
+        self.assertFalse(PpiDocument.objects.exists())
 
     def test_invalid_recipients_do_not_create_documents_or_notifications(self):
         for recipients in [[], [self.outsider.id], [self.teacher.id, self.outsider.id], [999999], ['1'], {'a': 1}]:

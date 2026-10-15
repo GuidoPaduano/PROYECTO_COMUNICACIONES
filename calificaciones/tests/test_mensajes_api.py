@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from calificaciones.api_mensajes import _notif_url_for_msg
 from calificaciones.models import Alumno, Mensaje, Notificacion, School, SchoolCourse
-from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso
+from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolMembership
 
 
 def _make_user(username: str, *, is_superuser: bool = False, is_staff: bool | None = None):
@@ -31,6 +31,83 @@ def _mensaje_has_field(name: str) -> bool:
 def _add_user_to_group(user, group_name: str):
     group, _ = Group.objects.get_or_create(name=group_name)
     user.groups.add(group)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class IntegrationMessagesTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.school = School.objects.create(name="Mensajes Integración", slug="mensajes-integracion")
+        self.other = School.objects.create(name="Otro Mensajes", slug="otro-mensajes-integracion")
+        self.maestra = _make_user("maestra_mensajes_integracion")
+        self.profesor = _make_user("profesor_mensajes_integracion")
+        self.preceptor = _make_user("preceptor_mensajes_integracion")
+        self.eoe = _make_user("eoe_mensajes_integracion")
+        self.padre = _make_user("padre_mensajes_integracion")
+        self.otro_profesor = _make_user("otro_profesor_mensajes_integracion")
+        for user, role, school in (
+            (self.maestra, "Integracion", self.school),
+            (self.profesor, "Profesores", self.school),
+            (self.preceptor, "Preceptores", self.school),
+            (self.eoe, "EOE", self.school),
+            (self.padre, "Padres", self.school),
+            (self.otro_profesor, "Profesores", self.other),
+        ):
+            _add_user_to_group(user, role)
+            SchoolMembership.objects.create(user=user, school=school)
+        self.client.force_authenticate(self.maestra)
+
+    def test_only_school_professors_and_preceptors_are_listed_and_can_receive(self):
+        headers = {"HTTP_X_SCHOOL": self.school.slug}
+        response = self.client.get("/api/mensajes/destinatarios_docentes/", **headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({u["id"] for u in response.json()["results"]}, {self.profesor.id, self.preceptor.id})
+
+        for recipient in (self.profesor, self.preceptor):
+            sent = self.client.post(
+                "/api/mensajes/alumno/enviar/",
+                {"receptor_id": recipient.id, "contenido": "Consulta institucional"},
+                format="json", **headers,
+            )
+            self.assertEqual(sent.status_code, 201, sent.data)
+        self.assertEqual(Mensaje.objects.filter(remitente=self.maestra).count(), 2)
+
+        for recipient in (self.padre, self.eoe, self.otro_profesor, self.maestra):
+            denied = self.client.post(
+                "/api/mensajes/alumno/enviar/",
+                {"receptor_id": recipient.id, "contenido": "Mensaje no permitido"},
+                format="json", **headers,
+            )
+            self.assertEqual(denied.status_code, 403, denied.data)
+        self.assertEqual(Mensaje.objects.filter(remitente=self.maestra).count(), 2)
+
+    def test_cannot_use_family_course_or_reply_to_parent(self):
+        headers = {"HTTP_X_SCHOOL": self.school.slug}
+        course = SchoolCourse.objects.create(school=self.school, code="1A", name="1A")
+        student = Alumno.objects.create(
+            school=self.school, school_course=course, curso="1A", id_alumno="PPI-M1", nombre="Ana", es_ppi=True,
+        )
+        self.assertEqual(self.client.post(
+            "/api/mensajes/alumno/enviar/",
+            {"receptor_id": self.profesor.id, "contenido": "Con curso", "school_course_id": course.id},
+            format="json", **headers,
+        ).status_code, 400)
+        self.assertEqual(self.client.post(
+            "/api/mensajes/enviar/",
+            {"alumno_id": student.id, "contenido": "A la familia"}, format="json", **headers,
+        ).status_code, 403)
+        self.assertEqual(self.client.post(
+            "/api/mensajes/enviar_grupal/",
+            {"school_course_id": course.id, "contenido": "Al curso"}, format="json", **headers,
+        ).status_code, 403)
+        incoming = Mensaje.objects.create(
+            school=self.school, remitente=self.padre, destinatario=self.maestra,
+            asunto="Consulta", contenido="Hola",
+        )
+        self.assertEqual(self.client.post(
+            "/api/mensajes/responder/", {"mensaje_id": incoming.id, "contenido": "Respuesta"},
+            format="json", **headers,
+        ).status_code, 403)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)

@@ -13,7 +13,8 @@ from rest_framework.response import Response
 
 from ..models import Mensaje, Notificacion, resolve_school_course_for_value
 from ..schools import get_request_school
-from ..user_groups import get_user_group_names
+from ..user_groups import get_user_group_names, user_in_groups
+from ..integration_access import integration_can_access_school
 from ..utils_cursos import resolve_course_reference
 from ..html_sanitizer import sanitize_html
 
@@ -28,6 +29,7 @@ from ._helpers import (
     _user_to_dict,
     _infer_alumno_for_user,
     _allowed_docentes_list,
+    _integration_staff_recipients,
 )
 
 
@@ -40,6 +42,20 @@ from ._helpers import (
 def docentes_destinatarios(request):
     user = request.user
     active_school = get_request_school(request)
+
+    if user_in_groups(user, "Integracion"):
+        if not integration_can_access_school(user, active_school):
+            return Response({"detail": "No autorizado para integración en este colegio."}, status=403)
+        users = _integration_staff_recipients(active_school)
+        profs = [u for u in users if {g.name for g in u.groups.all()}.intersection(PROF_GROUPS)]
+        precs = [u for u in users if {g.name for g in u.groups.all()}.intersection(PREC_GROUPS)]
+        return Response({
+            "school_course_id": None,
+            "school_course_name": "",
+            "profesores": [_user_to_dict(u, "Profesor") for u in profs],
+            "preceptores": [_user_to_dict(u, "Preceptor") for u in precs],
+            "results": [_user_to_dict(u) for u in users],
+        })
 
     alumno = _infer_alumno_for_user(user, school=active_school)
     school_course_ref, curso, course_error = resolve_course_reference(
@@ -114,11 +130,12 @@ def alumno_enviar(request):
     user = request.user
     active_school = get_request_school(request)
     data = request.data or {}
+    is_integracion = user_in_groups(user, "Integracion")
 
     receptor_id = data.get("receptor_id")
     asunto = (data.get("asunto") or "").strip()
     contenido = sanitize_html((data.get("contenido") or "").strip())
-    alumno = _infer_alumno_for_user(user, school=active_school)
+    alumno = None if is_integracion else _infer_alumno_for_user(user, school=active_school)
     school_course_ref, curso, course_error = resolve_course_reference(
         school=active_school,
         raw_course=data.get("curso"),
@@ -133,6 +150,11 @@ def alumno_enviar(request):
         )
     if course_error:
         return Response({"detail": course_error}, status=400)
+    if is_integracion:
+        if not integration_can_access_school(user, active_school):
+            return Response({"detail": "No autorizado para integración en este colegio."}, status=403)
+        if data.get("curso") or data.get("school_course_id") or data.get("alumno_id"):
+            return Response({"detail": "Integración envía mensajes directos a profesores o preceptores."}, status=400)
 
     # Validar receptor
     try:
@@ -158,11 +180,14 @@ def alumno_enviar(request):
             school_course_ref = school_course_ref or getattr(alumno, "school_course", None)
 
     school_ref = active_school or getattr(alumno, "school", None)
-    allowed_receptores = _allowed_docentes_list(
-        school=school_ref,
-        school_course=school_course_ref or getattr(alumno, "school_course", None),
-        curso=curso,
-        alumno=alumno,
+    allowed_receptores = (
+        _integration_staff_recipients(active_school)
+        if is_integracion else _allowed_docentes_list(
+            school=school_ref,
+            school_course=school_course_ref or getattr(alumno, "school_course", None),
+            curso=curso,
+            alumno=alumno,
+        )
     )
     if not any(getattr(allowed, "id", None) == receptor.id for allowed in allowed_receptores):
         return Response({"detail": "El destinatario no está habilitado para el colegio o curso activo."}, status=403)

@@ -141,21 +141,28 @@ def ppi_documents(request, alumno_id):
     if len(content) > MAX_PDF_BYTES or not content.startswith(b'%PDF-'):
         return Response({'detail': 'El archivo no es un PDF válido o supera 20 MB.'}, status=400)
     requires_signature = str(request.data.get('requiere_firma', 'false')).lower() == 'true'
+    all_course_teachers = str(request.data.get('todos_docentes_curso', 'false')).lower() == 'true'
+    if all_course_teachers and ('Integracion' not in get_user_group_names(request.user) or not requires_signature):
+        return Response({'detail': 'Esta opción requiere una maestra integradora y constancia de lectura.'}, status=400)
     try:
-        recipients = json.loads(request.data.get('docentes', '[]'))
+        recipients = json.loads(request.data.get('docentes', '[]')) if not all_course_teachers else []
         if not isinstance(recipients, list) or any(type(i) is not int for i in recipients):
             raise ValueError()
         recipient_ids = set(recipients)
         previous_id = int(request.data['version_anterior_id']) if request.data.get('version_anterior_id') else None
     except (ValueError, TypeError):
         return Response({'detail': 'La selección de docentes o versión no es válida.'}, status=400)
-    teachers = list(_teachers(alumno).filter(id__in=recipient_ids).exclude(pk=request.user.pk))
-    if requires_signature and (not recipient_ids or recipient_ids != {u.pk for u in teachers}):
+    teachers = list(_teachers(alumno).filter(id__in=recipient_ids).exclude(pk=request.user.pk)) if not all_course_teachers else []
+    if requires_signature and not all_course_teachers and (not recipient_ids or recipient_ids != {u.pk for u in teachers}):
         return Response({'detail': 'Seleccioná docentes asignados a este alumno.'}, status=400)
     with transaction.atomic():
         current = Alumno.objects.select_for_update().get(pk=alumno.id)
         if not current.es_ppi:
             return Response({'detail': 'El alumno ya no está marcado como PPI.'}, status=409)
+        if all_course_teachers:
+            teachers = list(_teachers(current).exclude(pk=request.user.pk))
+            if not teachers:
+                return Response({'detail': 'Este curso no tiene profesores asignados para recibir el documento.'}, status=400)
         previous = None
         if previous_id:
             previous = PpiDocument.objects.filter(pk=previous_id, alumno=current).first()

@@ -6,8 +6,8 @@ from django.core.cache import cache
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from calificaciones.models import Alumno, Nota, School, SchoolCourse
-from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso
+from calificaciones.models import Alumno, IntegrationStudentAssignment, Nota, School, SchoolCourse
+from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolMembership
 
 
 def _make_user(username: str, groups: list[str]):
@@ -27,6 +27,55 @@ class ReportesApiTests(TestCase):
         self.course_1a = SchoolCourse.objects.create(school=self.school, code="1A", name="1A", sort_order=1)
         self.course_2a = SchoolCourse.objects.create(school=self.school, code="2A", name="2A", sort_order=2)
         self.course_3b = SchoolCourse.objects.create(school=self.school, code="3B", name="3B", sort_order=3)
+
+    def test_integracion_solo_ve_reportes_de_alumnos_ppi_asignados(self):
+        maestra = _make_user("maestra_reportes_ppi", ["Integracion"])
+        SchoolMembership.objects.create(user=maestra, school=self.school)
+        assigned = Alumno.objects.create(
+            nombre="Ana", apellido="Perez", id_alumno="PPI-R1", school=self.school,
+            school_course=self.course_1a, curso="1A", es_ppi=True,
+        )
+        second = Alumno.objects.create(
+            nombre="Bruno", apellido="Lopez", id_alumno="PPI-R2", school=self.school,
+            school_course=self.course_2a, curso="2A", es_ppi=True,
+        )
+        unassigned = Alumno.objects.create(
+            nombre="Cora", id_alumno="PPI-R3", school=self.school,
+            school_course=self.course_1a, curso="1A", es_ppi=True,
+        )
+        for student in (assigned, second, unassigned):
+            Nota.objects.create(
+                alumno=student, materia="Matemática", tipo="Examen", resultado="TEA",
+                calificacion="TEA", cuatrimestre=1, fecha=date(2026, 1, 10),
+            )
+        IntegrationStudentAssignment.objects.create(school=self.school, alumno=assigned, maestra=maestra)
+        IntegrationStudentAssignment.objects.create(school=self.school, alumno=second, maestra=maestra)
+        self.client.force_authenticate(maestra)
+
+        def report(student):
+            return self.client.get(
+                "/api/reportes/mis-estadisticas/", {"alumno_id": student.id, "anio": 2026},
+                HTTP_X_SCHOOL=self.school.slug,
+            )
+
+        first = report(assigned)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["rol"], "Integracion")
+        self.assertEqual(first.json()["alumno_activo"]["id"], assigned.id)
+        self.assertEqual(first.json()["resumen_notas"]["total_evaluaciones"], 1)
+        self.assertEqual({a["id"] for a in first.json()["alumnos"]}, {assigned.id, second.id})
+        self.assertEqual(report(second).json()["alumno_activo"]["id"], second.id)
+        self.assertEqual(report(unassigned).status_code, 403)
+        self.assertEqual(
+            self.client.get(f"/api/reportes/curso/{self.course_1a.id}/", HTTP_X_SCHOOL=self.school.slug).status_code,
+            403,
+        )
+
+        IntegrationStudentAssignment.objects.filter(alumno=assigned, maestra=maestra).delete()
+        self.assertEqual(report(assigned).status_code, 403)
+        second.es_ppi = False
+        second.save(update_fields=["es_ppi"])
+        self.assertEqual(report(second).status_code, 403)
 
     def test_padre_no_puede_pedir_alumno_ajeno_en_mis_estadisticas(self):
         padre_1 = _make_user("padre_1", ["Padres"])

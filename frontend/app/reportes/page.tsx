@@ -38,6 +38,7 @@ function normalizeRole(me) {
   if (groups.includes("Alumnos") || groups.includes("Alumno")) return "Alumnos"
   if (groups.includes("Profesores")) return "Profesores"
   if (groups.includes("Directivos") || groups.includes("Directivo")) return "Directivos"
+  if (groups.includes("Integracion")) return "Integracion"
   if (groups.includes("Preceptores") || groups.includes("Preceptor")) return "Preceptores"
   return "SinRol"
 }
@@ -206,6 +207,7 @@ export default function ReportesPage() {
   const [alumnosCurso, setAlumnosCurso] = useState([])
   const [cursoSel, setCursoSel] = useState("")
   const [alumnos, setAlumnos] = useState([])
+  const [studentListLoading, setStudentListLoading] = useState(true)
   const [alumnoSel, setAlumnoSel] = useState("")
   const [alumnoCursoSel, setAlumnoCursoSel] = useState("")
   const [anioSel, setAnioSel] = useState(CURRENT_REPORT_YEAR)
@@ -214,6 +216,7 @@ export default function ReportesPage() {
   const [report, setReport] = useState(null)
 
   const isPadre = role === "Padres"
+  const isIntegracion = role === "Integracion"
   const isAlumno = role === "Alumnos"
   const isProfesor = role === "Profesores"
   const isDirectivo = role === "Directivos"
@@ -347,45 +350,50 @@ export default function ReportesPage() {
   }, [profileLoading, usaCurso, cursoSelSchoolCourseId, reportesScopeKey])
 
   useEffect(() => {
-    if (profileLoading || !isPadre) return
+    if (profileLoading || !(isPadre || isIntegracion)) return
     let alive = true
+    setStudentListLoading(true)
     ;(async () => {
       try {
-        const hijos = await loadReportesResource(
-          `reportes-hijos:${reportesScopeKey}`,
+        const students = await loadReportesResource(
+          `${isIntegracion ? "reportes-ppi" : "reportes-hijos"}:${reportesScopeKey}`,
           async () => {
-            const res = await authFetch("/padres/mis-hijos/")
+            const res = await authFetch(isIntegracion ? "/integracion/alumnos/" : "/padres/mis-hijos/")
             const data = await res.json().catch(() => ({}))
             if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`)
-            return Array.isArray(data?.results) ? data.results : []
-          }
+            const list = isIntegracion ? data?.alumnos : data?.results
+            return Array.isArray(list) ? list : []
+          },
+          isIntegracion ? 0 : REPORTES_RESOURCE_MAX_AGE_MS
         )
         if (!alive) return
-        setAlumnos(hijos)
+        setAlumnos(students)
 
-        const current = String(alumnoSel || "")
-        const hasCurrent = hijos.some((a) => String(a?.id || a?.id_alumno || "") === current)
-        if (hasCurrent) return
-
-        const next = String(hijos[0]?.id || hijos[0]?.id_alumno || "")
-        if (next) setAlumnoSel(next)
+        setAlumnoSel((current) => {
+          const currentId = String(current || "")
+          if (students.some((a) => String(a?.id || a?.id_alumno || "") === currentId)) return current
+          return String(students[0]?.id || students[0]?.id_alumno || "")
+        })
+        if (!students.length) setReport(null)
       } catch (e) {
         if (!alive) return
         setAlumnos([])
-        setError(e?.message || "No se pudieron cargar los hijos asociados.")
+        setError(e?.message || (isIntegracion ? "No se pudieron cargar tus alumnos PPI." : "No se pudieron cargar los hijos asociados."))
+      } finally {
+        if (alive) setStudentListLoading(false)
       }
     })()
     return () => {
       alive = false
     }
-  }, [profileLoading, isPadre, alumnoSel, reportesScopeKey])
+  }, [profileLoading, isPadre, isIntegracion, reportesScopeKey])
 
   useEffect(() => {
     if (profileLoading) return
-    if (!(isPadre || isAlumno || isProfesor || isPreceptor || isDirectivo || isSuper)) return
+    if (!(isPadre || isIntegracion || isAlumno || isProfesor || isPreceptor || isDirectivo || isSuper)) return
     if (usaCurso && !cursoSel) return
     if (usaCurso && cursoSelSchoolCourseId == null) return
-    if (isPadre && !alumnoSel) return
+    if ((isPadre || isIntegracion) && !alumnoSel) return
 
     let alive = true
     ;(async () => {
@@ -397,11 +405,11 @@ export default function ReportesPage() {
         if (anioSel !== "all") params.set("anio", anioSel)
         if (cuatrimestre !== "all") params.set("cuatrimestre", cuatrimestre)
         if (materiaSel !== "all") params.set("materia", materiaSel)
-        if (isPadre) params.set("alumno_id", alumnoSel)
+        if (isPadre || isIntegracion) params.set("alumno_id", alumnoSel)
         if (usaCurso && alumnoCursoSel) params.set("alumno_id", alumnoCursoSel)
 
         const qs = params.toString()
-        const path = isPadre || isAlumno
+        const path = isPadre || isIntegracion || isAlumno
           ? `/reportes/mis-estadisticas/${qs ? `?${qs}` : ""}`
           : `/reportes/curso/${encodeURIComponent(String(cursoSelSchoolCourseId))}/${qs ? `?${qs}` : ""}`
         const data = await loadReportesResource(
@@ -412,7 +420,7 @@ export default function ReportesPage() {
             if (!res.ok) throw new Error(payload?.detail || `HTTP ${res.status}`)
             return payload
           },
-          REPORTES_DYNAMIC_RESOURCE_MAX_AGE_MS
+          isIntegracion ? 0 : REPORTES_DYNAMIC_RESOURCE_MAX_AGE_MS
         )
         if (!alive) return
 
@@ -434,7 +442,7 @@ export default function ReportesPage() {
     return () => {
       alive = false
     }
-  }, [profileLoading, isPadre, isAlumno, isProfesor, isPreceptor, isDirectivo, isSuper, usaCurso, cursoSel, cursoSelSchoolCourseId, alumnoSel, alumnoCursoSel, anioSel, cuatrimestre, materiaSel])
+  }, [profileLoading, isPadre, isIntegracion, isAlumno, isProfesor, isPreceptor, isDirectivo, isSuper, usaCurso, cursoSel, cursoSelSchoolCourseId, alumnoSel, alumnoCursoSel, anioSel, cuatrimestre, materiaSel])
 
   const resumen = report?.resumen_notas || { total_evaluaciones: 0, conteos_por_estado: { TEA: 0, TEP: 0, TED: 0 }, porcentajes_por_estado: { TEA: 0, TEP: 0, TED: 0 } }
   const porMateria = Array.isArray(report?.por_materia) ? report.por_materia : []
@@ -529,9 +537,9 @@ export default function ReportesPage() {
                 </select>
               </div>
 
-            {isPadre && alumnos.length > 1 ? (
+            {(isPadre || isIntegracion) && alumnos.length > 1 ? (
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hijo</label>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">{isIntegracion ? "Alumno PPI" : "Hijo"}</label>
                 <select className="w-full rounded border border-slate-300 px-3 py-2 text-sm" value={alumnoSel} onChange={(e) => setAlumnoSel(e.target.value)}>
                   {alumnos.map((a) => (
                     <option key={a.id || a.id_alumno} value={a.id || a.id_alumno}>
@@ -542,9 +550,9 @@ export default function ReportesPage() {
               </div>
             ) : null}
 
-            {isPadre && alumnos.length === 1 ? (
+            {(isPadre || isIntegracion) && alumnos.length === 1 ? (
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hijo</label>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">{isIntegracion ? "Alumno PPI" : "Hijo"}</label>
                 <div className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                   {[alumnos[0]?.apellido, alumnos[0]?.nombre].filter(Boolean).join(", ")} ({getCourseDisplayName(alumnos[0]) || "Curso s/d"})
                 </div>
@@ -555,6 +563,9 @@ export default function ReportesPage() {
       </Card>
 
       {profileLoading || reportLoading ? <EmptyHint text="Cargando reportes..." /> : null}
+      {!profileLoading && !studentListLoading && isIntegracion && alumnos.length === 0 && !error && !reportLoading ? (
+        <EmptyHint text="No tenés alumnos PPI asignados para ver reportes." />
+      ) : null}
 
       {error ? (
         <Card className="border-red-200">

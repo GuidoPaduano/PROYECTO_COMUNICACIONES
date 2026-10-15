@@ -28,8 +28,9 @@ def _has_role(request, *roles):
 
 def _can_upload(request):
     return (
-        getattr(request.user, "is_superuser", False)
-        or _has_role(request, "Directivos", "Preceptores", "Administradores")
+        not _has_role(request, "Integracion")
+        and (getattr(request.user, "is_superuser", False)
+             or _has_role(request, "Directivos", "Preceptores", "Administradores"))
     )
 
 
@@ -38,6 +39,8 @@ def _get_visible_doc(request, doc_id, school):
     Devuelve el Documento si el usuario puede verlo, respetando curso y destinatario.
     Retorna None si no existe o si el usuario no tiene acceso.
     """
+    if _has_role(request, "Integracion"):
+        return None
     curso_ids = _curso_ids_for_user(request.user, school)
     qs = Documento.objects.filter(id=doc_id, school=school)
     if curso_ids is not None:
@@ -199,6 +202,8 @@ def documentos_list(request):
     school = get_request_school(request)
     if not school:
         return Response({"detail": "No se pudo determinar la escuela."}, status=400)
+    if _has_role(request, "Integracion"):
+        return Response({"detail": "La documentación institucional no está disponible para Integración."}, status=403)
 
     if request.method == "GET":
         curso_ids = _curso_ids_for_user(request.user, school)

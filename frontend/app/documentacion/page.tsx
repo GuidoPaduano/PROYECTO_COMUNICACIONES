@@ -2,6 +2,7 @@
 "use client"
 
 import PpiDocumentInbox from "@/components/ppi-document-inbox"
+import IntegrationPpiDocumentation from "@/components/integration-ppi-documentation"
 
 import { useEffect, useState, useMemo } from "react"
 import { FileText, Upload, CheckCircle, Clock, Trash2, Eye, X } from "lucide-react"
@@ -96,6 +97,7 @@ export default function DocumentacionPage() {
   const [signing, setSigning] = useState(null)
 
   const groups = Array.isArray(sessionContext?.groups) ? sessionContext.groups : []
+  const isIntegracion = groups.includes("Integracion")
   const canUpload =
     !!sessionContext?.isSuperuser ||
     groups.some((g) => ["Directivos", "Preceptores", "Administradores"].includes(g))
@@ -142,9 +144,9 @@ export default function DocumentacionPage() {
   }
 
   useEffect(() => {
-    loadDocs()
-    if (canUpload) loadCursos()
-  }, [canUpload])
+    if (!isIntegracion) loadDocs()
+    if (!isIntegracion && canUpload) loadCursos()
+  }, [canUpload, isIntegracion])
 
   async function handleFirmar(doc) {
     setSigning(doc.id)
@@ -224,6 +226,13 @@ export default function DocumentacionPage() {
   function getCursoId(c) {
     return c?.school_course_id ?? c?.id ?? ""
   }
+
+  if (isIntegracion) return (
+    <div className="w-full px-4 py-6">
+      <PpiDocumentInbox key={`${sessionContext?.username}:${sessionContext?.school?.id}`} />
+      <IntegrationPpiDocumentation />
+    </div>
+  )
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "24px 16px" }}>
