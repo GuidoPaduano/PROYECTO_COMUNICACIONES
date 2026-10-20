@@ -16,7 +16,7 @@ from rest_framework.response import Response
 
 from .jwt_auth import CookieJWTAuthentication
 from .models import Alumno, PpiDocument, PpiDocumentReceipt, Notificacion
-from .models_preceptores import SchoolAdmin, ProfesorCurso, ProfesorCursoMateria
+from .models_preceptores import SchoolAdmin, SchoolMembership, ProfesorCurso, ProfesorCursoMateria
 from .schools import get_request_school, get_requested_school_identifier, get_school_by_identifier
 from .user_groups import get_user_group_names
 from .views._acceso import _preceptor_can_access_alumno
@@ -109,6 +109,32 @@ def _notify(document, teacher, reminder=False):
         descripcion=f'{document.titulo} · Versión {document.version}'[:255],
         url=f'/documentacion?ppi_document={document.id}#ppi-document-{document.id}',
         meta={'ppi_document_id': document.id, 'alumno_id': document.alumno_id, 'recordatorio': reminder},
+    )
+    transaction.on_commit(lambda: push_unread_update_for_notification(notification))
+
+
+def _notify_signature(document, receipt, *, all_signed):
+    uploader = document.subido_por
+    if uploader is None or not uploader.is_active:
+        return
+    if 'EOE' in get_user_group_names(uploader) and not SchoolMembership.objects.filter(
+        user=uploader, school_id=document.alumno.school_id, is_active=True,
+    ).exists():
+        return
+    teacher_name = receipt.nombre_docente or receipt.docente.get_full_name() or receipt.docente.username
+    notification = Notificacion.objects.create(
+        school_id=document.alumno.school_id,
+        destinatario=uploader,
+        tipo='otro',
+        titulo='Todos los docentes confirmaron la lectura' if all_signed else 'Un docente confirmó la lectura',
+        descripcion=f'{teacher_name} confirmó la lectura de "{document.titulo}" · {document.alumno}',
+        url=f'/alumnos/{document.alumno_id}?tab=documentacion&ppi_document={document.id}#ppi-document-{document.id}',
+        meta={
+            'ppi_document_id': document.id,
+            'alumno_id': document.alumno_id,
+            'docente_id': receipt.docente_id,
+            'firmas_completas': all_signed,
+        },
     )
     transaction.on_commit(lambda: push_unread_update_for_notification(notification))
 
@@ -225,6 +251,8 @@ def ppi_document_sign(request, alumno_id, document_id):
             receipt.firmado_en = timezone.now()
             receipt.declaracion = DECLARATION
             receipt.save(update_fields=['firmado_en', 'declaracion'])
+            all_signed = not receipt.documento.receipts.filter(firmado_en__isnull=True).exists()
+            _notify_signature(receipt.documento, receipt, all_signed=all_signed)
     return Response({'detail': 'Lectura confirmada.', 'firmado_en': receipt.firmado_en})
 
 

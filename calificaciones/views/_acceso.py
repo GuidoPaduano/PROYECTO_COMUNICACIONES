@@ -19,7 +19,7 @@ from ..course_access import (
     get_assignment_course_refs,
     normalize_course_code,
 )
-from ..eoe_access import eoe_can_view_student
+from ..eoe_access import eoe_can_access_school, eoe_can_view_student
 from ..forms import EventoForm as BaseEventoForm
 from ..models import Alumno, Mensaje, SchoolCourse
 from ..schools import (
@@ -699,6 +699,8 @@ def _can_access_course_roster(request, curso: str, *, school_course=None) -> boo
     active_school = get_request_school(request)
     if getattr(user, "is_superuser", False):
         return True
+    if _has_role(request, "EOE"):
+        return eoe_can_access_school(user, active_school)
     if _has_role(request, "Directivos"):
         return True
     if _has_role(request, "Preceptores"):

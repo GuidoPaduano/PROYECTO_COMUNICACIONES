@@ -290,6 +290,9 @@ def _authorize_staff_for_course(user, *, school=None, school_course=None, curso=
     groups = get_user_group_names_lower(user)
     if not groups:
         return False
+    if "eoe" in groups:
+        from ..eoe_access import eoe_can_access_school
+        return eoe_can_access_school(user, school)
     joined = " ".join(groups)
     if "preceptor" in joined:
         return _preceptor_can_access_course(user, school=school, school_course=school_course, curso=curso)
@@ -301,6 +304,9 @@ def _authorize_staff_for_course(user, *, school=None, school_course=None, curso=
 def _authorize_staff_for_alumno(user, alumno) -> bool:
     if alumno is None:
         return _staff_can_send_schoolwide(user)
+    if "eoe" in get_user_group_names_lower(user) and not getattr(user, "is_superuser", False):
+        from ..eoe_access import eoe_can_view_student
+        return eoe_can_view_student(user, alumno)
     return _authorize_staff_for_course(
         user,
         school=getattr(alumno, "school", None),

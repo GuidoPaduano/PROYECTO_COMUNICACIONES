@@ -94,6 +94,7 @@ export default function ComposeComunicadoFamilia({
   cursosEndpoint = "/preceptor/cursos/",
   defaultMode = "familia",
   showModeSelect = true,
+  ppiOnly = false,
 }) {
   const session = useSessionContext()
   // Datos base
@@ -227,7 +228,10 @@ export default function ComposeComunicadoFamilia({
         ? `school_course_id=${encodeURIComponent(String(schoolCourseIdSel))}`
         : `curso=${encodeURIComponent(courseCodeSel)}`
     authFetch(`/alumnos/?${courseQuery}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error("No se pudieron cargar los alumnos del curso.")
+        return r.json()
+      })
       .then((data) => {
         if (!alive) return
         const al = Array.isArray(data?.alumnos) ? data.alumnos : []
@@ -377,7 +381,7 @@ export default function ComposeComunicadoFamilia({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             alumno_id: Number(alumnoSel),
-            asunto,
+            asunto: "",
             contenido: mensaje,
             tipo: "mensaje",
           }),
@@ -399,7 +403,7 @@ export default function ComposeComunicadoFamilia({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...coursePayload,
-            asunto,
+            asunto: "",
             contenido: mensaje,
             tipo: "mensaje", // => alumno.usuario (no padres)
           }),
@@ -441,7 +445,7 @@ export default function ComposeComunicadoFamilia({
             >
               <option value="familia">Familia (padre/madre) de un alumno</option>
               <option value="alumno">Alumno individual</option>
-              <option value="curso_alumnos">Todos los alumnos del curso</option>
+              <option value="curso_alumnos">{ppiOnly ? "Todos los alumnos PPI del curso" : "Todos los alumnos del curso"}</option>
             </select>
           </div>
         )}
@@ -478,7 +482,7 @@ export default function ComposeComunicadoFamilia({
               onChange={(e) => onChangeDestFamilia(e.target.value)}
               disabled={loadingAlumnos || !opcionesFamilia.length || sending}
             >
-              {!opcionesFamilia.length && <option value="">{cursoSel ? "Sin familias vinculadas" : "Elegí un curso…"}</option>}
+              {!opcionesFamilia.length && <option value="">{cursoSel ? (ppiOnly && !alumnos.length ? "Sin alumnos PPI" : "Sin familias vinculadas") : "Elegí un curso…"}</option>}
               {opcionesFamilia.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
@@ -497,7 +501,7 @@ export default function ComposeComunicadoFamilia({
               onChange={(e) => setAlumnoSel(e.target.value)}
               disabled={loadingAlumnos || !alumnos.length || sending}
             >
-              {!alumnos.length && <option value="">{cursoSel ? "Sin alumnos" : "Elegí un curso…"}</option>}
+              {!alumnos.length && <option value="">{cursoSel ? (ppiOnly ? "Sin alumnos PPI" : "Sin alumnos") : "Elegí un curso…"}</option>}
               {opcionesAlumnos.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}

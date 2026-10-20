@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
-from calificaciones.models import Alumno, Asistencia, Evento, Nota, Sancion, School, SchoolCourse
+from calificaciones.models import Alumno, Asistencia, Evento, Mensaje, Nota, Sancion, School, SchoolCourse
 from calificaciones.models_preceptores import PreceptorCurso, SchoolMembership
 
 
@@ -56,6 +56,48 @@ class EOERoleTests(TestCase):
         self.assertEqual(self.client.get('/api/eoe/alumnos', HTTP_X_SCHOOL=self.other_school.slug).status_code, 403)
         SchoolMembership.objects.filter(user=user).update(is_active=False)
         self.assertEqual(self.client.get('/api/eoe/alumnos', HTTP_X_SCHOOL=self.school.slug).status_code, 403)
+
+    def test_message_recipient_roster_and_send_are_limited_to_ppi_students(self):
+        user = self.create_eoe()
+        student_user = get_user_model().objects.create_user(username='ppi_message_student')
+        regular_user = get_user_model().objects.create_user(username='regular_message_student')
+        ppi = Alumno.objects.create(
+            school=self.school, school_course=self.course, curso='1A',
+            id_alumno='PPI-MSG', nombre='Ana', es_ppi=True, usuario=student_user,
+        )
+        regular = Alumno.objects.create(
+            school=self.school, school_course=self.course, curso='1A',
+            id_alumno='REG-MSG', nombre='Otra', es_ppi=False, usuario=regular_user,
+        )
+        self.client.force_authenticate(user)
+        headers = {'HTTP_X_SCHOOL': self.school.slug}
+        roster = self.client.get(f'/api/alumnos/?school_course_id={self.course.id}', **headers)
+        self.assertEqual(roster.status_code, 200, roster.data)
+        self.assertEqual([row['id'] for row in roster.data['alumnos']], [ppi.id])
+        path_roster = self.client.get(f'/api/alumnos/curso/{self.course.id}/', **headers)
+        self.assertEqual(path_roster.status_code, 200, path_roster.data)
+        self.assertEqual([row['id'] for row in path_roster.data['alumnos']], [ppi.id])
+
+        sent = self.client.post('/api/mensajes/enviar/', {
+            'alumno_id': ppi.id, 'contenido': 'Consulta PPI',
+        }, format='json', **headers)
+        self.assertEqual(sent.status_code, 201, sent.data)
+        self.assertTrue(Mensaje.objects.filter(remitente=user, destinatario=student_user, alumno=ppi).exists())
+        denied = self.client.post('/api/mensajes/enviar/', {
+            'alumno_id': regular.id, 'contenido': 'Consulta regular',
+        }, format='json', **headers)
+        self.assertEqual(denied.status_code, 403, denied.data)
+        group_sent = self.client.post('/api/mensajes/enviar_grupal/', {
+            'school_course_id': self.course.id, 'contenido': 'Aviso PPI',
+        }, format='json', **headers)
+        self.assertEqual(group_sent.status_code, 201, group_sent.data)
+        self.assertFalse(Mensaje.objects.filter(remitente=user, destinatario=regular_user).exists())
+
+        SchoolMembership.objects.filter(user=user, school=self.school).update(is_active=False)
+        self.assertEqual(self.client.get(f'/api/alumnos/?school_course_id={self.course.id}', **headers).status_code, 403)
+        self.assertEqual(self.client.post('/api/mensajes/enviar/', {
+            'alumno_id': ppi.id, 'contenido': 'Sin membresía',
+        }, format='json', **headers).status_code, 403)
 
     def test_course_assignment_rejected(self):
         user = self.create_eoe()

@@ -97,7 +97,9 @@ export default function DocumentacionPage() {
   const [signing, setSigning] = useState(null)
 
   const groups = Array.isArray(sessionContext?.groups) ? sessionContext.groups : []
-  const isIntegracion = groups.includes("Integracion")
+  const isIntegracion = groups.includes("Integracion") || sessionContext?.role === "Integracion"
+  const isEOE = groups.includes("EOE") || sessionContext?.role === "EOE"
+  const isPpiDocumentation = isIntegracion || isEOE
   const canUpload =
     !!sessionContext?.isSuperuser ||
     groups.some((g) => ["Directivos", "Preceptores", "Administradores"].includes(g))
@@ -144,9 +146,9 @@ export default function DocumentacionPage() {
   }
 
   useEffect(() => {
-    if (!isIntegracion) loadDocs()
-    if (!isIntegracion && canUpload) loadCursos()
-  }, [canUpload, isIntegracion])
+    if (!isPpiDocumentation) loadDocs()
+    if (!isPpiDocumentation && canUpload) loadCursos()
+  }, [canUpload, isPpiDocumentation])
 
   async function handleFirmar(doc) {
     setSigning(doc.id)
@@ -227,9 +229,9 @@ export default function DocumentacionPage() {
     return c?.school_course_id ?? c?.id ?? ""
   }
 
-  if (isIntegracion) return (
+  if (isPpiDocumentation) return (
     <div className="w-full px-4 py-6">
-      <PpiDocumentInbox key={`${sessionContext?.username}:${sessionContext?.school?.id}`} />
+      {isIntegracion && <PpiDocumentInbox key={`${sessionContext?.username}:${sessionContext?.school?.id}`} />}
       <IntegrationPpiDocumentation />
     </div>
   )

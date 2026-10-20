@@ -151,6 +151,37 @@ class PpiReadReceiptsTests(TestCase):
         self.assertEqual(receipt.firmado_en, signed_at)
         self.assertEqual(doc.receipts.count(), 1)
 
+    def test_eoe_is_notified_as_each_teacher_signs_and_when_all_have_signed(self):
+        response = self.upload(docentes=json.dumps([self.teacher.id, self.second.id]))
+        self.assertEqual(response.status_code, 201, response.data)
+        doc = PpiDocument.objects.get(pk=response.data['document']['id'])
+        self.assertFalse(Notificacion.objects.filter(destinatario=self.eoe).exists())
+
+        for teacher, all_signed in ((self.teacher, False), (self.second, True)):
+            self.client.force_authenticate(teacher)
+            self.assertEqual(self.sign(doc).status_code, 400)
+            self.assertFalse(Notificacion.objects.filter(destinatario=self.eoe, meta__docente_id=teacher.id).exists())
+            self.assertEqual(self.get(f'{self.url}/{doc.id}/archivo').status_code, 200)
+            self.assertEqual(self.sign(doc).status_code, 200)
+            notification = Notificacion.objects.get(destinatario=self.eoe, meta__docente_id=teacher.id)
+            self.assertEqual(notification.meta['firmas_completas'], all_signed)
+            self.assertEqual(notification.school_id, self.school.id)
+            self.assertIn(f'tab=documentacion&ppi_document={doc.id}', notification.url)
+            self.assertIn(teacher.username, notification.descripcion)
+            self.assertIn('Todos los docentes' if all_signed else 'Un docente', notification.titulo)
+            self.assertEqual(self.sign(doc).status_code, 200)
+            self.assertEqual(Notificacion.objects.filter(destinatario=self.eoe, meta__docente_id=teacher.id).count(), 1)
+
+        self.assertEqual(Notificacion.objects.filter(destinatario=self.eoe).count(), 2)
+
+    def test_former_eoe_member_does_not_receive_signature_notification(self):
+        doc = self.create_doc()
+        SchoolMembership.objects.filter(user=self.eoe, school=self.school).update(is_active=False)
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.get(f'{self.url}/{doc.id}/archivo').status_code, 200)
+        self.assertEqual(self.sign(doc).status_code, 200)
+        self.assertFalse(Notificacion.objects.filter(destinatario=self.eoe).exists())
+
     def test_recipient_inbox_and_other_teacher_isolation(self):
         doc = self.create_doc()
         self.client.force_authenticate(self.teacher)

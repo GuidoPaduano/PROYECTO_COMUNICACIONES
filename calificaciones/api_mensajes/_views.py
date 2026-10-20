@@ -247,6 +247,8 @@ def enviar_mensaje_grupal(request):
         .select_related("padre", "usuario", "school", "school_course")
         .order_by("id")
     )
+    if user_in_groups(request.user, "EOE") and not request.user.is_superuser:
+        alumnos = [alumno for alumno in alumnos if alumno.es_ppi]
     if not alumnos:
         return Response({"detail": "No hay alumnos para ese curso."}, status=404)
 

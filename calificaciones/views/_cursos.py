@@ -383,6 +383,9 @@ def alumnos_por_curso(request):
             school_course_id=selected_course["school_course_id"],
         ).order_by("nombre")
 
+    if _has_role(request, "EOE") and not request.user.is_superuser:
+        qs = qs.filter(es_ppi=True)
+
     return Response(
         _build_alumnos_payload(qs, school=active_school, course_code=curso, school_course=school_course),
         status=200,
@@ -433,6 +436,9 @@ def alumnos_por_curso_path(request, curso: str):
             school_course=school_course,
             school_course_id=selected_course["school_course_id"],
         ).order_by("nombre")
+
+    if _has_role(request, "EOE") and not request.user.is_superuser:
+        qs = qs.filter(es_ppi=True)
 
     return Response(
         _build_alumnos_payload(

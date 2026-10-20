@@ -47,10 +47,10 @@ export default function PpiDocuments({ alumnoId, sendToAllCourseTeachers = false
   }, [endpoint, retry])
 
   useEffect(() => {
-    if (!sendToAllCourseTeachers || !documents.length) return
+    if (!documents.length) return
     const target = new URLSearchParams(window.location.search).get("ppi_document")
     if (target && /^\d+$/.test(target)) document.getElementById(`ppi-document-${target}`)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
-  }, [documents, sendToAllCourseTeachers])
+  }, [documents])
 
   async function upload(event: FormEvent) {
     event.preventDefault()
@@ -123,7 +123,7 @@ export default function PpiDocuments({ alumnoId, sendToAllCourseTeachers = false
       </fieldset>
     </form>}
     {sendToAllCourseTeachers && !loading && <div className="flex items-center justify-between gap-3 pt-2"><h2 className="text-base font-semibold">Documentos guardados <span className="font-normal text-slate-500">({documents.length})</span></h2><Button variant="ghost" disabled={saving} onClick={() => setRetry((value) => value + 1)}>Actualizar</Button></div>}
-    {!loading && !documents.length && !error && <p className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">Todavía no hay documentos para este alumno.</p>}
+    {!loading && !documents.length && !error && <p className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">Todavía no hay documentos PPI para este alumno.</p>}
     <div className="space-y-3">{documents.map((doc) => <PpiDocumentCard key={doc.id} document={doc} onNewVersion={canUpload ? newVersion : undefined} />)}</div>
   </div>
 }

@@ -266,6 +266,7 @@ export default function MensajesPage() {
   const blockDeleteForUnread = hasAlumnoOrPadreRole(roleProfile)
   const groups = Array.isArray(roleProfile?.groups) ? roleProfile.groups : []
   const isIntegracion = groups.includes("Integracion")
+  const isEOE = groups.includes("EOE")
   const isPreceptor = !isIntegracion && (groups.includes("Preceptores") || groups.includes("Preceptor"))
   const isProfesor = groups.includes("Profesores") || groups.includes("Profesor")
   const isAlumno = groups.includes("Alumnos") || groups.includes("Alumno")
@@ -1027,7 +1028,7 @@ export default function MensajesPage() {
                 className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A un alumno</div>
-                <div className="text-xs text-slate-500 mt-1">Mensaje individual a un alumno</div>
+                <div className="text-xs text-slate-500 mt-1">{isEOE ? "Mensaje individual a un alumno PPI" : "Mensaje individual a un alumno"}</div>
               </button>
               <button
                 type="button"
@@ -1039,7 +1040,7 @@ export default function MensajesPage() {
                 className="border rounded-xl p-4 text-left transition school-hover-card"
               >
                 <div className="text-sm font-semibold text-slate-900">A un curso</div>
-                <div className="text-xs text-slate-500 mt-1">Mensaje grupal a un curso</div>
+                <div className="text-xs text-slate-500 mt-1">{isEOE ? "Mensaje a los alumnos PPI del curso" : "Mensaje grupal a un curso"}</div>
               </button>
               <button
                 type="button"
@@ -1069,6 +1070,7 @@ export default function MensajesPage() {
           cursosEndpoint={cursosEndpoint}
           defaultMode={composerMode}
           showModeSelect={false}
+          ppiOnly={isEOE}
         />
       ) : null}
 

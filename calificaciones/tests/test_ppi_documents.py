@@ -54,6 +54,27 @@ class PpiDocumentsTests(TestCase):
         self.assertEqual(b''.join(response.streaming_content), PDF)
         self.assertEqual(response['Cache-Control'], 'private, no-store')
 
+    def test_eoe_and_assigned_integration_share_ppi_document_list(self):
+        eoe = self.login('EOE')
+        first = self.upload()
+        self.assertEqual(first.status_code, 201, first.data)
+        first_id = first.data['document']['id']
+
+        integration = self.login('Integracion', self.course)
+        integration_list = self.client.get(self.url, HTTP_X_SCHOOL=self.school.slug)
+        self.assertEqual(integration_list.status_code, 200, integration_list.data)
+        self.assertEqual([doc['id'] for doc in integration_list.data['documents']], [first_id])
+        self.assertEqual(self.client.get(f'{self.url}/{first_id}/archivo', HTTP_X_SCHOOL=self.school.slug).status_code, 200)
+
+        second = self.upload()
+        self.assertEqual(second.status_code, 201, second.data)
+        second_id = second.data['document']['id']
+        self.client.force_authenticate(eoe)
+        eoe_list = self.client.get(self.url, HTTP_X_SCHOOL=self.school.slug)
+        self.assertEqual(eoe_list.status_code, 200, eoe_list.data)
+        self.assertEqual({doc['id'] for doc in eoe_list.data['documents']}, {first_id, second_id})
+        self.assertEqual(self.client.get(f'{self.url}/{second_id}/archivo', HTTP_X_SCHOOL=self.school.slug).status_code, 200)
+
     def test_assigned_teacher_can_read_but_not_upload(self):
         self.login('Profesores', self.course)
         doc = PpiDocument.objects.create(alumno=self.alumno, titulo='Informe', nombre_archivo='informe.pdf', contenido=PDF, tamano=len(PDF))
