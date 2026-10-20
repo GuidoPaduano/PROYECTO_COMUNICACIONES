@@ -63,6 +63,7 @@ from ._helpers import (
     _user_label,
     _parse_limit,
 )
+from ._folders import conversation_key, folder_assignments
 
 User = get_user_model()
 
@@ -582,7 +583,15 @@ def mensajes_recibidos(request):
     rf = _recipient_field()
     qs = _select_message_related(qs, sf, rf, "school_course", "alumno")
 
-    data = [_serialize_msg(m) for m in qs]
+    messages = list(qs)
+    assignments = folder_assignments(messages, request.user, active_school)
+    data = []
+    for message in messages:
+        item = _serialize_msg(message)
+        key = conversation_key(message)
+        item["clave_conversacion"] = key
+        item["carpeta_id"] = assignments.get(key)
+        data.append(item)
     return Response(data, status=200)
 
 

@@ -10,7 +10,7 @@ from ._integrity import (
 )
 from ._alumno import Alumno
 from ._academico import Nota, Asistencia, TIPOS_ASISTENCIA
-from ._comunicacion import Mensaje, Notificacion
+from ._comunicacion import Mensaje, Notificacion, CarpetaMensajes, ConversacionEnCarpeta
 from ._disciplina_eventos_alertas import Sancion, Evento, AlertaAcademica, AlertaInasistencia, TIPOS_EVENTO
 from ._ciclo_lectivo import CicloLectivo, Matricula
 from ._documentos import Documento, FirmaDocumento
@@ -35,6 +35,8 @@ __all__ = [
     "TIPOS_ASISTENCIA",
     "Mensaje",
     "Notificacion",
+    "CarpetaMensajes",
+    "ConversacionEnCarpeta",
     "Sancion",
     "Evento",
     "AlertaAcademica",

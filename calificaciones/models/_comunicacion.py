@@ -51,6 +51,31 @@ class Mensaje(models.Model):
         return super().save(*args, **kwargs)
 
 
+class CarpetaMensajes(models.Model):
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="carpetas_mensajes")
+    usuario = models.ForeignKey(User, on_delete=models.CASCADE, related_name="carpetas_mensajes")
+    nombre = models.CharField(max_length=80)
+    creada_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["nombre", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["school", "usuario", "nombre"], name="unique_message_folder_name_per_user_school"),
+        ]
+
+
+class ConversacionEnCarpeta(models.Model):
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="conversaciones_en_carpeta")
+    usuario = models.ForeignKey(User, on_delete=models.CASCADE, related_name="conversaciones_en_carpeta")
+    clave = models.CharField(max_length=255)
+    carpeta = models.ForeignKey(CarpetaMensajes, on_delete=models.CASCADE, related_name="conversaciones")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["school", "usuario", "clave"], name="unique_message_conversation_placement"),
+        ]
+
+
 
 class Notificacion(models.Model):
     TIPO_CHOICES = [

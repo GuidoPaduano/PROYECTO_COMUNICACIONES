@@ -36,6 +36,9 @@ import {
   Reply,
   Trash2,
   GraduationCap,
+  FolderPlus,
+  FolderInput,
+  MoreHorizontal,
 } from "lucide-react"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -225,6 +228,12 @@ export default function MensajesPage() {
   const [buscar, setBuscar] = useState("")
   const [filTipoEmisor, setFilTipoEmisor] = useState("ALL")
   const [mensajes, setMensajes] = useState([])
+  const [carpetas, setCarpetas] = useState([])
+  const [carpetaSeleccionada, setCarpetaSeleccionada] = useState("")
+  const [carpetaDialogo, setCarpetaDialogo] = useState(null)
+  const [nombreCarpeta, setNombreCarpeta] = useState("")
+  const [carpetaError, setCarpetaError] = useState("")
+  const [carpetaGuardando, setCarpetaGuardando] = useState(false)
   const [hijos, setHijos] = useState([])
   const [hijoSel, setHijoSel] = useState("")
   const [hijosLoading, setHijosLoading] = useState(false)
@@ -433,8 +442,64 @@ export default function MensajesPage() {
     return () => window.removeEventListener("inbox-changed", handler)
   }, [inboxCacheKey])
 
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const response = await fetchJSON("/api/mensajes/carpetas/")
+      if (active && response.ok && Array.isArray(response.data)) setCarpetas(response.data)
+    })()
+    return () => { active = false }
+  }, [mensajesScopeKey, reloadTick])
+
+  async function guardarCarpeta() {
+    const nombre = nombreCarpeta.trim()
+    if (!nombre) { setCarpetaError("Escribí un nombre para la carpeta."); return }
+    setCarpetaGuardando(true)
+    setCarpetaError("")
+    try {
+      const response = await fetchJSON(
+        carpetaDialogo?.id ? `/api/mensajes/carpetas/${carpetaDialogo.id}/` : "/api/mensajes/carpetas/",
+        { method: carpetaDialogo?.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre }) }
+      )
+      if (!response.ok) throw new Error(response.data?.detail || "No se pudo guardar la carpeta.")
+      setCarpetas((previous) => carpetaDialogo?.id
+        ? previous.map((folder) => folder.id === response.data.id ? response.data : folder)
+        : [...previous, response.data].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      setCarpetaDialogo(null)
+    } catch (error) { setCarpetaError(error.message) }
+    finally { setCarpetaGuardando(false) }
+  }
+
+  async function borrarCarpeta(folder) {
+    setCarpetaGuardando(true)
+    setCarpetaError("")
+    try {
+      const response = await fetchJSON(`/api/mensajes/carpetas/${folder.id}/`, { method: "DELETE" })
+      if (!response.ok) throw new Error(response.data?.detail || "No se pudo eliminar la carpeta.")
+      setCarpetas((previous) => previous.filter((item) => item.id !== folder.id))
+      setMensajes((previous) => previous.map((message) => message.carpeta_id === folder.id ? { ...message, carpeta_id: null } : message))
+      if (String(carpetaSeleccionada) === String(folder.id)) setCarpetaSeleccionada("")
+      invalidateMensajesResource(inboxCacheKey)
+      setCarpetaDialogo(null)
+    } catch (error) { setCarpetaError(error.message) }
+    finally { setCarpetaGuardando(false) }
+  }
+
+  async function moverConversacion(message, folderId) {
+    const response = await fetchJSON(`/api/mensajes/${message.id}/mover/`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ carpeta_id: folderId }),
+    })
+    if (!response.ok) { setError(response.data?.detail || "No se pudo mover la conversación."); return }
+    setMensajes((previous) => previous.map((item) => item.clave_conversacion === response.data.clave_conversacion
+      ? { ...item, carpeta_id: response.data.carpeta_id } : item))
+    invalidateMensajesResource(inboxCacheKey)
+  }
+
   const list = useMemo(() => {
-    let arr = Array.isArray(mensajes) ? mensajes.slice() : []
+    let arr = Array.isArray(mensajes) ? mensajes.filter((message) =>
+      String(message.carpeta_id || "") === String(carpetaSeleccionada || "")
+    ) : []
     const q = buscar.trim().toLowerCase()
     if (q) {
       arr = arr.filter(
@@ -452,8 +517,18 @@ export default function MensajesPage() {
       const db = new Date(b.fecha || b.fecha_envio || 0).getTime()
       return db - da
     })
-    return arr
-  }, [mensajes, buscar, filTipoEmisor])
+    const conversations = new Map()
+    for (const message of arr) {
+      const key = message.clave_conversacion || `mensaje:${message.id}`
+      const existing = conversations.get(key)
+      if (!existing) conversations.set(key, { ...message, conversation_count: 1, conversation_unread: esNoLeido(message, myId) })
+      else {
+        existing.conversation_count += 1
+        existing.conversation_unread ||= esNoLeido(message, myId)
+      }
+    }
+    return [...conversations.values()]
+  }, [mensajes, buscar, filTipoEmisor, carpetaSeleccionada, myId])
 
   async function marcarTodoLeido() {
     try {
@@ -761,6 +836,32 @@ export default function MensajesPage() {
 
         <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm">
           <CardContent className="p-6">
+            <div className="mb-5 flex flex-wrap items-center gap-2 border-b pb-4">
+              {carpetaSeleccionada ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => setCarpetaSeleccionada("")}>
+                  Volver a la bandeja
+                </Button>
+              ) : null}
+              {carpetas.map((folder) => (
+                <div key={folder.id} className="flex items-center rounded-md border">
+                  <Button type="button" size="sm" variant={String(carpetaSeleccionada) === String(folder.id) ? "default" : "ghost"} className="rounded-r-none" onClick={() => setCarpetaSeleccionada(String(folder.id))}>
+                    {folder.nombre}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" className="px-2 text-gray-600 hover:text-gray-900" aria-label={`Opciones de ${folder.nombre}`}><MoreHorizontal className="h-4 w-4" /></button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => { setNombreCarpeta(folder.nombre); setCarpetaError(""); setCarpetaDialogo({ mode: "edit", ...folder }) }}>Renombrar</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { setCarpetaError(""); setCarpetaDialogo({ mode: "delete", ...folder }) }}>Eliminar carpeta</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ))}
+              <Button type="button" size="sm" className="gap-1" onClick={() => { setNombreCarpeta(""); setCarpetaError(""); setCarpetaDialogo({ mode: "create" }) }}>
+                <FolderPlus className="h-4 w-4" /> Nueva carpeta
+              </Button>
+            </div>
             {/* Acciones y búsqueda */}
             <div className="mb-4 grid grid-cols-1 lg:grid-cols-12 gap-3">
               {isPadre ? (
@@ -881,7 +982,7 @@ export default function MensajesPage() {
                 </Button>
               </div>
             ) : list.length === 0 ? (
-              <div className="text-sm text-gray-600">No hay mensajes recibidos.</div>
+              <div className="text-sm text-gray-600">{carpetaSeleccionada ? "No hay conversaciones en esta carpeta." : "No hay mensajes recibidos."}</div>
             ) : (
               <div className="divide-y">
                 {list.map((m, i) => (
@@ -892,11 +993,11 @@ export default function MensajesPage() {
                     key={m.id || i}
                     className={[
                       "relative w-full py-3 -mx-2 px-2 rounded-lg transition-colors",
-                      esNoLeido(m, myId) ? "" : "hover:bg-[#f6f9ff]",
+                      m.conversation_unread ? "" : "hover:bg-[#f6f9ff]",
                     ].join(" ")}
                     style={
                       {
-                        backgroundColor: esNoLeido(m, myId)
+                        backgroundColor: m.conversation_unread
                           ? "#dce7f8"
                           : "#ffffff",
                       }
@@ -908,7 +1009,7 @@ export default function MensajesPage() {
                         messageDialogTriggerRef.current = event.currentTarget
                         abrirMensaje(m)
                       }}
-                      className={"flex w-full items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)] " + (m.emisor_id === myId ? "pr-16" : "pr-9")}
+                      className={"flex w-full items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--school-primary-soft-strong)] " + (m.emisor_id === myId ? "pr-32" : "pr-24")}
                       aria-label={`Abrir mensaje: ${collapseRePrefix(m.asunto) || "Sin asunto"}`}
                     >
                       <div className="w-10 h-10 rounded-full school-primary-soft-icon flex items-center justify-center font-semibold flex-shrink-0">
@@ -917,7 +1018,7 @@ export default function MensajesPage() {
                       <div className="flex-1 min-w-0">
                           <div className="flex items-baseline justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            {esNoLeido(m, myId) && (
+                            {m.conversation_unread && (
                               <span
                                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"
                                 style={{ backgroundColor: "var(--school-accent)" }}
@@ -925,7 +1026,7 @@ export default function MensajesPage() {
                             )}
                             <div
                               className={`truncate ${
-                                esNoLeido(m, myId)
+                                m.conversation_unread
                                   ? "font-medium text-gray-900"
                                   : "text-gray-700"
                               }`}
@@ -941,10 +1042,10 @@ export default function MensajesPage() {
                         </div>
                         <div
                           className={`text-sm truncate ${
-                            esNoLeido(m, myId) ? "font-semibold text-gray-900" : "text-gray-900"
+                            m.conversation_unread ? "font-semibold text-gray-900" : "text-gray-900"
                           }`}
                         >
-                          {collapseRePrefix(m.asunto) || "Sin asunto"}
+                            {collapseRePrefix(m.asunto) || "Sin asunto"}{m.conversation_count > 1 ? ` · ${m.conversation_count} mensajes` : ""}
                         </div>
                         <div className="text-sm text-gray-600 mt-0.5 line-clamp-2 max-h-[3.2rem] overflow-hidden">
                           {preview(m.contenido || m.body || "")}
@@ -954,8 +1055,17 @@ export default function MensajesPage() {
                         ) : null}
                       </div>
                     </button>
-                    {m.emisor_id === myId && <MessageReminder message={m} className="absolute right-10 top-3 text-slate-500" />}
-                    {!(blockDeleteForUnread && esNoLeido(m, myId)) ? (
+                    {m.emisor_id === myId && <MessageReminder message={m} className="absolute right-20 top-3 text-slate-500" />}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button type="button" className="absolute right-10 top-3 rounded-md p-1 text-gray-600 hover:bg-gray-100" title="Mover conversación" aria-label="Mover conversación"><FolderInput className="h-4 w-4" /></button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem disabled={!carpetaSeleccionada} onSelect={() => moverConversacion(m, null)}>Quitar de carpeta</DropdownMenuItem>
+                        {carpetas.map((folder) => <DropdownMenuItem key={folder.id} disabled={String(m.carpeta_id) === String(folder.id)} onSelect={() => moverConversacion(m, folder.id)}>{folder.nombre}</DropdownMenuItem>)}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    {!(blockDeleteForUnread && m.conversation_unread) ? (
                       <button
                         type="button"
                         onClick={(e) => pedirEliminar(m, e)}
@@ -975,6 +1085,29 @@ export default function MensajesPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={!!carpetaDialogo} onOpenChange={(open) => { if (!open) setCarpetaDialogo(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{carpetaDialogo?.mode === "delete" ? "Eliminar carpeta" : carpetaDialogo?.mode === "edit" ? "Renombrar carpeta" : "Nueva carpeta"}</DialogTitle>
+            <DialogDescription>
+              {carpetaDialogo?.mode === "delete" ? "Las conversaciones volverán a la bandeja de entrada." : "Esta carpeta será visible solo para vos."}
+            </DialogDescription>
+          </DialogHeader>
+          {carpetaDialogo?.mode !== "delete" ? (
+            <form onSubmit={(event) => { event.preventDefault(); guardarCarpeta() }} className="space-y-4">
+              <Input aria-label="Nombre de la carpeta" placeholder="Nombre de la carpeta" maxLength={80} value={nombreCarpeta} onChange={(event) => setNombreCarpeta(event.target.value)} autoFocus />
+              {carpetaError ? <p role="alert" className="text-sm text-red-600">{carpetaError}</p> : null}
+              <Button type="submit" disabled={carpetaGuardando}>Guardar carpeta</Button>
+            </form>
+          ) : (
+            <div className="space-y-4">
+              {carpetaError ? <p role="alert" className="text-sm text-red-600">{carpetaError}</p> : null}
+              <Button type="button" disabled={carpetaGuardando} onClick={() => borrarCarpeta(carpetaDialogo)}>Eliminar carpeta</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={openSendPicker} onOpenChange={setOpenSendPicker}>
         <DialogContent className="sm:max-w-lg">

@@ -58,6 +58,7 @@ from .api_mensajes import (
 
 # ✅ Extra: eliminar mensajes (bandeja)
 from .api_mensajes import mensajes_eliminar
+from .api_mensajes._folders import folders as message_folders, folder_detail as message_folder_detail, move_conversation
 
 # APIs de notificaciones (campanita sistema)
 from .api_notificaciones import (
@@ -448,6 +449,12 @@ urlpatterns = [
     path("mensajes/marcar_todos_leidos", mensajes_marcar_todos_leidos, name="mensajes_marcar_todos_leidos_noslash"),
 
     path("mensajes/recibidos/", mensajes_recibidos, name="mensajes_recibidos"),
+    path("mensajes/carpetas/", message_folders, name="mensajes_carpetas"),
+    path("mensajes/carpetas", message_folders, name="mensajes_carpetas_noslash"),
+    path("mensajes/carpetas/<int:folder_id>/", message_folder_detail, name="mensajes_carpeta_detalle"),
+    path("mensajes/carpetas/<int:folder_id>", message_folder_detail, name="mensajes_carpeta_detalle_noslash"),
+    path("mensajes/<int:message_id>/mover/", move_conversation, name="mensajes_mover_conversacion"),
+    path("mensajes/<int:message_id>/mover", move_conversation, name="mensajes_mover_conversacion_noslash"),
     path("mensajes/recibidos", mensajes_recibidos, name="mensajes_recibidos_noslash"),
     path("mensajes/listar/", mensajes_recibidos, name="mensajes_listar"),
     path("mensajes/listar", mensajes_recibidos, name="mensajes_listar_noslash"),
