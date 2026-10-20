@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { Building2, FileSpreadsheet, HardDriveDownload, Layers3, Settings2, ShieldCheck } from "lucide-react"
+import { Building2, FileSpreadsheet, HardDriveDownload, Layers3, Users, Settings2, ShieldCheck } from "lucide-react"
 
 import { buildBackendUrl, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { ToolSection } from "../_components/admin-tools"
@@ -53,6 +53,13 @@ export default function AdminPlataformaPage() {
           description: "Administra el catálogo SchoolCourse de cada colegio, con nombre, código y orden.",
           href: "/admin/plataforma/cursos",
           icon: <Layers3 className="h-6 w-6" />,
+          external: false,
+        },
+        {
+          title: "Usuarios por colegio",
+          description: "Consultá los usuarios de cada colegio, agrupados por rol y curso.",
+          href: "/admin/plataforma/usuarios",
+          icon: <Users className="h-6 w-6" />,
           external: false,
         },
         {

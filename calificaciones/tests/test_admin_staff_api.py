@@ -2,6 +2,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 
 from calificaciones.models import Alumno, School, SchoolCourse
 from calificaciones.models_preceptores import PreceptorCurso, ProfesorCurso, SchoolAdmin, SchoolMembership
@@ -52,6 +54,113 @@ class AdminStaffApiTests(TestCase):
         self.prec_group, _ = Group.objects.get_or_create(name="Preceptores")
         self.dir_group, _ = Group.objects.get_or_create(name="Directivos")
         self.school_admin_group, _ = Group.objects.get_or_create(name="Administradores")
+
+    def test_platform_school_users_requires_superuser_and_scopes_selected_school(self):
+        profesor = _make_user("profesor_norte_platform")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.school,
+            school_course=self.course_a,
+            profesor=profesor,
+            curso=self.course_a.code,
+        )
+        other_profesor = _make_user("profesor_sur_platform")
+        other_profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.other_school,
+            school_course=self.other_course,
+            profesor=other_profesor,
+            curso=self.other_course.code,
+        )
+        school_admin = _make_user("admin_norte_platform")
+        school_admin.groups.add(self.school_admin_group)
+        SchoolAdmin.objects.create(school=self.school, admin=school_admin)
+
+        schools = self.client.get("/api/admin/platform-school-users/")
+        self.assertEqual(self.client.get("/api/admin/platform-school-users").status_code, 200)
+        self.assertEqual(schools.status_code, 200)
+        self.assertTrue({self.school.id, self.other_school.id}.issubset({school["id"] for school in schools.json()["schools"]}))
+
+        response = self.client.get(f"/api/admin/platform-school-users/{self.school.id}/", HTTP_X_SCHOOL=self.other_school.slug)
+        self.assertEqual(self.client.get(f"/api/admin/platform-school-users/{self.school.id}").status_code, 200)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["school"]["id"], self.school.id)
+        self.assertEqual([user["username"] for user in body["profesores"]], [profesor.username])
+        self.assertEqual([user["username"] for user in body["administradores"]], [school_admin.username])
+        self.assertEqual(self.client.get("/api/admin/platform-school-users/999999/").status_code, 404)
+
+        self.client.force_authenticate(user=school_admin)
+        self.assertEqual(self.client.get("/api/admin/platform-school-users/").status_code, 403)
+        self.assertEqual(self.client.get(f"/api/admin/platform-school-users/{self.school.id}/").status_code, 403)
+
+    def test_platform_admin_can_reset_password_without_old_password_only_in_selected_school(self):
+        profesor = _make_user("profesor_platform_reset")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(school=self.school, school_course=self.course_a, profesor=profesor, curso=self.course_a.code)
+        RefreshToken.for_user(profesor)
+        path = f"/api/admin/platform-school-users/{self.school.id}/{profesor.id}/reset-password/"
+        payload = {"new_password": "NuevaClaveFuerte123!", "new_password_confirm": "NuevaClaveFuerte123!"}
+
+        self.assertEqual(self.client.post(path, {**payload, "new_password_confirm": "OtraClaveFuerte123!"}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(path, {"new_password": "corta", "new_password_confirm": "corta"}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(path, {"new_password": "test1234", "new_password_confirm": "test1234"}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(f"/api/admin/platform-school-users/{self.other_school.id}/{profesor.id}/reset-password/", payload, format="json").status_code, 404)
+        self.assertEqual(self.client.post(f"/api/admin/platform-school-users/{self.school.id}/{self.admin.id}/reset-password/", payload, format="json").status_code, 404)
+        profesor.refresh_from_db()
+        self.assertTrue(profesor.check_password("test1234"))
+
+        response = self.client.post(path, payload, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        profesor.refresh_from_db()
+        self.assertTrue(profesor.check_password(payload["new_password"]))
+        self.assertTrue(BlacklistedToken.objects.filter(token__user=profesor).exists())
+
+    def test_school_admin_cannot_use_platform_password_reset(self):
+        profesor = _make_user("profesor_reset_denied")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(school=self.school, school_course=self.course_a, profesor=profesor, curso=self.course_a.code)
+        school_admin = _make_user("school_admin_reset_denied")
+        school_admin.groups.add(self.school_admin_group)
+        SchoolAdmin.objects.create(school=self.school, admin=school_admin)
+        self.client.force_authenticate(user=school_admin)
+
+        path = f"/api/admin/platform-school-users/{self.school.id}/{profesor.id}/reset-password/"
+        response = self.client.post(path, {"new_password": "NuevaClaveFuerte123!", "new_password_confirm": "NuevaClaveFuerte123!"}, format="json")
+        self.assertEqual(response.status_code, 403)
+        profesor.refresh_from_db()
+        self.assertTrue(profesor.check_password("test1234"))
+
+    def test_platform_actions_use_the_selected_school_for_user_status(self):
+        profesor = _make_user("profesor_dos_colegios")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(school=self.school, school_course=self.course_a, profesor=profesor, curso=self.course_a.code)
+        ProfesorCurso.objects.create(school=self.other_school, school_course=self.other_course, profesor=profesor, curso=self.other_course.code)
+
+        toggle = f"/api/admin/school-users/{profesor.id}/toggle-active/"
+        response = self.client.patch(toggle, HTTP_X_SCHOOL=str(self.school.id))
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(SchoolMembership.objects.get(school=self.school, user=profesor).is_active)
+        self.assertEqual(self.client.get(f"/api/admin/platform-school-users/{self.school.id}/").json()["profesores"][0]["is_active"], False)
+        self.assertEqual(self.client.get(f"/api/admin/platform-school-users/{self.other_school.id}/").json()["profesores"][0]["is_active"], True)
+
+        response = self.client.patch(toggle, HTTP_X_SCHOOL=str(self.school.id))
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(SchoolMembership.objects.get(school=self.school, user=profesor).is_active)
+
+    def test_deactivated_school_admin_cannot_access_its_school(self):
+        first_admin = _make_user("primer_admin_colegio")
+        second_admin = _make_user("segundo_admin_colegio")
+        for admin in (first_admin, second_admin):
+            admin.groups.add(self.school_admin_group)
+            SchoolAdmin.objects.create(school=self.school, admin=admin)
+        SchoolMembership.objects.create(school=self.school, user=second_admin)
+
+        response = self.client.patch(f"/api/admin/school-users/{first_admin.id}/toggle-active/", HTTP_X_SCHOOL=str(self.school.id))
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(SchoolMembership.objects.get(school=self.school, user=first_admin).is_active)
+        self.client.force_authenticate(user=first_admin)
+        self.assertEqual(self.client.get("/api/admin/school-users/", HTTP_X_SCHOOL=str(self.school.id)).status_code, 403)
 
     def test_overview_lista_usuarios_y_asignaciones_del_colegio_activo(self):
         profesor = _make_user("profesor_norte")
@@ -525,6 +634,70 @@ class AdminStaffApiTests(TestCase):
             if item["id"] == profesor.id
         )
         self.assertEqual(row["full_name"], "Paula Editada")
+
+    def test_admin_cambia_contrasena_de_usuario_del_colegio_con_clave_actual(self):
+        profesor = _make_user("profesor_password_directorio")
+        profesor.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.school, school_course=self.course_a,
+            profesor=profesor, curso=self.course_a.code,
+        )
+        url = f"/api/admin/school-users/{profesor.id}/password/"
+        RefreshToken.for_user(profesor)
+
+        for current, new in [
+            ("incorrecta", "NuevaClaveFuerte123!"),
+            ("test1234", "test1234"),
+            ("test1234", "corta"),
+        ]:
+            response = self.client.post(
+                url, {"current_password": current, "new_password": new},
+                format="json", HTTP_X_SCHOOL=self.school.slug,
+            )
+            self.assertEqual(response.status_code, 400, response.data)
+            profesor.refresh_from_db()
+            self.assertTrue(profesor.check_password("test1234"))
+
+        response = self.client.post(
+            url, {"current_password": "test1234", "new_password": "NuevaClaveFuerte123!"},
+            format="json", HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        profesor.refresh_from_db()
+        self.assertTrue(profesor.check_password("NuevaClaveFuerte123!"))
+        self.assertFalse(profesor.check_password("test1234"))
+        self.assertTrue(BlacklistedToken.objects.filter(token__user=profesor).exists())
+
+    def test_cambio_de_contrasena_respeta_colegio_y_rol_admin(self):
+        externo = _make_user("profesor_password_externo")
+        externo.groups.add(self.prof_group)
+        ProfesorCurso.objects.create(
+            school=self.other_school, school_course=self.other_course,
+            profesor=externo, curso=self.other_course.code,
+        )
+        path = f"/api/admin/school-users/{externo.id}/password/"
+        payload = {"current_password": "test1234", "new_password": "NuevaClaveFuerte123!"}
+        self.assertEqual(self.client.post(path, payload, format="json", HTTP_X_SCHOOL=self.school.slug).status_code, 404)
+        self.client.force_authenticate(externo)
+        self.assertEqual(self.client.post(path, payload, format="json", HTTP_X_SCHOOL=self.other_school.slug).status_code, 403)
+        externo.refresh_from_db()
+        self.assertTrue(externo.check_password("test1234"))
+
+    def test_cambio_de_contrasena_admite_cuenta_vinculada_a_alumno(self):
+        alumno_user = _make_user("alumno_password_directorio")
+        Alumno.objects.create(
+            school=self.school, school_course=self.course_a,
+            curso=self.course_a.code, id_alumno="AL-PASS", nombre="Ana",
+            usuario=alumno_user,
+        )
+        response = self.client.post(
+            f"/api/admin/school-users/{alumno_user.id}/password/",
+            {"current_password": "test1234", "new_password": "NuevaClaveFuerte123!"},
+            format="json", HTTP_X_SCHOOL=self.school.slug,
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        alumno_user.refresh_from_db()
+        self.assertTrue(alumno_user.check_password("NuevaClaveFuerte123!"))
 
     def test_admin_no_edita_usuario_de_otro_colegio(self):
         profesor = _make_user("profesor_edicion_externo")

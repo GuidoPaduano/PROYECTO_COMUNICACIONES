@@ -11,6 +11,7 @@ from rest_framework.response import Response
 
 from ..models_preceptores import SchoolAdmin
 from ..contexto import resolve_alumno_for_user
+from ..eoe_access import eoe_can_view_student
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..models import Alumno, Nota
 from ..schools import (
@@ -145,6 +146,7 @@ def alumno_notas(request, alumno_id):
         ("Directivos" in viewer_groups)
         or ("Preceptores" in viewer_groups and _preceptor_can_access_alumno(user, alumno))
     )
+    is_eoe_ok = "EOE" in viewer_groups and eoe_can_view_student(user, alumno)
     is_prof_ok = ("Profesores" in viewer_groups and _profesor_can_access_alumno(user, alumno))
 
     # Autorización: superuser, profesores, preceptor por curso, padre o el propio alumno
@@ -152,6 +154,7 @@ def alumno_notas(request, alumno_id):
         user.is_superuser
         or is_prof_ok
         or is_preceptor_ok
+        or is_eoe_ok
         or alumno.padre_id == user.id
         or is_alumno_mismo
     ):

@@ -292,7 +292,10 @@ def _clear_parent_children_cache(*, parent_id, school_id):
 def _user_is_school_admin_for(school, user) -> bool:
     if getattr(user, "is_superuser", False):
         return True
-    return SchoolAdmin.objects.filter(school=school, admin=user).exists()
+    if not SchoolAdmin.objects.filter(school=school, admin=user).exists():
+        return False
+    membership = SchoolMembership.objects.filter(school=school, user=user).first()
+    return membership is None or membership.is_active
 
 
 def _user_belongs_to_school(*, user, school) -> bool:

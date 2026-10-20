@@ -18,6 +18,7 @@ from ..models import Alumno, Evento, SchoolCourse
 from ..integration_access import integration_can_access_school
 from ..schools import get_request_school, scope_queryset_to_school
 from ..utils_cursos import get_school_course_choices, resolve_course_reference
+from ..eoe_access import eoe_can_access_school
 
 from ._helpers import (
     _has_role,
@@ -69,6 +70,7 @@ def eventos_listar(request):
     Reglas:
     - Alumnos: intenta usar su curso automáticamente; si no se puede detectar, sólo admite el marcador global ALL.
     - Preceptores y Profesores: con school_course_id filtra un curso; sin filtro o con ALL lista sus cursos habilitados.
+    - EOE: lista los eventos de todos los cursos del colegio activo, con filtro opcional por curso.
     - Directivos/Admin: con school_course_id filtra un curso; sin filtro o con ALL lista todo.
     """
     active_school = get_request_school(request)
@@ -138,6 +140,11 @@ def eventos_listar(request):
             code_field="curso",
             include_all_markers=True,
         ))
+
+    elif _has_role(request, "EOE"):
+        if not request.user.is_superuser and not eoe_can_access_school(request.user, active_school):
+            return Response({"detail": "No autorizado para EOE en este colegio."}, status=status.HTTP_403_FORBIDDEN)
+        # EOE trabaja para todo el colegio; el filtro de curso se aplica más abajo.
 
     elif _has_role(request, "Preceptores"):
         # ✅ Preceptores pueden listar todos los cursos si no pasan curso o si piden "ALL"
@@ -609,12 +616,18 @@ def preceptor_cursos(request):
     Devuelve: {"cursos":[{"id":"5A","nombre":"5A"}, ...]}
 
     - Preceptor: devuelve sus cursos asignados en PreceptorCurso.
-    - Superuser: también devuelve (si tiene asignaciones; si no, vacío).
+    - EOE: devuelve todos los cursos del colegio activo sin asignaciones individuales.
+    - Superuser: devuelve los cursos del colegio activo.
     - Otros roles: devuelve vacío.
     """
+    active_school = get_request_school(request)
+    if _has_role(request, "EOE"):
+        if not request.user.is_superuser and not eoe_can_access_school(request.user, active_school):
+            return Response({"detail": "No autorizado para EOE en este colegio."}, status=status.HTTP_403_FORBIDDEN)
+        cursos = sorted({str(code) for code, _name in get_school_course_choices(school=active_school)})
+        return Response(_serialize_cursos_para_selector(cursos, school=active_school), status=status.HTTP_200_OK)
     if not _has_role(request, "Preceptores") and not getattr(request.user, "is_superuser", False):
         return Response({"cursos": []}, status=status.HTTP_200_OK)
-    active_school = get_request_school(request)
 
     if getattr(request.user, "is_superuser", False):
         cursos = sorted({str(code) for code, _name in get_school_course_choices(school=active_school)})

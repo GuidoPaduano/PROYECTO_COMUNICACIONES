@@ -4,6 +4,7 @@ __pycache__/
 
 # Entorno virtual
 venv/
+venv_mac/
 .env
 frontend/.env.local
 
@@ -11,9 +12,11 @@ frontend/.env.local
 *.sqlite3
 test_*.sqlite3
 db.sqlite3
+db.sqlite3.backup_*
 
 # Datos sensibles / dumps locales
 calificaciones.json
+railway_*.sql
 Copia de 25 - Libretas de calificaciones - *.csv
 
 # Archivos de Django generados
@@ -34,6 +37,7 @@ build/
 
 # Artefactos locales de trabajo
 /backups/
+/.claude/
 handoff-diseno/
 handoff-diseno.rar
 frontend/dev-frontend*.log

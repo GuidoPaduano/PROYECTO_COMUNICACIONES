@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 
 from ..contexto import resolve_alumno_for_user
+from ..eoe_access import eoe_can_view_student
 from ..course_access import build_course_membership_q, course_ref_matches, get_assignment_course_refs
 from ..models import Alumno, Sancion, Notificacion, resolve_school_course_for_value
 from ..schools import get_request_school, scope_queryset_to_school
@@ -253,6 +254,8 @@ def _authorize_padre_or_admin(user, alumno: Alumno) -> bool:
 
 
 def _authorize_reader_for_alumno(user, alumno: Alumno) -> bool:
+    if "EOE" in get_user_group_names(user):
+        return eoe_can_view_student(user, alumno)
     if _authorize_padre_or_admin(user, alumno):
         return True
     if _authorize_staff_for_alumno(user, alumno):

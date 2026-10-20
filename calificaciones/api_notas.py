@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .contexto import resolve_alumno_for_user
+from .eoe_access import eoe_can_view_student
 from .course_access import course_ref_matches, get_assignment_course_refs
 from .jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from .models import Alumno, Nota
@@ -105,6 +106,9 @@ def _authorize_alumno(request, alumno: Alumno) -> bool:
         return True
 
     group_names = set(get_user_group_names(user))
+
+    if "EOE" in group_names:
+        return eoe_can_view_student(user, alumno)
 
     if group_names.intersection({"Directivos", "Directivo"}):
         return True

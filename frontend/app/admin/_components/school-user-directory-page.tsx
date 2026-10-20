@@ -4,7 +4,7 @@
 import Link from "next/link"
 import StudentEditor from "./student-editor"
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, GraduationCap, Pencil, RefreshCw, Search, ShieldCheck, UserX, Users } from "lucide-react"
+import { ArrowLeft, GraduationCap, KeyRound, Pencil, RefreshCw, Search, ShieldCheck, UserX, Users } from "lucide-react"
 
 import { authFetch, useAuthGuard, useSessionContext } from "../../_lib/auth"
 import { Button } from "@/components/ui/button"
@@ -100,7 +100,7 @@ function ActiveBadge({ isActive }) {
   )
 }
 
-function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
+function StaffSection({ title, rows, emptyLabel, onEdit, onChangePassword, onToggleActive }) {
   const schoolTeam = title === "EOE" || title === "Integración"
   const scope = title === "EOE" ? "Todos los alumnos PPI del colegio" : "Asignación individual a alumnos PPI"
   return (
@@ -136,6 +136,10 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
                   <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Editar datos
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => onChangePassword?.(row)}>
+                    <KeyRound className="mr-2 h-4 w-4" />
+                    Cambiar contraseña
                   </Button>
                   <Button type="button" size="sm" variant="outline"
                     onClick={() => onToggleActive?.(row)}
@@ -177,9 +181,12 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
                       : "-"}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
                         Editar datos
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => onChangePassword?.(row)}>
+                        Cambiar contraseña
                       </Button>
                       <Button type="button" size="sm" variant="outline"
                         onClick={() => onToggleActive?.(row)}
@@ -205,7 +212,7 @@ function StaffSection({ title, rows, emptyLabel, onEdit, onToggleActive }) {
   )
 }
 
-function StudentsSection({ course, onToggleActive, onSelectStudent }) {
+function StudentsSection({ course, onToggleActive, onChangePassword, onSelectStudent }) {
   if (!course) return null
 
   return (
@@ -222,13 +229,23 @@ function StudentsSection({ course, onToggleActive, onSelectStudent }) {
                   <button type="button" onClick={() => onSelectStudent(student)} className="text-left text-sm font-semibold text-blue-700 underline decoration-blue-200 underline-offset-4 hover:decoration-blue-700 focus-visible:outline focus-visible:outline-2">{student.full_name || student.id_alumno}</button>
                   <p className="mt-1 text-xs text-slate-500">Legajo {student.id_alumno}</p>
                 </div>
-                {student.linked_user && (
-                  <Button type="button" size="sm" variant="outline"
-                    onClick={() => onToggleActive?.(student.linked_user)}
-                    style={student.linked_user.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
-                    {student.linked_user.is_active === false ? "Reactivar" : "Desactivar"}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => onSelectStudent(student)}>
+                    Editar datos
                   </Button>
-                )}
+                  {student.linked_user && (
+                    <>
+                      <Button type="button" size="sm" variant="outline" onClick={() => onChangePassword?.(student.linked_user)}>
+                        Cambiar contraseña
+                      </Button>
+                      <Button type="button" size="sm" variant="outline"
+                        onClick={() => onToggleActive?.(student.linked_user)}
+                        style={student.linked_user.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                        {student.linked_user.is_active === false ? "Reactivar" : "Desactivar"}
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="mt-3 space-y-2 text-sm text-slate-700">
                 <div>
@@ -291,13 +308,23 @@ function StudentsSection({ course, onToggleActive, onSelectStudent }) {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {student.linked_user && (
-                      <Button type="button" size="sm" variant="outline"
-                        onClick={() => onToggleActive?.(student.linked_user)}
-                        style={student.linked_user.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
-                        {student.linked_user.is_active === false ? "Reactivar" : "Desactivar"}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => onSelectStudent(student)}>
+                        Editar datos
                       </Button>
-                    )}
+                      {student.linked_user && (
+                        <>
+                          <Button type="button" size="sm" variant="outline" onClick={() => onChangePassword?.(student.linked_user)}>
+                            Cambiar contraseña
+                          </Button>
+                          <Button type="button" size="sm" variant="outline"
+                            onClick={() => onToggleActive?.(student.linked_user)}
+                            style={student.linked_user.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
+                            {student.linked_user.is_active === false ? "Reactivar" : "Desactivar"}
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -309,7 +336,7 @@ function StudentsSection({ course, onToggleActive, onSelectStudent }) {
   )
 }
 
-function ParentsSection({ rows, availableStudents, onLinked, onEdit, onToggleActive, allCourses }) {
+function ParentsSection({ rows, availableStudents, onLinked, onEdit, onChangePassword, onToggleActive, allCourses }) {
   const emptyLabel = "No hay padres registrados en el colegio activo."
   const [courseFilter, setCourseFilter] = useState("")
   const [selectedParent, setSelectedParent] = useState(null)
@@ -466,6 +493,9 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit, onToggleAct
                   <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>
                     Editar datos
                   </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => onChangePassword?.(row)}>
+                    Cambiar contraseña
+                  </Button>
                   <Button type="button" size="sm" variant="outline"
                     onClick={() => onToggleActive?.(row)}
                     style={row.is_active === false ? { borderColor: "#16a34a", color: "#16a34a" } : { borderColor: "#dc2626", color: "#dc2626" }}>
@@ -513,8 +543,9 @@ function ParentsSection({ rows, availableStudents, onLinked, onEdit, onToggleAct
                   </TableCell>
                   <TableCell className="text-sm text-slate-600">{courses || "-"}</TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button type="button" size="sm" variant="outline" onClick={() => onEdit?.(row)}>Editar datos</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => onChangePassword?.(row)}>Cambiar contraseña</Button>
                       <Button type="button" size="sm" variant="outline" onClick={() => openLinkDialog(row)} disabled={!studentOptions.length}>Vincular alumno</Button>
                       <Button type="button" size="sm" variant="outline"
                         onClick={() => onToggleActive?.(row)}
@@ -617,6 +648,10 @@ export default function SchoolUserDirectoryPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState("")
   const [editSuccess, setEditSuccess] = useState("")
+  const [passwordUser, setPasswordUser] = useState(null)
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "" })
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [passwordError, setPasswordError] = useState("")
 
   const loadData = async () => {
     setLoading(true)
@@ -777,6 +812,47 @@ export default function SchoolUserDirectoryPage() {
     }
   }
 
+  const openPasswordDialog = (user) => {
+    setPasswordUser(user)
+    setPasswordForm({ current_password: "", new_password: "" })
+    setPasswordError("")
+    setEditSuccess("")
+  }
+
+  const closePasswordDialog = () => {
+    if (passwordSaving) return
+    setPasswordUser(null)
+    setPasswordForm({ current_password: "", new_password: "" })
+    setPasswordError("")
+  }
+
+  const handleChangePassword = async (event) => {
+    event.preventDefault()
+    if (!passwordUser?.id || passwordSaving) return
+    setPasswordSaving(true)
+    setPasswordError("")
+    try {
+      const response = await authFetch(`/admin/school-users/${passwordUser.id}/password/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(passwordForm),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const detail = data?.detail
+        setPasswordError(Array.isArray(detail) ? detail.join(" ") : detail || "No se pudo cambiar la contraseña.")
+        return
+      }
+      setPasswordUser(null)
+      setPasswordForm({ current_password: "", new_password: "" })
+      setEditSuccess(data?.detail || "Contraseña actualizada correctamente.")
+    } catch {
+      setPasswordError("No se pudo conectar con el servidor.")
+    } finally {
+      setPasswordSaving(false)
+    }
+  }
+
   const handleToggleActive = async (user) => {
     const action = user.is_active === false ? "Reactivar" : "Desactivar"
     if (!confirm(`¿${action} la cuenta de ${user.full_name || user.username}?`)) return
@@ -922,6 +998,7 @@ export default function SchoolUserDirectoryPage() {
           rows={profesores}
           emptyLabel="No hay profesores asignados en el colegio activo."
           onEdit={openEditDialog}
+          onChangePassword={openPasswordDialog}
           onToggleActive={handleToggleActive}
         />
       ) : null}
@@ -932,6 +1009,7 @@ export default function SchoolUserDirectoryPage() {
           rows={preceptores}
           emptyLabel="No hay preceptores asignados en el colegio activo."
           onEdit={openEditDialog}
+          onChangePassword={openPasswordDialog}
           onToggleActive={handleToggleActive}
         />
       ) : null}
@@ -942,6 +1020,7 @@ export default function SchoolUserDirectoryPage() {
           rows={eoe}
           emptyLabel="No hay integrantes de EOE en el colegio activo."
           onEdit={openEditDialog}
+          onChangePassword={openPasswordDialog}
           onToggleActive={handleToggleActive}
         />
       ) : null}
@@ -952,6 +1031,7 @@ export default function SchoolUserDirectoryPage() {
           rows={integracion}
           emptyLabel="No hay maestras de integración en el colegio activo."
           onEdit={openEditDialog}
+          onChangePassword={openPasswordDialog}
           onToggleActive={handleToggleActive}
         />
       ) : null}
@@ -962,6 +1042,7 @@ export default function SchoolUserDirectoryPage() {
           rows={directivos}
           emptyLabel="No hay directivos registrados en el colegio activo."
           onEdit={openEditDialog}
+          onChangePassword={openPasswordDialog}
           onToggleActive={handleToggleActive}
         />
       ) : null}
@@ -972,6 +1053,7 @@ export default function SchoolUserDirectoryPage() {
           availableStudents={payload?.students_without_parent || []}
           onLinked={setPayload}
           onEdit={openEditDialog}
+          onChangePassword={openPasswordDialog}
           onToggleActive={handleToggleActive}
           allCourses={
             [...new Set(
@@ -1018,7 +1100,7 @@ export default function SchoolUserDirectoryPage() {
           <CardContent className="space-y-4 pt-0">
             {alumnosPorCurso.length ? (
               <>
-                <StudentsSection course={selectedCourse} onToggleActive={handleToggleActive} onSelectStudent={(student) => setEditingStudent({ id: student.id, schoolId: String(payload.school.id) })} />
+                <StudentsSection course={selectedCourse} onToggleActive={handleToggleActive} onChangePassword={openPasswordDialog} onSelectStudent={(student) => setEditingStudent({ id: student.id, schoolId: String(payload.school.id) })} />
               </>
             ) : (
               <div className="rounded-lg border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
@@ -1042,6 +1124,34 @@ export default function SchoolUserDirectoryPage() {
           }}
         />
       )}
+
+      <Dialog open={!!passwordUser} onOpenChange={(open) => (!open ? closePasswordDialog() : null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar contraseña de {passwordUser?.username}</DialogTitle>
+            <DialogDescription>Ingresá la contraseña actual de esta cuenta y la nueva contraseña.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="directory-current-password">Contraseña actual</Label>
+              <Input id="directory-current-password" type="password" autoComplete="off" required
+                value={passwordForm.current_password}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, current_password: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="directory-new-password">Nueva contraseña</Label>
+              <Input id="directory-new-password" type="password" autoComplete="new-password" required
+                value={passwordForm.new_password}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, new_password: event.target.value }))} />
+            </div>
+            {passwordError ? <p role="alert" className="text-sm text-red-600">{passwordError}</p> : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closePasswordDialog} disabled={passwordSaving}>Cancelar</Button>
+              <Button type="submit" disabled={passwordSaving}>{passwordSaving ? "Guardando..." : "Cambiar contraseña"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editingUser} onOpenChange={(open) => (!open ? closeEditDialog() : null)}>
         <DialogContent>

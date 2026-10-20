@@ -333,10 +333,11 @@ export default function CalendarioEscolarPage() {
   const isAlumno = useMemo(() => grupos.includes("Alumnos"), [grupos])
   const isPadre = useMemo(() => grupos.includes("Padres"), [grupos])
   const isIntegracion = useMemo(() => grupos.includes("Integracion"), [grupos])
+  const isEOE = useMemo(() => grupos.includes("EOE") && !isIntegracion, [grupos, isIntegracion])
   const isPreceptor = useMemo(() => grupos.includes("Preceptores") && !isIntegracion, [grupos, isIntegracion])
   const isProfesor = useMemo(() => grupos.includes("Profesores"), [grupos])
   const isDirectivo = useMemo(() => grupos.includes("Directivos"), [grupos])
-  const canSelectCurso = useMemo(() => !isIntegracion && (isPreceptor || isDirectivo), [isIntegracion, isPreceptor, isDirectivo])
+  const canSelectCurso = useMemo(() => !isIntegracion && (isPreceptor || isDirectivo || isEOE), [isIntegracion, isPreceptor, isDirectivo, isEOE])
   const canCreateAllCursos = useMemo(
     () => canSelectCurso || isProfesor,
     [canSelectCurso, isProfesor]
@@ -592,7 +593,7 @@ export default function CalendarioEscolarPage() {
       try {
         let list = []
 
-        const courseEndpoints = isPreceptor
+        const courseEndpoints = isPreceptor || isEOE
           ? ["/preceptor/cursos/"]
           : isDirectivo
             ? ["/notas/catalogos/", "/alumnos/cursos/"]
@@ -622,15 +623,19 @@ export default function CalendarioEscolarPage() {
         if (canSelectCurso) {
           const normalizedPreceptorCursos = sortedCourses
           setPreceptorCursos(normalizedPreceptorCursos)
-          const selectedMatch = normalizedPreceptorCursos.find(
-            (course) =>
-              String(getCourseValue(course)) === String(selectedCurso || "") ||
-              String(getCourseCode(course)) === String(selectedCurso || "")
-          )
-          if (selectedMatch && String(selectedCurso || "") !== String(getCourseValue(selectedMatch))) {
-            setSelectedCurso(String(getCourseValue(selectedMatch)))
-          } else if (!selectedCurso && normalizedPreceptorCursos.length > 0) {
-            setSelectedCurso(String(getCourseValue(normalizedPreceptorCursos[0])))
+          if (isEOE) {
+            setSelectedCurso("ALL")
+          } else {
+            const selectedMatch = normalizedPreceptorCursos.find(
+              (course) =>
+                String(getCourseValue(course)) === String(selectedCurso || "") ||
+                String(getCourseCode(course)) === String(selectedCurso || "")
+            )
+            if (selectedMatch && String(selectedCurso || "") !== String(getCourseValue(selectedMatch))) {
+              setSelectedCurso(String(getCourseValue(selectedMatch)))
+            } else if (!selectedCurso && normalizedPreceptorCursos.length > 0) {
+              setSelectedCurso(String(getCourseValue(normalizedPreceptorCursos[0])))
+            }
           }
         }
       } catch {}
@@ -644,7 +649,7 @@ export default function CalendarioEscolarPage() {
       setCursosLoaded(true)
       setPreceptorCursosLoaded(true)
     })()
-  }, [canSelectCurso, isDirectivo, isPreceptor, isProfesor])
+  }, [canSelectCurso, isDirectivo, isPreceptor, isProfesor, isEOE])
 
   // helpers
   function refetchEvents(options = {}) {
@@ -670,13 +675,14 @@ export default function CalendarioEscolarPage() {
     setOpenEditar(true)
   }
 
-  // Abrir modal de creación: para preceptor, preseleccionamos el curso elegido en el calendario
-  function openCrearModal() {
+  // Abrir modal de creación con el curso visible y, si se eligió un día, esa fecha.
+  function openCrearModal(fecha = null) {
     setError("")
     setOkMsg("")
     setCrearError("")
     setCrear((v) => ({
       ...v,
+      fecha: fecha || v.fecha,
       schoolCourseId: canSelectCurso
         ? (v.schoolCourseId === "ALL" ? "ALL" : String(selectedCurso || v.schoolCourseId || ""))
         : String(v.schoolCourseId || ""),
@@ -713,7 +719,7 @@ export default function CalendarioEscolarPage() {
   // si cambia el rol, también refetch
   useEffect(() => {
     refetchEvents()
-  }, [isAlumno, isPadre, isPreceptor, isIntegracion, isProfesor, isDirectivo])
+  }, [isAlumno, isPadre, isPreceptor, isIntegracion, isEOE, isProfesor, isDirectivo])
 
   // ✅ GATING: no crear FullCalendar hasta que el perfil esté cargado (y checks listos)
   const readyToInitCalendar = useMemo(() => {
@@ -728,10 +734,10 @@ export default function CalendarioEscolarPage() {
     // si es preceptor, esperar a que termine de cargar cursos
     if (canSelectCurso && !preceptorCursosLoaded) return false
     if (canSelectCurso && preceptorCursos.length > 0 && !selectedCurso) return false
-    if (canSelectCurso && selectedCurso && selectedCursoId == null) return false
+    if (canSelectCurso && selectedCurso && !(isEOE && selectedCurso === "ALL") && selectedCursoId == null) return false
 
     return true
-  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, isIntegracion, ppiStudentsLoaded, ppiStudents.length, selectedPpiStudent, canSelectCurso, preceptorCursosLoaded, preceptorCursos.length, selectedCurso, selectedCursoId])
+  }, [fcReady, meLoaded, isAlumno, alumnoCursoChecked, isIntegracion, ppiStudentsLoaded, ppiStudents.length, selectedPpiStudent, canSelectCurso, preceptorCursosLoaded, preceptorCursos.length, selectedCurso, selectedCursoId, isEOE])
 
   // ✅ FIX: limpiar tooltips colgados (evita que “aparezcan fantasmas” en otras páginas)
   function cleanupTooltips() {
@@ -800,18 +806,20 @@ export default function CalendarioEscolarPage() {
             }
             url = `/eventos/?desde=${desde}&hasta=${hasta}&alumno_id=${encodeURIComponent(selectedPpiStudent)}`
           } else if (canSelectCurso) {
-            if (!preceptorCursosLoaded || !selectedCurso || (preceptorCursos.length > 0 && selectedCursoId == null)) {
+            if (!preceptorCursosLoaded || !selectedCurso || (!(isEOE && selectedCurso === "ALL") && preceptorCursos.length > 0 && selectedCursoId == null)) {
               success([])
               return
             }
-            if (selectedCursoId == null) {
+            if (!(isEOE && selectedCurso === "ALL") && selectedCursoId == null) {
               const msg =
                 "Seleccioná un curso para ver el calendario."
               setError(msg)
               failure(new Error(msg))
               return
             }
-            url = `/eventos/?${buildEventQueryString({ courseLike: selectedCursoId, desde, hasta })}`
+            url = isEOE && selectedCurso === "ALL"
+              ? `/eventos/?desde=${desde}&hasta=${hasta}`
+              : `/eventos/?${buildEventQueryString({ courseLike: selectedCursoId, desde, hasta })}`
           } else if (isProfesor) {
             const cursoProf = profesorCursoRef.current || String(getCourseValue(cursosRef.current?.[0]) || "")
             const cursoProfId = getCourseSchoolCourseId(cursoProf, cursosRef.current)
@@ -864,6 +872,11 @@ export default function CalendarioEscolarPage() {
           setError(msg || "No se pudieron cargar los eventos.")
           failure(e)
         }
+      },
+
+      dateClick: (info) => {
+        if (!puedeEditar) return
+        openCrearModal(info.dateStr.slice(0, 10))
       },
 
       eventClick: (info) => {
@@ -1309,7 +1322,7 @@ export default function CalendarioEscolarPage() {
             <CardContent className="p-6">
               {!preceptorCursosLoaded ? (
                 <div className="text-sm text-gray-700">Cargando cursos…</div>
-              ) : preceptorCursos.length > 0 ? (
+              ) : preceptorCursos.length > 0 || isEOE ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                   <div>
                     <Label className="block text-sm mb-1">
@@ -1326,6 +1339,7 @@ export default function CalendarioEscolarPage() {
                         <SelectValue placeholder="Seleccionar curso" />
                       </SelectTrigger>
                       <SelectContent>
+                        {isEOE && <SelectItem value="ALL">Todos los cursos</SelectItem>}
                         {preceptorCursos.map((c) => (
                           <SelectItem key={String(getCourseValue(c))} value={String(getCourseValue(c))}>
                             {getCourseLabel(c)}
@@ -1335,7 +1349,7 @@ export default function CalendarioEscolarPage() {
                     </Select>
                   </div>
                   <div className="text-sm text-gray-600 md:col-span-2 flex items-center min-h-[40px]">
-                    El calendario mostrará únicamente eventos del curso seleccionado.
+                    {isEOE ? "Podés ver los eventos de todos los cursos o filtrar por uno." : "El calendario mostrará únicamente eventos del curso seleccionado."}
                   </div>
                 </div>
               ) : (
@@ -1394,7 +1408,7 @@ export default function CalendarioEscolarPage() {
               </div>
             )}
             {puedeEditar && (
-              <Button onClick={openCrearModal} className="inline-flex items-center primary-button">
+              <Button onClick={() => openCrearModal()} className="inline-flex items-center primary-button">
                 <Plus className="h-4 w-4 mr-2" /> Agregar nuevo evento
               </Button>
             )}

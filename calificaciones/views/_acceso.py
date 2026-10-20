@@ -19,6 +19,7 @@ from ..course_access import (
     get_assignment_course_refs,
     normalize_course_code,
 )
+from ..eoe_access import eoe_can_view_student
 from ..forms import EventoForm as BaseEventoForm
 from ..models import Alumno, Mensaje, SchoolCourse
 from ..schools import (
@@ -151,8 +152,7 @@ def _preceptor_can_access_alumno(user, alumno: Alumno) -> bool:
     Permite acceso a preceptor SOLO si el alumno pertenece a un curso asignado a ese preceptor.
     """
     if "EOE" in get_user_group_names(user):
-        from ..eoe_access import eoe_can_access_school
-        return bool(alumno.es_ppi and eoe_can_access_school(user, alumno.school))
+        return eoe_can_view_student(user, alumno)
     if "Integracion" in get_user_group_names(user):
         from ..integration_access import integration_can_access_student
         return integration_can_access_student(user, alumno)

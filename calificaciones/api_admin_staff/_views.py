@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.db import transaction
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from ..jwt_auth import CookieJWTAuthentication as JWTAuthentication
 from ..constants import MATERIAS as MATERIAS_CATALOGO
-from ..models import Alumno, SchoolCourse
+from ..models import Alumno, School, SchoolCourse
 from ..models_preceptores import PreceptorCurso, ProfesorCurso, ProfesorCursoMateria, SchoolAdmin, SchoolMembership
 from ..schools import (
     clear_user_school_resolution_cache,
@@ -34,6 +37,7 @@ from ._helpers import (
     _resolve_requested_admin_school,
     _serialize_course,
     _serialize_created_user,
+    _serialize_directory_user,
     _serialize_staff_user,
     _set_single_course_assignment,
     _set_staff_role_group,
@@ -44,6 +48,15 @@ from ._helpers import (
 )
 
 User = get_user_model()
+
+
+def _blacklist_user_tokens(user):
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+        for token in OutstandingToken.objects.filter(user=user):
+            BlacklistedToken.objects.get_or_create(token=token)
+    except Exception:
+        pass
 
 
 @api_view(["GET"])
@@ -99,6 +112,68 @@ def admin_school_user_directory(request):
     return Response(_build_user_directory_payload(school=active_school))
 
 
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_platform_school_users(request, school_id: int | None = None):
+    if not request.user.is_superuser:
+        return Response({"detail": "No autorizado."}, status=403)
+
+    if school_id is None:
+        schools = School.objects.order_by("name", "id")
+        return Response({"schools": [school_to_dict(school) for school in schools]})
+
+    school = School.objects.filter(pk=school_id).first()
+    if school is None:
+        return Response({"detail": "Colegio no encontrado."}, status=404)
+
+    payload = _build_user_directory_payload(school=school)
+    admin_ids = SchoolAdmin.objects.filter(school=school).values_list("admin_id", flat=True)
+    admins = User.objects.filter(pk__in=admin_ids).exclude(is_superuser=True).order_by("first_name", "last_name", "username", "id")
+    membership_active = dict(SchoolMembership.objects.filter(school=school).values_list("user_id", "is_active"))
+    payload["administradores"] = [
+        _serialize_directory_user(user=admin, membership_active=membership_active)
+        for admin in admins
+    ]
+    payload["totals"]["administradores"] = len(payload["administradores"])
+    return Response(payload)
+
+
+@api_view(["POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def admin_platform_reset_school_user_password(request, school_id: int, user_id: int):
+    if not request.user.is_superuser:
+        return Response({"detail": "No autorizado."}, status=403)
+
+    school = School.objects.filter(pk=school_id).first()
+    if school is None:
+        return Response({"detail": "Colegio no encontrado."}, status=404)
+
+    target = User.objects.filter(pk=user_id).exclude(is_superuser=True).first()
+    if target is None or not _user_belongs_to_school(user=target, school=school):
+        return Response({"detail": "Usuario no encontrado en el colegio seleccionado."}, status=404)
+
+    new = request.data.get("new_password")
+    confirmation = request.data.get("new_password_confirm")
+    if not isinstance(new, str) or not new or not isinstance(confirmation, str) or not confirmation:
+        return Response({"detail": "Ingresá y confirmá la nueva contraseña."}, status=400)
+    if new != confirmation:
+        return Response({"detail": "Las contraseñas no coinciden."}, status=400)
+    if target.check_password(new):
+        return Response({"detail": "La nueva contraseña debe ser diferente de la actual."}, status=400)
+    try:
+        validate_password(new, user=target)
+    except ValidationError as exc:
+        return Response({"detail": list(exc.messages)}, status=400)
+
+    target.set_password(new)
+    target.save(update_fields=["password"])
+    _blacklist_user_tokens(target)
+    return Response({"detail": "Contraseña blanqueada correctamente."})
+
+
 @api_view(["PATCH"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
@@ -143,6 +218,44 @@ def admin_school_user_update(request, user_id: int):
     )
 
 
+@api_view(["POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
+def admin_school_user_change_password(request, user_id: int):
+    denied = _require_school_admin(request)
+    if denied is not None:
+        return denied
+
+    active_school, denied = _resolve_requested_admin_school(request)
+    if denied is not None:
+        return denied
+
+    target = User.objects.filter(pk=user_id).exclude(is_superuser=True).first()
+    if target is None or not _user_belongs_to_school(user=target, school=active_school):
+        return Response({"detail": "Usuario no encontrado en el colegio activo."}, status=404)
+
+    current = request.data.get("current_password")
+    new = request.data.get("new_password")
+    if not isinstance(current, str) or not current or not isinstance(new, str) or not new:
+        return Response({"detail": "Completá la contraseña actual y la nueva."}, status=400)
+    if not target.check_password(current):
+        return Response({"detail": "La contraseña actual no coincide."}, status=400)
+    if current == new:
+        return Response({"detail": "La nueva contraseña debe ser diferente de la actual."}, status=400)
+    try:
+        validate_password(new, user=target)
+    except ValidationError as exc:
+        return Response({"detail": list(exc.messages)}, status=400)
+
+    target.set_password(new)
+    target.save(update_fields=["password"])
+
+    _blacklist_user_tokens(target)
+
+    return Response({"detail": "Contraseña actualizada correctamente."})
+
+
 @api_view(["PATCH"])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
@@ -163,10 +276,7 @@ def admin_school_user_toggle_active(request, user_id: int):
         return Response({"detail": "No podés desactivar tu propia cuenta."}, status=400)
 
     membership = SchoolMembership.objects.filter(school=active_school, user=target).first()
-    if membership is None:
-        return Response({"detail": "El usuario no tiene membresía en este colegio."}, status=404)
-
-    new_active = not membership.is_active
+    new_active = not membership.is_active if membership is not None else False
 
     if not new_active:
         admin_group_names = {"Administradores", "Directivos"}
@@ -185,8 +295,11 @@ def admin_school_user_toggle_active(request, user_id: int):
             if active_admins_count == 0:
                 return Response({"detail": "No podés desactivar al último administrador activo."}, status=400)
 
-    membership.is_active = new_active
-    membership.save(update_fields=["is_active"])
+    if membership is None:
+        SchoolMembership.objects.create(school=active_school, user=target, is_active=new_active)
+    else:
+        membership.is_active = new_active
+        membership.save(update_fields=["is_active"])
 
     action = "activado" if new_active else "desactivado"
     return Response({

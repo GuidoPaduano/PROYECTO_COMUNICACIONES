@@ -23,6 +23,7 @@ from ..course_access import (
     get_assignment_course_refs,
 )
 from ..contexto import resolve_alumno_for_user
+from ..eoe_access import eoe_can_view_student
 from ..models import Alumno, Asistencia, Notificacion
 from ..models import resolve_school_course_for_value
 from ..schools import scope_queryset_to_school
@@ -702,6 +703,9 @@ def _can_manage_course_attendance(user, curso: str = "", *, school=None, school_
 def _can_view_alumno_asistencia(user, alumno: Alumno) -> bool:
     if user is None or alumno is None:
         return False
+
+    if "EOE" in get_user_group_names(user):
+        return eoe_can_view_student(user, alumno)
 
     if getattr(user, "is_superuser", False) or _is_directivo_user(user):
         return True

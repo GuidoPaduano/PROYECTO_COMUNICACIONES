@@ -840,9 +840,10 @@ setMensajeSan("")
   const showProfesor = showAll || effectiveGroups.includes("Profesores")
   const showAlumno = showAll || effectiveGroups.includes("Alumnos")
   const showPadre = showAll || effectiveGroups.includes("Padres")
-  const showPreceptor = showAll || effectiveGroups.includes("Preceptores") || effectiveGroups.includes("EOE") || effectiveGroups.includes("Integracion")
-  const showPreceptorAlerts = !effectiveGroups.includes("Integracion") &&
-    (showAll || effectiveGroups.includes("Preceptores") || effectiveGroups.includes("EOE"))
+  const showEOE = effectiveGroups.includes("EOE")
+  const showPreceptor = showAll || effectiveGroups.includes("Preceptores") || showEOE || effectiveGroups.includes("Integracion")
+  const showPreceptorAlerts = !effectiveGroups.includes("Integracion") && !effectiveGroups.includes("EOE") &&
+    (showAll || effectiveGroups.includes("Preceptores"))
   const showDirectivo = showAll || effectiveGroups.includes("Directivos")
   const showDocenteCursos = showProfesor || showPreceptor || showDirectivo
   const isAlumnoOnly = showAlumno && !showProfesor && !showPadre && !showPreceptor && !showDirectivo
@@ -890,11 +891,11 @@ setMensajeSan("")
 
   useEffect(() => {
     if (!showDocenteCursos) return
-    if (!profesorCursoSel) {
+    if (!showEOE && !profesorCursoSel) {
       setEventosProfesor([])
       return
     }
-    if (profesorCursoSelId == null) {
+    if (!showEOE && profesorCursoSelId == null) {
       setEventosProfesor([])
       return
     }
@@ -905,13 +906,10 @@ setMensajeSan("")
         const desde = hoyISO()
         const hasta = addDaysISO(desde, PROXIMOS_EVENTOS_DIAS)
         const eventos = await loadDashboardResource(
-          `profesor-eventos:${dashboardScopeKey}:${profesorCursoSelId}:${desde}:${hasta}`,
+          `profesor-eventos:${dashboardScopeKey}:${showEOE ? "all" : profesorCursoSelId}:${desde}:${hasta}`,
           async () => {
-            const params = new URLSearchParams({
-              school_course_id: String(profesorCursoSelId),
-              desde,
-              hasta,
-            })
+            const params = new URLSearchParams({ desde, hasta })
+            if (!showEOE) params.set("school_course_id", String(profesorCursoSelId))
             const res = await pfetch(`/eventos/?${params.toString()}`)
             if (!res.ok) return []
             const raw = await res.json().catch(() => ({}))
@@ -930,7 +928,7 @@ setMensajeSan("")
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDocenteCursos, profesorCursoSel, profesorCursoSelId, previewRole])
+  }, [showDocenteCursos, showEOE, profesorCursoSel, profesorCursoSelId, previewRole])
 
   useEffect(() => {
     if (!showAlumno) return
@@ -1272,10 +1270,10 @@ setMensajeSan("")
             <PreceptorInicio
               eventos={eventosProfesor}
               eventosLoading={eventosProfesorLoading || !profesorCursoLoaded}
-              hasCurso={!!profesorCursoSel}
+              hasCurso={showEOE || !!profesorCursoSel}
               cursoSel={profesorCursoSel}
               onCursoChange={setProfesorCursoSel}
-              cursos={cursos}
+              cursos={showEOE ? [] : cursos}
               getCursoId={getCursoId}
               getCursoNombre={getCursoNombre}
               mensajes={mensajesHome}
