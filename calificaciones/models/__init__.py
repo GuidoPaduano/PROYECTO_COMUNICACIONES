@@ -14,6 +14,7 @@ from ._comunicacion import Mensaje, Notificacion, CarpetaMensajes, ConversacionE
 from ._disciplina_eventos_alertas import Sancion, Evento, AlertaAcademica, AlertaInasistencia, TIPOS_EVENTO
 from ._ciclo_lectivo import CicloLectivo, Matricula
 from ._documentos import Documento, FirmaDocumento
+from ._reuniones import Reunion, InvitadoReunion
 
 __all__ = [
     "IntegrationStudentAssignment",
@@ -46,4 +47,6 @@ __all__ = [
     "Matricula",
     "Documento",
     "FirmaDocumento",
+    "Reunion",
+    "InvitadoReunion",
 ]

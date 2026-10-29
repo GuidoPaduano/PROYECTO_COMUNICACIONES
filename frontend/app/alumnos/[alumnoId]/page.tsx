@@ -58,6 +58,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import PpiDocuments from "./_ppi-documents"
+import MeetingDialog from "@/components/meeting-dialog"
 import { NotificationBell } from "@/components/notification-bell"
 
 const ComposeMensajeAlumno = dynamic(() => import("./_compose-alumno"), {
@@ -2917,7 +2918,7 @@ function AlumnoPerfilPageInner() {
             )}
 
             {meLoaded && !hidePadreNavAndMessage && !isAlumno && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="primary" onClick={handleBackToAlumnos} className="primary-button">
                   &lt; Volver a alumnos
                 </Button>
@@ -2955,6 +2956,9 @@ function AlumnoPerfilPageInner() {
                     } catch {}
                   }}
                 />
+                {isPreceptor && !hasGroup("eoe") && !hasGroup("integracion") && pk && (
+                  <MeetingDialog alumnoId={pk} onCreated={(meeting) => router.push(`/mensajes/hilo/${meeting.mensaje_id}`)} />
+                )}
               </div>
             )}
           </div>

@@ -3,6 +3,7 @@ from django.urls import path, include
 from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 from .api_cron import cron_evaluar_alertas_academicas
+from .api_reuniones import meeting_options, meetings, meeting_detail, meeting_reply, meeting_reminder
 
 from .auth_api import (
     SafeTokenBlacklistView,
@@ -214,6 +215,16 @@ def alumnos_por_curso_path(request, curso):
 
 
 urlpatterns = [
+    path("reuniones/opciones/", meeting_options),
+    path("reuniones/opciones", meeting_options),
+    path("reuniones/", meetings),
+    path("reuniones", meetings),
+    path("reuniones/<int:pk>/", meeting_detail),
+    path("reuniones/<int:pk>", meeting_detail),
+    path("reuniones/<int:pk>/responder/", meeting_reply),
+    path("reuniones/<int:pk>/responder", meeting_reply),
+    path("reuniones/<int:pk>/recordatorio/", meeting_reminder),
+    path("reuniones/<int:pk>/recordatorio", meeting_reminder),
     # ===== Auth (JWT) =====
     path("token/", SafeTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token", SafeTokenObtainPairView.as_view(), name="token_obtain_pair_noslash"),

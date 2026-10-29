@@ -2,6 +2,8 @@
 "use client"
 
 import MessageReminder from "@/components/message-reminder"
+import MeetingDialog from "@/components/meeting-dialog"
+import MeetingCard from "@/components/meeting-card"
 
 import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -334,6 +336,9 @@ export default function HiloMensajesPage() {
   }
 
   const myId = me?.id ?? me?.user?.id
+  const groups = Array.isArray(me?.groups) ? me.groups : []
+  const canOrganizeMeeting = groups.includes("Preceptores") && !groups.includes("EOE") && !groups.includes("Integracion")
+  const meetingAlumnoId = mensajes.find((message) => message.alumno_id)?.alumno_id
 
   return (
     <div className="space-y-6">
@@ -401,6 +406,7 @@ export default function HiloMensajesPage() {
                         </div>
                         <div className="font-medium break-words">{collapseRePrefix(m.asunto) || "Sin asunto"}</div>
                         <div className="mt-1 break-words rich-html" dangerouslySetInnerHTML={{ __html: sanitizeHtml(m.contenido || m.body || "") }} />
+                        {m.reunion?.id && <div className="mt-3"><MeetingCard id={m.reunion.id} onChanged={() => setRefreshTs((value) => value + 1)} /></div>}
 
                         {mine && <MessageReminder message={m} className="absolute right-2 top-1 text-white" />}
 
@@ -435,8 +441,13 @@ export default function HiloMensajesPage() {
         {/* Responder */}
         {(!isIntegracion || replyToId) && <Card className="shadow-sm border-0 bg-white/80 backdrop-blur-sm mt-4">
           <CardContent className="p-6 space-y-3">
-            <div className="text-sm text-gray-700">
-              Estás respondiendo dentro de este hilo. Por defecto se responde al último que recibiste.
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-700">
+              <span>Estás respondiendo dentro de este hilo. Por defecto se responde al último que recibiste.</span>
+              {canOrganizeMeeting && meetingAlumnoId && <MeetingDialog alumnoId={meetingAlumnoId} onCreated={(meeting) => {
+                invalidateHiloResource(getHiloResourceKey(hiloScopeKey, threadIdParam))
+                router.push(`/mensajes/hilo/${meeting.mensaje_id}`)
+                setRefreshTs((value) => value + 1)
+              }} />}
             </div>
             <div>
               <Label htmlFor="asunto">Asunto</Label>

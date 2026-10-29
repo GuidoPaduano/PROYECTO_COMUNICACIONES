@@ -30,6 +30,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import SuccessMessage from "@/components/ui/success-message"
+import MeetingCard from "@/components/meeting-card"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -393,6 +394,11 @@ export default function CalendarioEscolarPage() {
   const [openCrear, setOpenCrear] = useState(false)
   const [openEditar, setOpenEditar] = useState(false)
   const [openEliminar, setOpenEliminar] = useState(false)
+  const [reunionSeleccionada, setReunionSeleccionada] = useState(null)
+  useEffect(() => {
+    const meetingId = Number(new URLSearchParams(window.location.search).get("reunion"))
+    if (Number.isSafeInteger(meetingId) && meetingId > 0) setReunionSeleccionada(meetingId)
+  }, [])
   const [editarSoloLectura, setEditarSoloLectura] = useState(false)
   const [creating, setCreating] = useState(false)
   const [crearError, setCrearError] = useState("")
@@ -873,6 +879,30 @@ export default function CalendarioEscolarPage() {
           failure(e)
         }
       },
+      eventSources: [{
+        events: async (info, success, failure) => {
+          try {
+            const desde = (info.startStr || "").slice(0, 10)
+            const hasta = (info.endStr || "").slice(0, 10)
+            const response = await authFetch(`/reuniones/?desde=${desde}&hasta=${hasta}`)
+            if (!response.ok) throw new Error("No se pudieron cargar las reuniones.")
+            const list = await response.json()
+            success((Array.isArray(list) ? list : []).filter((meeting) =>
+              meeting.estado !== "cancelada" &&
+              (!selectedKid || hijos.some((kid) => String(kid.id_alumno) === String(selectedKid) && String(kid.id) === String(meeting.alumno_id))) &&
+              (!isIntegracion || !selectedPpiStudent || String(meeting.alumno_id) === String(selectedPpiStudent))
+            ).map((meeting) => ({
+              id: `reunion-${meeting.id}`,
+              title: `Reunión: ${meeting.alumno_nombre}`,
+              start: meeting.inicio,
+              end: new Date(new Date(meeting.inicio).getTime() + meeting.duracion_minutos * 60000).toISOString(),
+              backgroundColor: "#1d4ed8",
+              borderColor: "#1d4ed8",
+              extendedProps: { reunion_id: meeting.id },
+            })))
+          } catch (cause) { failure(cause) }
+        },
+      }],
 
       dateClick: (info) => {
         if (!puedeEditar) return
@@ -881,10 +911,15 @@ export default function CalendarioEscolarPage() {
 
       eventClick: (info) => {
         info.jsEvent?.preventDefault?.()
+        if (info.event.extendedProps?.reunion_id) {
+          setReunionSeleccionada(info.event.extendedProps.reunion_id)
+          return
+        }
         openEditFromEvent(info.event, { readOnly: !puedeEditar })
       },
 
       eventDidMount: (info) => {
+        if (info.event.extendedProps?.reunion_id) return
         const desc = info.event.extendedProps?.description
         if (!desc) return
 
@@ -1006,6 +1041,7 @@ export default function CalendarioEscolarPage() {
     readyToInitCalendar,
     puedeEditar,
     selectedKid,
+    hijos,
     selectedPpiStudent,
     isAlumno,
     alumnoCurso,
@@ -1423,6 +1459,13 @@ export default function CalendarioEscolarPage() {
       </div>
 
       {/* --------- Modal CREAR --------- */}
+      <Dialog open={!!reunionSeleccionada} onOpenChange={(open) => { if (!open) setReunionSeleccionada(null) }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader><DialogTitle>Reunión</DialogTitle></DialogHeader>
+          {reunionSeleccionada && <MeetingCard id={reunionSeleccionada} onChanged={() => refetchEvents({ invalidate: true })} />}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={openCrear} onOpenChange={setOpenCrear}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

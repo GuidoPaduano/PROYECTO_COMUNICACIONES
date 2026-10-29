@@ -373,6 +373,19 @@ def _serialize_msg(m):
         "remitente_id": getattr(getattr(m, "remitente", None), "id", None) if flags["has_remitente"] else None,
         "destinatario_id": getattr(getattr(m, "destinatario", None), "id", None) if flags["has_destinatario"] else None,
     }
+    reunion = getattr(m, "reunion_invitacion", None)
+    if reunion is not None:
+        item["reunion"] = {
+            "id": reunion.id,
+            "inicio": reunion.inicio,
+            "duracion_minutos": reunion.duracion_minutos,
+            "modalidad": reunion.modalidad,
+            "lugar": reunion.lugar,
+            "motivo": reunion.motivo,
+            "estado": reunion.estado,
+            "nota_familiar": reunion.nota_familiar,
+            "respuesta_familiar_en": reunion.respuesta_familiar_en,
+        }
     if alumno_obj is not None:
         item["alumno_id"] = getattr(alumno_obj, "id", None)
         item["alumno_legajo"] = getattr(alumno_obj, "id_alumno", None)
